@@ -22,6 +22,8 @@ struct PictureWordApp: App {
             }
             .environmentObject(historyStore)
             .environmentObject(journeyStore)
+            // Picture Word uses a paper-first visual system; keep system UI in light appearance.
+            .preferredColorScheme(.light)
         }
     }
 }

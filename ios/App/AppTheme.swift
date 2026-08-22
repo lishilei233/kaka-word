@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Picture Word 的语义色板。页面使用颜色角色，避免重复书写 RGB 数值。
 extension Color {
@@ -40,6 +41,31 @@ struct NotebookBackground: View {
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
+    }
+}
+
+/// Re-enables UINavigationController's interactive pop while a page supplies its own header.
+/// The representable is intentionally invisible and only affects the navigation controller.
+struct InteractivePopGestureEnabler: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> UIViewController {
+        Controller()
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+
+    private final class Controller: UIViewController {
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            view.backgroundColor = .clear
+            view.isUserInteractionEnabled = false
+            enableInteractivePop()
+        }
+
+        private func enableInteractivePop() {
+            guard let navigationController else { return }
+            navigationController.interactivePopGestureRecognizer?.isEnabled = true
+            navigationController.interactivePopGestureRecognizer?.delegate = nil
+        }
     }
 }
 

@@ -354,15 +354,15 @@ private struct WordAlbumDashboard: View {
                             .font(.scrapbookHero)
                     }
                     Spacer()
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(Color.ink)
-                            .frame(width: 44, height: 44)
-                            .background(Color.sun, in: Circle())
-                    }
+                    // NavigationLink {
+                    //     SettingsView()
+                    // } label: {
+                    //     Image(systemName: "slider.horizontal.3")
+                    //         .font(.system(size: 16, weight: .bold))
+                    //         .foregroundStyle(Color.ink)
+                    //         .frame(width: 44, height: 44)
+                    //         .background(Color.sun, in: Circle())
+                    // }
                 }
 
                 stickerShelf

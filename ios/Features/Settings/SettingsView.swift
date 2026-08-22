@@ -15,23 +15,23 @@ struct SettingsView: View {
             NotebookBackground()
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 18) {
-                    header
-                    VStack(spacing: 18) {
-                        experienceSection
+                    experienceSection
                     recognitionSection
                     speechSection
                     storageSection
                     informationSection
                     versionFooter
-                    }
-                    .padding(.horizontal, 20)
                 }
+                .padding(.horizontal, 20)
                 .padding(.bottom, 36)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            header
+        }
         .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
-        .pictureWordBackSwipe { dismiss() }
+        .background(InteractivePopGestureEnabler())
         .confirmationDialog("清空全部历史记录？", isPresented: $confirmClearHistory, titleVisibility: .visible) {
             Button("清空全部", role: .destructive) { historyStore.deleteAll() }
             Button("取消", role: .cancel) {}
@@ -48,19 +48,20 @@ struct SettingsView: View {
             eyebrowColor: Color.coral,
             tint: Color.paperLight.opacity(0.52)
         ) {
-            PictureWordHeaderCapsule(
-                tint: Color.paperLight.opacity(0.52),
-                foreground: Color.ink,
-                interactive: true
-            ) {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .black))
-                        .frame(width: 50, height: 50)
-                }
-                .accessibilityLabel("返回")
-                .buttonStyle(.plain)
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(Color.ink)
+                    .frame(width: 50, height: 50)
+                    .contentShape(Capsule())
+                    .pictureWordGlass(
+                        tint: Color.paperLight.opacity(0.52),
+                        interactive: true,
+                        in: Capsule()
+                    )
             }
+            .accessibilityLabel("返回")
+            .buttonStyle(.plain)
         } trailing: {
             PictureWordHeaderCapsule(
                 tint: Color.sun,

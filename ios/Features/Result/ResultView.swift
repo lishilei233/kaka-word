@@ -56,7 +56,7 @@ struct PhotoWordCardDetailView: View {
             ) { object in
                 selectedObject = object
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 20)
             .frame(maxHeight: .infinity)
 
             if let missionUpdate {

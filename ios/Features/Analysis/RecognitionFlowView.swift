@@ -39,7 +39,7 @@ struct RecognitionFlowView: View {
                     header
 
                     photoStage
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 20)
                         .frame(maxHeight: .infinity)
 
                     footer
