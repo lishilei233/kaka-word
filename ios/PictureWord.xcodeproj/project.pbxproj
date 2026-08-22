@@ -1,0 +1,429 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 71;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		111111111111111111111101 /* PictureWordApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222201 /* PictureWordApp.swift */; };
+		111111111111111111111102 /* AnalyzeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222202 /* AnalyzeModels.swift */; };
+		111111111111111111111103 /* ImageProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222203 /* ImageProcessor.swift */; };
+		111111111111111111111104 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222204 /* APIClient.swift */; };
+		111111111111111111111105 /* SpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222205 /* SpeechService.swift */; };
+		111111111111111111111106 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222206 /* CameraView.swift */; };
+		111111111111111111111107 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222207 /* HomeView.swift */; };
+		111111111111111111111108 /* HistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222209 /* HistoryStore.swift */; };
+		111111111111111111111109 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222211 /* AppEnvironment.swift */; };
+		11111111111111111111110A /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222212 /* AppTheme.swift */; };
+		11111111111111111111110B /* HistoryRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222213 /* HistoryRecord.swift */; };
+		11111111111111111111110C /* HistoryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222214 /* HistoryRow.swift */; };
+		11111111111111111111110D /* AnalysisViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222215 /* AnalysisViewModel.swift */; };
+		11111111111111111111110E /* RecognitionFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222216 /* RecognitionFlowView.swift */; };
+		11111111111111111111110F /* ResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222217 /* ResultView.swift */; };
+		111111111111111111111110 /* AnnotatedImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222218 /* AnnotatedImageView.swift */; };
+		111111111111111111111111 /* AnnotationLayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222219 /* AnnotationLayoutEngine.swift */; };
+		111111111111111111111112 /* WordDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221A /* WordDetailSheet.swift */; };
+		111111111111111111111113 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221B /* AppSettings.swift */; };
+		111111111111111111111114 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221C /* HistoryView.swift */; };
+		111111111111111111111115 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221D /* SettingsView.swift */; };
+		111111111111111111111116 /* LearningJourneyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221E /* LearningJourneyModels.swift */; };
+		111111111111111111111117 /* LearningJourneyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221F /* LearningJourneyStore.swift */; };
+		111111111111111111111118 /* ModeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222220 /* ModeSelectionView.swift */; };
+		111111111111111111111119 /* ShareCardRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222221 /* ShareCardRenderer.swift */; };
+		11111111111111111111111A /* ShareCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222222 /* ShareCardView.swift */; };
+		11111111111111111111111B /* PageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222223 /* PageHeader.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		222222222222222222222201 /* PictureWordApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordApp.swift; sourceTree = "<group>"; };
+		222222222222222222222202 /* AnalyzeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyzeModels.swift; sourceTree = "<group>"; };
+		222222222222222222222203 /* ImageProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageProcessor.swift; sourceTree = "<group>"; };
+		222222222222222222222204 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		222222222222222222222205 /* SpeechService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechService.swift; sourceTree = "<group>"; };
+		222222222222222222222206 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
+		222222222222222222222207 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		222222222222222222222208 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		222222222222222222222209 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
+		222222222222222222222210 /* PictureWord.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PictureWord.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		222222222222222222222211 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		222222222222222222222212 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		222222222222222222222213 /* HistoryRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRecord.swift; sourceTree = "<group>"; };
+		222222222222222222222214 /* HistoryRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRow.swift; sourceTree = "<group>"; };
+		222222222222222222222215 /* AnalysisViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisViewModel.swift; sourceTree = "<group>"; };
+		222222222222222222222216 /* RecognitionFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionFlowView.swift; sourceTree = "<group>"; };
+		222222222222222222222217 /* ResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultView.swift; sourceTree = "<group>"; };
+		222222222222222222222218 /* AnnotatedImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotatedImageView.swift; sourceTree = "<group>"; };
+		222222222222222222222219 /* AnnotationLayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationLayoutEngine.swift; sourceTree = "<group>"; };
+		22222222222222222222221A /* WordDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordDetailSheet.swift; sourceTree = "<group>"; };
+		22222222222222222222221B /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		22222222222222222222221C /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		22222222222222222222221D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		22222222222222222222221E /* LearningJourneyModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LearningJourneyModels.swift; sourceTree = "<group>"; };
+		22222222222222222222221F /* LearningJourneyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LearningJourneyStore.swift; sourceTree = "<group>"; };
+		222222222222222222222220 /* ModeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeSelectionView.swift; sourceTree = "<group>"; };
+		222222222222222222222221 /* ShareCardRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCardRenderer.swift; sourceTree = "<group>"; };
+		222222222222222222222222 /* ShareCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCardView.swift; sourceTree = "<group>"; };
+		222222222222222222222223 /* PageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageHeader.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		333333333333333333333301 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		444444444444444444444401 = {
+			isa = PBXGroup;
+			children = (
+				444444444444444444444402 /* PictureWord */,
+				444444444444444444444403 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		444444444444444444444402 /* PictureWord */ = {
+			isa = PBXGroup;
+			children = (
+				444444444444444444444404 /* App */,
+				444444444444444444444405 /* Core */,
+				444444444444444444444406 /* Features */,
+				222222222222222222222208 /* Info.plist */,
+			);
+			name = PictureWord;
+			sourceTree = "<group>";
+		};
+		444444444444444444444404 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222201 /* PictureWordApp.swift */,
+				222222222222222222222211 /* AppEnvironment.swift */,
+				222222222222222222222212 /* AppTheme.swift */,
+				22222222222222222222221B /* AppSettings.swift */,
+				222222222222222222222223 /* PageHeader.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		444444444444444444444405 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				444444444444444444444407 /* Models */,
+				444444444444444444444408 /* Networking */,
+				444444444444444444444409 /* Persistence */,
+				44444444444444444444440A /* Media */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		444444444444444444444406 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				444444444444444444444411 /* Onboarding */,
+				44444444444444444444440B /* Home */,
+				44444444444444444444440F /* History */,
+				444444444444444444444410 /* Settings */,
+				44444444444444444444440C /* Capture */,
+				44444444444444444444440D /* Analysis */,
+				44444444444444444444440E /* Result */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		444444444444444444444407 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222202 /* AnalyzeModels.swift */,
+				222222222222222222222213 /* HistoryRecord.swift */,
+				22222222222222222222221E /* LearningJourneyModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		444444444444444444444408 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222204 /* APIClient.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		444444444444444444444409 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222209 /* HistoryStore.swift */,
+				22222222222222222222221F /* LearningJourneyStore.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		44444444444444444444440A /* Media */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222203 /* ImageProcessor.swift */,
+				222222222222222222222205 /* SpeechService.swift */,
+				222222222222222222222221 /* ShareCardRenderer.swift */,
+			);
+			path = Media;
+			sourceTree = "<group>";
+		};
+		44444444444444444444440B /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222207 /* HomeView.swift */,
+				222222222222222222222214 /* HistoryRow.swift */,
+			);
+			path = Home;
+			sourceTree = "<group>";
+		};
+		444444444444444444444411 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222220 /* ModeSelectionView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		44444444444444444444440C /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222206 /* CameraView.swift */,
+			);
+			path = Capture;
+			sourceTree = "<group>";
+		};
+		44444444444444444444440D /* Analysis */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222215 /* AnalysisViewModel.swift */,
+				222222222222222222222216 /* RecognitionFlowView.swift */,
+			);
+			path = Analysis;
+			sourceTree = "<group>";
+		};
+		44444444444444444444440E /* Result */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222217 /* ResultView.swift */,
+				222222222222222222222218 /* AnnotatedImageView.swift */,
+				222222222222222222222219 /* AnnotationLayoutEngine.swift */,
+				22222222222222222222221A /* WordDetailSheet.swift */,
+				222222222222222222222222 /* ShareCardView.swift */,
+			);
+			path = Result;
+			sourceTree = "<group>";
+		};
+		44444444444444444444440F /* History */ = {
+			isa = PBXGroup;
+			children = (
+				22222222222222222222221C /* HistoryView.swift */,
+			);
+			path = History;
+			sourceTree = "<group>";
+		};
+		444444444444444444444410 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				22222222222222222222221D /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		444444444444444444444403 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222210 /* PictureWord.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		555555555555555555555501 /* PictureWord */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 888888888888888888888801 /* Build configuration list for PBXNativeTarget "PictureWord" */;
+			buildPhases = (
+				666666666666666666666601 /* Sources */,
+				333333333333333333333301 /* Frameworks */,
+				777777777777777777777701 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PictureWord;
+			productName = PictureWord;
+			productReference = 222222222222222222222210 /* PictureWord.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		999999999999999999999901 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					555555555555555555555501 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = AAAAAAAAAAAAAAAAAAAAAA01 /* Build configuration list for PBXProject "PictureWord" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 444444444444444444444401;
+			productRefGroup = 444444444444444444444403 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				555555555555555555555501 /* PictureWord */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		777777777777777777777701 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		666666666666666666666601 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				111111111111111111111101 /* PictureWordApp.swift in Sources */,
+				111111111111111111111102 /* AnalyzeModels.swift in Sources */,
+				111111111111111111111103 /* ImageProcessor.swift in Sources */,
+				111111111111111111111104 /* APIClient.swift in Sources */,
+				111111111111111111111105 /* SpeechService.swift in Sources */,
+				111111111111111111111106 /* CameraView.swift in Sources */,
+				111111111111111111111107 /* HomeView.swift in Sources */,
+				111111111111111111111108 /* HistoryStore.swift in Sources */,
+				111111111111111111111109 /* AppEnvironment.swift in Sources */,
+				11111111111111111111110A /* AppTheme.swift in Sources */,
+				11111111111111111111110B /* HistoryRecord.swift in Sources */,
+				11111111111111111111110C /* HistoryRow.swift in Sources */,
+				11111111111111111111110D /* AnalysisViewModel.swift in Sources */,
+				11111111111111111111110E /* RecognitionFlowView.swift in Sources */,
+				11111111111111111111110F /* ResultView.swift in Sources */,
+				111111111111111111111110 /* AnnotatedImageView.swift in Sources */,
+				111111111111111111111111 /* AnnotationLayoutEngine.swift in Sources */,
+				111111111111111111111112 /* WordDetailSheet.swift in Sources */,
+				111111111111111111111113 /* AppSettings.swift in Sources */,
+				111111111111111111111114 /* HistoryView.swift in Sources */,
+				111111111111111111111115 /* SettingsView.swift in Sources */,
+				111111111111111111111116 /* LearningJourneyModels.swift in Sources */,
+				111111111111111111111117 /* LearningJourneyStore.swift in Sources */,
+				111111111111111111111118 /* ModeSelectionView.swift in Sources */,
+				111111111111111111111119 /* ShareCardRenderer.swift in Sources */,
+				11111111111111111111111A /* ShareCardView.swift in Sources */,
+				11111111111111111111111B /* PageHeader.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		BBBBBBBBBBBBBBBBBBBBBB01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.pictureword;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BBBBBBBBBBBBBBBBBBBBBB02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.pictureword;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		CCCCCCCCCCCCCCCCCCCCCC01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		CCCCCCCCCCCCCCCCCCCCCC02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		888888888888888888888801 /* Build configuration list for PBXNativeTarget "PictureWord" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBBBBBBBBBBBBBBBBBBBBB01 /* Debug */,
+				BBBBBBBBBBBBBBBBBBBBBB02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AAAAAAAAAAAAAAAAAAAAAA01 /* Build configuration list for PBXProject "PictureWord" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CCCCCCCCCCCCCCCCCCCCCC01 /* Debug */,
+				CCCCCCCCCCCCCCCCCCCCCC02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 999999999999999999999901 /* Project object */;
+}
