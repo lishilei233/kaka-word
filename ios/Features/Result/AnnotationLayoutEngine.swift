@@ -145,9 +145,16 @@ struct AnnotationLayoutEngine {
                 placement.target.y - placement.anchor.y
             )
 
-            // 二次曲线在中点只呈现控制点偏移的一半；这些候选确保弧度可见但不过分夸张。
-            let gentleBend = min(24, max(12, routeLength * 0.12))
-            let bendOffsets: [CGFloat] = [gentleBend, -gentleBend, gentleBend * 1.35, -gentleBend * 1.35]
+            // 二次曲线在中点只呈现控制点偏移的一半。让弧度随线长平滑增长，
+            // 避免近距离标签被固定的最小偏移强行拉弯。
+            let gentleBend = min(18, max(2, routeLength * 0.08))
+            let avoidanceBend = gentleBend * 1.5
+            let bendOffsets: [CGFloat] = [
+                gentleBend,
+                -gentleBend,
+                avoidanceBend,
+                -avoidanceBend,
+            ]
 
             for bend in bendOffsets {
                 let start = placement.anchor

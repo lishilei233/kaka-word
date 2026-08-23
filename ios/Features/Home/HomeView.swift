@@ -342,37 +342,97 @@ private struct WordAlbumDashboard: View {
     @EnvironmentObject private var journeyStore: LearningJourneyStore
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("MY WORD ALBUM")
-                            .font(.system(.caption2, design: .rounded, weight: .black))
-                            .tracking(2)
-                            .foregroundStyle(Color.coral)
-                        Text("我的单词册")
-                            .font(.scrapbookHero)
-                    }
-                    Spacer()
-                    // NavigationLink {
-                    //     SettingsView()
-                    // } label: {
-                    //     Image(systemName: "slider.horizontal.3")
-                    //         .font(.system(size: 16, weight: .bold))
-                    //         .foregroundStyle(Color.ink)
-                    //         .frame(width: 44, height: 44)
-                    //         .background(Color.sun, in: Circle())
-                    // }
+        List {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("MY WORD ALBUM")
+                        .font(.system(.caption2, design: .rounded, weight: .black))
+                        .tracking(2)
+                        .foregroundStyle(Color.coral)
+                    Text("我的单词册")
+                        .font(.scrapbookHero)
                 }
-
-                stickerShelf
-                historyList
+                Spacer()
+                // NavigationLink {
+                //     SettingsView()
+                // } label: {
+                //     Image(systemName: "slider.horizontal.3")
+                //         .font(.system(size: 16, weight: .bold))
+                //         .foregroundStyle(Color.ink)
+                //         .frame(width: 44, height: 44)
+                //         .background(Color.sun, in: Circle())
+                // }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
-            .padding(.bottom, 118)
-            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            .listRowInsets(EdgeInsets(top: 18, leading: 20, bottom: 0, trailing: 20))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden, edges: .all)
+
+            stickerShelf
+                .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 14, trailing: 20))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden, edges: .all)
+
+            HStack {
+                Text("照片单词卡")
+                    .font(.scrapbookTitle)
+                Spacer()
+                Text("\(historyStore.records.count) 页")
+                    .font(.scrapbookCaption)
+                    .foregroundStyle(Color.ink.opacity(0.48))
+            }
+            .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 0, trailing: 20))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden, edges: .all)
+
+            if historyStore.records.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 34, weight: .bold))
+                    Text("还没有收藏的生活单词")
+                        .font(.scrapbookBody)
+                }
+                .foregroundStyle(Color.ink.opacity(0.48))
+                .frame(maxWidth: .infinity, minHeight: 170)
+                .background(Color.paperLight.opacity(0.66), in: RoundedRectangle(cornerRadius: 24))
+                .overlay { RoundedRectangle(cornerRadius: 24).stroke(Color.ink.opacity(0.08)) }
+                .listRowInsets(EdgeInsets(top: 11, leading: 20, bottom: 11, trailing: 20))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden, edges: .all)
+            } else {
+                ForEach(historyStore.records) { record in
+                    HistoryRow(
+                        record: record,
+                        thumbnail: historyStore.thumbnail(for: record),
+                        onOpen: { onOpen(record) }
+                    )
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            historyStore.delete(record)
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden, edges: .all)
+                }
+            }
+
+            Color.clear
+                .frame(height: 118)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden, edges: .all)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
+        .background {
+            NotebookBackground()
+        }
+        .listRowSeparator(.hidden, edges: .all)
+        .listRowBackground(Color.clear)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var stickerShelf: some View {
@@ -412,42 +472,6 @@ private struct WordAlbumDashboard: View {
         }
     }
 
-    private var historyList: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack {
-                Text("照片单词卡")
-                    .font(.scrapbookTitle)
-                Spacer()
-                Text("\(historyStore.records.count) 页")
-                    .font(.scrapbookCaption)
-                    .foregroundStyle(Color.ink.opacity(0.48))
-            }
-
-            if historyStore.records.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 34, weight: .bold))
-                    Text("还没有收藏的生活单词")
-                        .font(.scrapbookBody)
-                }
-                .foregroundStyle(Color.ink.opacity(0.48))
-                .frame(maxWidth: .infinity, minHeight: 170)
-                .background(Color.paperLight.opacity(0.66), in: RoundedRectangle(cornerRadius: 24))
-                .overlay { RoundedRectangle(cornerRadius: 24).stroke(Color.ink.opacity(0.08)) }
-            } else {
-                LazyVStack(spacing: 11) {
-                    ForEach(historyStore.records) { record in
-                        HistoryRow(
-                            record: record,
-                            thumbnail: historyStore.thumbnail(for: record),
-                            onOpen: { onOpen(record) },
-                            onDelete: { historyStore.delete(record) }
-                        )
-                    }
-                }
-            }
-        }
-    }
 }
 
 private struct ScrapbookTabBar: View {

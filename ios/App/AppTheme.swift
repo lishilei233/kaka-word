@@ -85,6 +85,31 @@ struct WashiTape: View {
     }
 }
 
+/// Shared scrapbook-style frame for photos shown inside the app.
+struct NotebookPhotoFrame<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(8)
+            .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                WashiTape(color: .sun)
+                    .rotationEffect(.degrees(3))
+                    .offset(x: -24, y: -9)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(Color.ink.opacity(0.08), lineWidth: 1)
+            }
+            .shadow(color: Color.ink.opacity(0.14), radius: 0, x: 3, y: 4)
+    }
+}
+
 struct StickerSeal: View {
     let symbol: String
     var color: Color = .coral

@@ -7,7 +7,6 @@ struct ShareCardView: View {
     let headline: String
 
     @Environment(\.dismiss) private var dismiss
-    @State private var aspect: ShareCardAspect = .post
     @State private var normalizedImage: UIImage
     @State private var previewImage: UIImage
     @State private var faceRects: [CGRect] = []
@@ -53,7 +52,6 @@ struct ShareCardView: View {
 
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 20) {
-                            formatPicker
                             preview
                             privacyCard
                             shareButton
@@ -83,28 +81,16 @@ struct ShareCardView: View {
         }
     }
 
-    private var formatPicker: some View {
-        Picker("分享卡比例", selection: $aspect) {
-            ForEach(ShareCardAspect.allCases) { item in
-                Text(item.label).tag(item)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.top, 12)
-    }
-
     private var preview: some View {
-        let ratio = aspect.logicalSize.width / aspect.logicalSize.height
-        return ShareCardCanvas(
+        ShareCardCanvas(
             image: previewImage,
             result: result,
-            headline: headline,
-            aspect: aspect
+            headline: headline
         )
-        .aspectRatio(ratio, contentMode: .fit)
+        .aspectRatio(ShareCardRenderer.logicalSize, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .shadow(color: Color.ink.opacity(0.16), radius: 16, y: 8)
-        .animation(.easeInOut(duration: 0.22), value: aspect)
+        .padding(.top, 12)
     }
 
     @ViewBuilder
@@ -181,7 +167,6 @@ struct ShareCardView: View {
             let url = try ShareCardRenderer.render(
                 image: previewImage,
                 result: result,
-                aspect: aspect,
                 headline: headline
             )
             shareItem = ShareFile(url: url)

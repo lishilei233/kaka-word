@@ -229,37 +229,37 @@ private struct KineticWordPhotoView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let frame = fittedImageFrame(in: proxy.size)
-            ZStack {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: frame.width, height: frame.height)
-                    .saturation(0.76)
-                    .brightness(0.02)
-                    .clipped()
+            // NotebookPhotoFrame adds 8pt paper padding on each side; reserve
+            // that space so the outer frame aligns with the detail page.
+            let frameInset: CGFloat = 16
+            let contentContainer = CGSize(
+                width: max(proxy.size.width - frameInset, 1),
+                height: max(proxy.size.height - frameInset, 1)
+            )
+            let frame = fittedImageFrame(in: contentContainer)
+            NotebookPhotoFrame {
+                ZStack {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: frame.width, height: frame.height)
+                        .saturation(0.76)
+                        .brightness(0.02)
+                        .clipped()
 
-                Color.paper.opacity(0.12)
+                    Color.paper.opacity(0.12)
 
-                kineticWord
-                .frame(width: frame.width, height: frame.height, alignment: .leading)
-                .clipped()
+                    kineticWord
+                        .frame(width: frame.width, height: frame.height, alignment: .leading)
+                        .clipped()
+                }
+                .frame(width: frame.width, height: frame.height)
+                .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
             }
-            .frame(width: frame.width, height: frame.height)
-            .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
-            .padding(8)
-            .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .overlay(alignment: .topTrailing) {
-                WashiTape(color: .sun)
-                    .rotationEffect(.degrees(3))
-                    .offset(x: -24, y: -9)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .stroke(Color.ink.opacity(0.08), lineWidth: 1)
-            }
-            .shadow(color: Color.ink.opacity(0.14), radius: 0, x: 3, y: 4)
-            .position(x: frame.midX, y: frame.midY)
+            .position(
+                x: frameInset / 2 + frame.midX,
+                y: frameInset / 2 + frame.midY
+            )
             .onAppear(perform: startFloating)
         }
     }

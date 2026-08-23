@@ -49,15 +49,7 @@ struct PhotoWordCardDetailView: View {
         VStack(spacing: 0) {
             legacyHeader
 
-            AnnotatedImageView(
-                image: image,
-                objects: result.objects,
-                revealsAnnotations: revealsAnnotations
-            ) { object in
-                selectedObject = object
-            }
-            .padding(.horizontal, 20)
-            .frame(maxHeight: .infinity)
+            decoratedPhoto
 
             if let missionUpdate {
                 Text(missionUpdate.completedNow
@@ -118,10 +110,22 @@ struct PhotoWordCardDetailView: View {
         }
     }
 
+    private var decoratedPhoto: some View {
+        AnnotatedPhotoCard(
+            image: image,
+            objects: result.objects,
+            revealsAnnotations: revealsAnnotations
+        ) { object in
+            selectedObject = object
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 20)
+    }
+
     private func photo(proxy: ScrollViewProxy) -> some View {
         let rawRatio = image.size.width / max(image.size.height, 1)
         let cardRatio = min(max(rawRatio, 0.76), 1.34)
-        return ResultPhotoFrame {
+        return NotebookPhotoFrame {
             AnnotatedImageView(
                 image: image,
                 objects: result.objects,
@@ -325,28 +329,5 @@ struct ResultAmbientBackground: View {
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
-    }
-}
-
-struct ResultPhotoFrame<Content: View>: View {
-    private let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    var body: some View {
-        content
-            .padding(8)
-            .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .overlay(alignment: .top) {
-                WashiTape(color: .sun)
-                    .offset(y: -9)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .stroke(Color.ink.opacity(0.07), lineWidth: 1)
-            }
-            .shadow(color: Color.ink.opacity(0.16), radius: 16, y: 8)
     }
 }

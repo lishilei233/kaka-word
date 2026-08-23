@@ -65,12 +65,24 @@ struct AnnotatedImageView: View {
         context.stroke(
             path,
             with: .color(Color.ink.opacity(0.78)),
-            style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+            style: StrokeStyle(
+                lineWidth: 5,
+                lineCap: .round,
+                lineJoin: .round,
+                dash: [5, 4],
+                dashPhase: 0
+            )
         )
         context.stroke(
             path,
             with: .color(Color.sun),
-            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+            style: StrokeStyle(
+                lineWidth: 2,
+                lineCap: .round,
+                lineJoin: .round,
+                dash: [5, 4],
+                dashPhase: 0
+            )
         )
 
         let outerDot = CGRect(x: route.target.x - 5, y: route.target.y - 5, width: 10, height: 10)
@@ -94,5 +106,44 @@ struct AnnotatedImageView: View {
             width: size.width,
             height: size.height
         )
+    }
+}
+
+/// Shared photo presentation used by result details and exported share cards.
+/// It keeps the full image visible, applies the same bounded aspect ratio, and
+/// fits the framed photo inside whatever space its parent provides.
+struct AnnotatedPhotoCard: View {
+    let image: UIImage
+    let objects: [LearningObject]
+    var revealsAnnotations = true
+    let onSelect: (LearningObject) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            let contentSize = fittedContentSize(in: proxy.size)
+
+            NotebookPhotoFrame {
+                AnnotatedImageView(
+                    image: image,
+                    objects: objects,
+                    revealsAnnotations: revealsAnnotations,
+                    onSelect: onSelect
+                )
+                .frame(width: contentSize.width, height: contentSize.height)
+            }
+            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+        }
+    }
+
+    private func fittedContentSize(in container: CGSize) -> CGSize {
+        let rawRatio = image.size.width / max(image.size.height, 1)
+        let cardRatio = min(max(rawRatio, 0.76), 1.34)
+        let availableWidth = max(container.width - 16, 1)
+        let availableHeight = max(container.height - 16, 1)
+
+        if availableWidth / cardRatio <= availableHeight {
+            return CGSize(width: availableWidth, height: availableWidth / cardRatio)
+        }
+        return CGSize(width: availableHeight * cardRatio, height: availableHeight)
     }
 }

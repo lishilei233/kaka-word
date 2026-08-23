@@ -5,7 +5,6 @@ struct HistoryRow: View {
     let record: HistoryRecord
     let thumbnail: UIImage?
     let onOpen: () -> Void
-    let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -45,16 +44,6 @@ struct HistoryRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color.coral)
-                    .frame(width: 44, height: 44)
-                    .background(Color.coral.opacity(0.12), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("删除这张单词卡")
         }
         .padding(10)
         .background(Color.paperLight.opacity(0.9), in: RoundedRectangle(cornerRadius: 22, style: .continuous))

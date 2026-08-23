@@ -4,15 +4,6 @@ import SwiftUI
 import UIKit
 import Vision
 
-enum ShareCardAspect: String, CaseIterable, Identifiable {
-    case post
-    case story
-
-    var id: String { rawValue }
-    var label: String { self == .post ? "小红书 3:4" : "竖屏 9:16" }
-    var logicalSize: CGSize { self == .post ? CGSize(width: 540, height: 720) : CGSize(width: 540, height: 960) }
-}
-
 enum FacePrivacyService {
     static func prepare(_ image: UIImage) async -> (image: UIImage, faces: [CGRect]) {
         await Task.detached(priority: .userInitiated) {
@@ -68,20 +59,19 @@ enum FacePrivacyService {
 
 @MainActor
 enum ShareCardRenderer {
+    static let logicalSize = CGSize(width: 540, height: 720)
+
     static func render(
         image: UIImage,
         result: AnalyzeResult,
-        aspect: ShareCardAspect,
         headline: String
     ) throws -> URL {
-        let size = aspect.logicalSize
         let content = ShareCardCanvas(
             image: image,
             result: result,
-            headline: headline,
-            aspect: aspect
+            headline: headline
         )
-        .frame(width: size.width, height: size.height)
+        .frame(width: logicalSize.width, height: logicalSize.height)
 
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2
@@ -107,7 +97,6 @@ struct ShareCardCanvas: View {
     let image: UIImage
     let result: AnalyzeResult
     let headline: String
-    let aspect: ShareCardAspect
 
     var body: some View {
         ZStack {
@@ -122,7 +111,7 @@ struct ShareCardCanvas: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: aspect == .post ? 18 : 28) {
+            VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("MY PICTURE WORDS")
@@ -130,7 +119,7 @@ struct ShareCardCanvas: View {
                             .tracking(2.2)
                             .foregroundStyle(Color.coral)
                         Text(headline)
-                            .font(.system(size: aspect == .post ? 30 : 36, weight: .bold, design: .serif))
+                            .font(.system(size: 30, weight: .bold, design: .serif))
                             .foregroundStyle(Color.ink)
                             .lineLimit(2)
                     }
@@ -138,13 +127,8 @@ struct ShareCardCanvas: View {
                     StickerSeal(symbol: "sparkles", color: .coral)
                 }
 
-                AnnotatedImageView(image: image, objects: result.objects) { _ in }
-                    .frame(height: aspect == .post ? 430 : 610)
-                    .padding(10)
-                    .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 25))
-                    .overlay(alignment: .top) { WashiTape(color: .sun).offset(y: -10) }
-                    .rotationEffect(.degrees(-0.45))
-                    .shadow(color: Color.ink.opacity(0.12), radius: 0, x: 3, y: 4)
+                AnnotatedPhotoCard(image: image, objects: result.objects) { _ in }
+                    .frame(height: 430)
 
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 6) {
