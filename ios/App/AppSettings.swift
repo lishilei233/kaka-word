@@ -6,6 +6,7 @@ enum AppSettings {
         static let englishSpeechEnabled = "settings.englishSpeechEnabled"
         static let speechRate = "settings.speechRate"
         static let maxObjects = "settings.maxObjects"
+        static let captionStyle = "settings.captionStyle"
         static let learningMode = "experience.learningMode"
         static let didCompleteOnboarding = "experience.didCompleteOnboarding"
     }
@@ -13,6 +14,7 @@ enum AppSettings {
     static let defaultEnglishSpeechEnabled = true
     static let defaultSpeechRate = 0.43
     static let defaultMaxObjects = 8
+    static let defaultCaptionStyle = CaptionStyle.serious.rawValue
     static let defaultLearningMode = LearningMode.selfExplore.rawValue
 
     /// 网络层也会使用这里的限制，保证异常的本地值不会越过服务端约束。

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
+    @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
     @State private var confirmClearHistory = false
 
@@ -92,7 +93,7 @@ struct SettingsView: View {
 
     private var recognitionSection: some View {
         SettingsCard(index: "01", title: "识别") {
-            VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     SettingsLabel(icon: "viewfinder", title: "每次识别单词")
                     Spacer()
@@ -104,6 +105,21 @@ struct SettingsView: View {
                     .labelsHidden()
                     .tint(Color.ink)
                     .frame(maxWidth: .infinity, alignment: .trailing)
+
+                Divider().overlay(Color.ink.opacity(0.12))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SettingsLabel(icon: "text.quote", title: "图片英文描述")
+                    Picker("图片描述风格", selection: $captionStyleRawValue) {
+                        ForEach(CaptionStyle.allCases) { style in
+                            Text(style.title).tag(style.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text("只影响之后新识别的照片，历史内容不会重新生成。")
+                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .foregroundStyle(Color.ink.opacity(0.52))
+                }
             }
         }
     }

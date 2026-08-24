@@ -23,13 +23,31 @@ export const learningObjectSchema = z.object({
   example: z.string().min(1).max(180),
 });
 
+export const captionStyleSchema = z.enum(["serious", "funny"]);
+
+export const requestedCaptionStyleSchema = z.enum(["serious", "funny", "random"]);
+
+export const vocabularyDetailsSchema = z.object({
+  english: z.string().min(1).max(60),
+  chinese: z.string().min(1).max(60),
+  ipa: z.string().max(80).default(""),
+  example: z.string().min(1).max(180),
+});
+
 export const analyzeResultSchema = z.object({
   imageWidth: z.number().int().positive(),
   imageHeight: z.number().int().positive(),
   objects: z.array(learningObjectSchema).max(8),
+  caption: z.string().min(1).max(220),
+  captionStyle: captionStyleSchema,
 });
 
+export const providerAnalyzeResultSchema = analyzeResultSchema.omit({ captionStyle: true });
+
 export type AnalyzeResult = z.infer<typeof analyzeResultSchema>;
+export type CaptionStyle = z.infer<typeof captionStyleSchema>;
+export type RequestedCaptionStyle = z.infer<typeof requestedCaptionStyleSchema>;
+export type VocabularyDetails = z.infer<typeof vocabularyDetailsSchema>;
 
 export type VisionInput = {
   image: Uint8Array;
@@ -38,8 +56,21 @@ export type VisionInput = {
   imageHeight: number;
   language: "zh-CN";
   maxObjects: number;
+  captionStyle: CaptionStyle;
+  signal?: AbortSignal;
+};
+
+export type VocabularyInput = {
+  term: string;
+  language: "zh-CN";
+  signal?: AbortSignal;
 };
 
 export interface VisionProvider {
   analyze(input: VisionInput): Promise<AnalyzeResult>;
+  analyzeStream?(
+    input: VisionInput,
+    onObject: (object: AnalyzeResult["objects"][number]) => Promise<void> | void,
+  ): Promise<AnalyzeResult>;
+  resolveVocabulary(input: VocabularyInput): Promise<VocabularyDetails>;
 }

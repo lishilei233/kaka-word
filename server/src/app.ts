@@ -2,7 +2,9 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import type { ServerConfig } from "./config.js";
 import type { VisionProvider } from "./core/image-analysis/types.js";
+import type { AnalyzeUsageLimiter } from "./core/usage-limits/index.js";
 import { registerAnalyzeRoute } from "./routes/analyze.js";
+import { registerVocabularyRoute } from "./routes/vocabulary.js";
 import { errorFields, type LogLevel, type Logger } from "./utils/logger.js";
 
 export type AppEnv = {
@@ -14,16 +16,17 @@ export type AppEnv = {
 type AppDependencies = {
   config: ServerConfig;
   provider: VisionProvider;
+  usageLimiter: AnalyzeUsageLimiter;
   logger: Logger;
 };
 
-export function createApp({ config, provider, logger }: AppDependencies): Hono<AppEnv> {
+export function createApp({ config, provider, usageLimiter, logger }: AppDependencies): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.use("*", cors({
     origin: "*",
     allowHeaders: ["Content-Type", "X-Request-ID"],
-    exposeHeaders: ["X-Request-ID"],
+    exposeHeaders: ["X-Request-ID", "Retry-After"],
   }));
   app.use("*", requestLogger(logger, config.logLevel));
 
@@ -33,6 +36,17 @@ export function createApp({ config, provider, logger }: AppDependencies): Hono<A
     providerName: config.vision.name,
     providerModel: config.vision.model,
     maxUploadBytes: config.maxUploadBytes,
+    usageLimiter,
+    trustProxy: config.usageLimits.trustProxy,
+    logLevel: config.logLevel,
+    logger,
+  });
+  registerVocabularyRoute(app, {
+    provider,
+    providerName: config.vision.name,
+    providerModel: config.vision.model,
+    usageLimiter,
+    trustProxy: config.usageLimits.trustProxy,
     logLevel: config.logLevel,
     logger,
   });

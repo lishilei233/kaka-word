@@ -90,7 +90,8 @@ final class CameraViewController: UIViewController {
 
     private func installPreviewLayer() {
         let layer = AVCaptureVideoPreviewLayer(session: session)
-        layer.videoGravity = .resizeAspectFill
+        // 完整展示 4:3 传感器画面，避免全屏 aspectFill 裁掉左右两侧而产生“2× 变焦”错觉。
+        layer.videoGravity = .resizeAspect
         layer.backgroundColor = UIColor.clear.cgColor
         layer.frame = view.bounds
         previewLayer = layer
@@ -431,6 +432,11 @@ final class CameraViewController: UIViewController {
         shutter.isEnabled = false
         shutter.alpha = 0.6
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if let photoConnection = output.connection(with: .video),
+           photoConnection.isVideoMirroringSupported {
+            photoConnection.automaticallyAdjustsVideoMirroring = false
+            photoConnection.isVideoMirrored = previewLayer?.connection?.isVideoMirrored == true
+        }
         let settings = AVCapturePhotoSettings()
         if captureDevice?.hasFlash == true {
             settings.flashMode = flashMode

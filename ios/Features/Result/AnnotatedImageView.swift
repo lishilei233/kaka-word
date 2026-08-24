@@ -6,19 +6,36 @@ struct AnnotatedImageView: View {
     let image: UIImage
     let objects: [LearningObject]
     var revealsAnnotations = true
+    var isEditable = false
     let onSelect: (LearningObject) -> Void
+    var onUpdate: ((LearningObject) -> Void)?
+    var editingObjectID: Binding<String?> = .constant(nil)
+
+    @State private var draftLabelCenters: [String: ObjectAnchor] = [:]
+    @State private var draftTargets: [String: ObjectAnchor] = [:]
 
     var body: some View {
         GeometryReader { proxy in
             let imageFrame = fittedImageFrame(in: proxy.size)
-            let layout = AnnotationLayoutEngine(objects: objects).layout(in: imageFrame)
+            let renderedObjects = objects.map { object in
+                object.withOverrides(
+                    labelCenter: draftLabelCenters[object.id],
+                    target: draftTargets[object.id]
+                )
+            }
+            let layout = AnnotationLayoutEngine(objects: renderedObjects).layout(in: imageFrame)
 
             ZStack(alignment: .topLeading) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: finishEditing)
+
                 Image(uiImage: image)
                     .resizable()
                     .frame(width: imageFrame.width, height: imageFrame.height)
                     .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                     .position(x: imageFrame.midX, y: imageFrame.midY)
+                    .allowsHitTesting(false)
 
                 Canvas { context, _ in
                     for route in layout.routes {
@@ -30,7 +47,16 @@ struct AnnotatedImageView: View {
                 .animation(.easeOut(duration: 0.28), value: revealsAnnotations)
 
                 ForEach(Array(layout.placements.enumerated()), id: \.element.id) { index, placement in
-                    Button { onSelect(placement.object) } label: {
+                    TimelineView(.animation(
+                        minimumInterval: 1.0 / 30.0,
+                        paused: activeEditingObjectID != placement.id
+                    )) { timeline in
+                        let isActive = activeEditingObjectID == placement.id
+                        let elapsed = timeline.date.timeIntervalSinceReferenceDate
+                        let angle = isActive
+                            ? sin(elapsed * (2 * .pi / 0.28)) * 0.55
+                            : 0
+
                         Text(placement.object.english)
                             .font(.system(size: 14, weight: .black, design: .rounded))
                             .foregroundStyle(Color.ink)
@@ -43,19 +69,152 @@ struct AnnotatedImageView: View {
                             .overlay {
                                 Capsule().stroke(Color.ink.opacity(0.18), lineWidth: 1)
                             }
+                            .contentShape(Capsule())
+                            .position(placement.labelCenter)
+                            .rotationEffect(.degrees(angle))
+                            .scaleEffect(isActive ? 1.01 : 1)
+                            .shadow(
+                                color: isActive ? Color.ink.opacity(0.22) : .clear,
+                                radius: 5,
+                                y: 3
+                            )
+                            .gesture(labelActivationGesture(
+                                for: placement,
+                                wasEditing: activeEditingObjectID != nil
+                            ))
+                            .simultaneousGesture(labelPositionDragGesture(for: placement, in: imageFrame))
+                            .transition(.scale(scale: 0.72).combined(with: .opacity))
+                            .scaleEffect(revealsAnnotations ? 1 : 0.72)
+                            .opacity(revealsAnnotations ? 1 : 0)
+                            .animation(
+                                .spring(response: 0.42, dampingFraction: 0.72)
+                                    .delay(Double(index) * 0.075),
+                                value: revealsAnnotations
+                            )
                     }
-                    .buttonStyle(.plain)
-                    .position(placement.labelCenter)
-                    .scaleEffect(revealsAnnotations ? 1 : 0.72)
-                    .opacity(revealsAnnotations ? 1 : 0)
-                    .animation(
-                        .spring(response: 0.42, dampingFraction: 0.72)
-                            .delay(Double(index) * 0.075),
-                        value: revealsAnnotations
-                    )
+                }
+
+                if isEditable, let activeEditingObjectID {
+                    ForEach(layout.placements.filter { $0.id == activeEditingObjectID }) { placement in
+                        Circle()
+                            .fill(Color.clear)
+                            .contentShape(Circle())
+                            .frame(width: 44, height: 44)
+                            .overlay {
+                                Circle()
+                                    .fill(Color.sun)
+                                    .frame(width: 16, height: 16)
+                                    .overlay {
+                                        Circle().stroke(Color.ink.opacity(0.82), lineWidth: 2)
+                                    }
+                            }
+                            .position(placement.target)
+                            .gesture(targetDragGesture(for: placement, in: imageFrame))
+                            .accessibilityLabel("调整 \(placement.object.english) 的引导线终点")
+                            .accessibilityHint("拖动圆点改变引导线指向")
+                    }
                 }
             }
+            .coordinateSpace(name: "annotation-canvas")
+            .animation(.spring(response: 0.42, dampingFraction: 0.72), value: objects.map(\.id))
         }
+    }
+
+    private var activeEditingObjectID: String? {
+        editingObjectID.wrappedValue
+    }
+
+    private func labelActivationGesture(
+        for placement: AnnotationPlacement,
+        wasEditing: Bool
+    ) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.42)
+            .exclusively(before: TapGesture())
+            .onEnded { value in
+                switch value {
+                case .first(true):
+                    guard isEditable else { return }
+                    beginEditing(placement.id)
+                case .second:
+                    if !wasEditing {
+                        onSelect(placement.object)
+                    } else {
+                        finishEditing()
+                    }
+                default:
+                    break
+                }
+            }
+    }
+
+    private func labelPositionDragGesture(
+        for placement: AnnotationPlacement,
+        in imageFrame: CGRect
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named("annotation-canvas"))
+            .onChanged { drag in
+                guard isEditable, activeEditingObjectID == placement.id else { return }
+                draftLabelCenters[placement.id] = normalizedLabelCenter(
+                    drag.location,
+                    labelWidth: placement.labelWidth,
+                    labelHeight: placement.labelHeight,
+                    in: imageFrame
+                )
+            }
+            .onEnded { drag in
+                guard isEditable, activeEditingObjectID == placement.id else { return }
+                let center = normalizedLabelCenter(
+                    drag.location,
+                    labelWidth: placement.labelWidth,
+                    labelHeight: placement.labelHeight,
+                    in: imageFrame
+                )
+                onUpdate?(placement.object.withOverrides(labelCenter: center))
+                draftLabelCenters[placement.id] = nil
+            }
+    }
+
+    private func targetDragGesture(
+        for placement: AnnotationPlacement,
+        in imageFrame: CGRect
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("annotation-canvas"))
+            .onChanged { drag in
+                draftTargets[placement.id] = normalizedPoint(drag.location, in: imageFrame)
+            }
+            .onEnded { drag in
+                let target = normalizedPoint(drag.location, in: imageFrame)
+                onUpdate?(placement.object.withOverrides(target: target))
+                draftTargets[placement.id] = nil
+            }
+    }
+
+    private func beginEditing(_ objectID: String) {
+        editingObjectID.wrappedValue = objectID
+    }
+
+    private func finishEditing() {
+        editingObjectID.wrappedValue = nil
+    }
+
+    private func normalizedPoint(_ point: CGPoint, in frame: CGRect) -> ObjectAnchor {
+        ObjectAnchor(
+            x: Double(min(max((point.x - frame.minX) / max(frame.width, 1), 0), 1)),
+            y: Double(min(max((point.y - frame.minY) / max(frame.height, 1), 0), 1))
+        )
+    }
+
+    private func normalizedLabelCenter(
+        _ point: CGPoint,
+        labelWidth: CGFloat,
+        labelHeight: CGFloat,
+        in frame: CGRect
+    ) -> ObjectAnchor {
+        let clamped = CGPoint(
+            x: min(max(point.x, frame.minX + 8 + labelWidth / 2), frame.maxX - 8 - labelWidth / 2),
+            y: min(max(point.y, frame.minY + 8 + labelHeight / 2), frame.maxY - 8 - labelHeight / 2)
+        )
+        return normalizedPoint(clamped, in: frame)
     }
 
     private func drawLeaderLine(_ route: AnnotationRoute, in context: inout GraphicsContext) {
@@ -116,7 +275,10 @@ struct AnnotatedPhotoCard: View {
     let image: UIImage
     let objects: [LearningObject]
     var revealsAnnotations = true
+    var isEditable = false
+    var editingObjectID: Binding<String?> = .constant(nil)
     let onSelect: (LearningObject) -> Void
+    var onUpdate: ((LearningObject) -> Void)?
 
     var body: some View {
         GeometryReader { proxy in
@@ -127,7 +289,10 @@ struct AnnotatedPhotoCard: View {
                     image: image,
                     objects: objects,
                     revealsAnnotations: revealsAnnotations,
-                    onSelect: onSelect
+                    isEditable: isEditable,
+                    onSelect: onSelect,
+                    onUpdate: onUpdate,
+                    editingObjectID: editingObjectID
                 )
                 .frame(width: contentSize.width, height: contentSize.height)
             }

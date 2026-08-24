@@ -1,5 +1,5 @@
-import { learningObjectPrompt } from "../prompts.js";
-import type { AnalyzeResult, VisionInput } from "../types.js";
+import { learningObjectPrompt, vocabularyPrompt } from "../prompts.js";
+import type { AnalyzeResult, VisionInput, VocabularyDetails, VocabularyInput } from "../types.js";
 import { HttpVisionProvider } from "./http-provider.js";
 
 type VolcengineConfig = { apiKey: string; endpoint: string; model: string };
@@ -33,12 +33,37 @@ export class VolcengineVisionProvider extends HttpVisionProvider {
           role: "user",
           content: [
             { type: "image_url", image_url: { url: `data:${input.mimeType};base64,${data}` } },
-            { type: "text", text: learningObjectPrompt(input.maxObjects) },
+            { type: "text", text: learningObjectPrompt(input.maxObjects, input.captionStyle) },
           ],
         }],
       }),
+      signal: input.signal,
     });
     const result = await this.parseResponse(response);
-    return { ...result, imageWidth: input.imageWidth, imageHeight: input.imageHeight };
+    return {
+      ...result,
+      imageWidth: input.imageWidth,
+      imageHeight: input.imageHeight,
+      captionStyle: input.captionStyle,
+    };
+  }
+
+  async resolveVocabulary(input: VocabularyInput): Promise<VocabularyDetails> {
+    if (!this.config.apiKey || !this.config.model) {
+      throw new Error("VOLCENGINE_API_KEY and VOLCENGINE_MODEL are required");
+    }
+    const response = await fetch(this.config.endpoint, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.config.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.config.model,
+        stream: false,
+        temperature: 0.1,
+        max_tokens: 400,
+        messages: [{ role: "user", content: [{ type: "text", text: vocabularyPrompt(input.term) }] }],
+      }),
+      signal: input.signal,
+    });
+    return this.parseVocabularyResponse(response);
   }
 }

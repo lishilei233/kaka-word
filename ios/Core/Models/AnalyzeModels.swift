@@ -14,6 +14,29 @@ struct ObjectAnchor: Codable, Hashable {
     let y: Double
 }
 
+enum CaptionStyle: String, Codable, CaseIterable, Identifiable {
+    case serious
+    case funny
+    case random
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .serious: return "认真"
+        case .funny: return "搞笑"
+        case .random: return "随机"
+        }
+    }
+}
+
+struct VocabularyDetails: Codable, Hashable {
+    let english: String
+    let chinese: String
+    let ipa: String
+    let example: String
+}
+
 struct LearningObject: Codable, Identifiable, Hashable {
     let id: String
     let english: String
@@ -23,26 +46,99 @@ struct LearningObject: Codable, Identifiable, Hashable {
     let box: ObjectBox
     let anchor: ObjectAnchor?
     let example: String
+    /// 用户手动放置的标签中心与引导线终点；缺失时继续使用自动布局和 AI 锚点。
+    let labelCenterOverride: ObjectAnchor?
+    let targetOverride: ObjectAnchor?
+
+    func replacingVocabulary(with details: VocabularyDetails) -> LearningObject {
+        LearningObject(
+            id: id,
+            english: details.english,
+            chinese: details.chinese,
+            ipa: details.ipa,
+            confidence: confidence,
+            box: box,
+            anchor: anchor,
+            example: details.example,
+            labelCenterOverride: labelCenterOverride,
+            targetOverride: targetOverride
+        )
+    }
+
+    func withOverrides(labelCenter: ObjectAnchor? = nil, target: ObjectAnchor? = nil) -> LearningObject {
+        LearningObject(
+            id: id,
+            english: english,
+            chinese: chinese,
+            ipa: ipa,
+            confidence: confidence,
+            box: box,
+            anchor: anchor,
+            example: example,
+            labelCenterOverride: labelCenter ?? labelCenterOverride,
+            targetOverride: target ?? targetOverride
+        )
+    }
+
+    func clearingOverrides() -> LearningObject {
+        LearningObject(
+            id: id,
+            english: english,
+            chinese: chinese,
+            ipa: ipa,
+            confidence: confidence,
+            box: box,
+            anchor: anchor,
+            example: example,
+            labelCenterOverride: nil,
+            targetOverride: nil
+        )
+    }
 }
 
 struct AnalyzeResult: Codable, Hashable {
     let imageWidth: Int
     let imageHeight: Int
     let objects: [LearningObject]
+    let caption: String?
+    let captionStyle: CaptionStyle?
+
+    func replacingObject(_ updatedObject: LearningObject) -> AnalyzeResult {
+        AnalyzeResult(
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
+            objects: objects.map { $0.id == updatedObject.id ? updatedObject : $0 },
+            caption: caption,
+            captionStyle: captionStyle
+        )
+    }
+
+    func clearingAnnotationOverrides() -> AnalyzeResult {
+        AnalyzeResult(
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
+            objects: objects.map { $0.clearingOverrides() },
+            caption: caption,
+            captionStyle: captionStyle
+        )
+    }
+
+    var hasAnnotationOverrides: Bool {
+        objects.contains { $0.labelCenterOverride != nil || $0.targetOverride != nil }
+    }
 }
 
 enum AnalysisPhase: Equatable {
     case preparing
     case uploading(progress: Double)
     case analyzing
-    case processing
     case success(AnalyzeResult)
     case failed(String)
     case cancelled
 
     var isActive: Bool {
         switch self {
-        case .preparing, .uploading, .analyzing, .processing:
+        case .preparing, .uploading, .analyzing:
             return true
         case .success, .failed, .cancelled:
             return false

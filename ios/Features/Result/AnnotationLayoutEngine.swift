@@ -21,11 +21,16 @@ struct AnnotationLayoutEngine {
 
     private func optimizedPlacements(in imageFrame: CGRect) -> [AnnotationPlacement] {
         guard !objects.isEmpty else { return [] }
+        let orderedObjects = objects.filter { $0.labelCenterOverride != nil }
+            + objects.filter { $0.labelCenterOverride == nil }
         let targets = objects.map { targetPoint(for: $0, in: imageFrame) }
         var states = [AnnotationLayoutState(placements: [], cost: 0)]
 
-        for (index, object) in objects.enumerated() {
-            let candidates = nearbyPlacements(for: object, target: targets[index], in: imageFrame)
+        for object in orderedObjects {
+            let target = targetPoint(for: object, in: imageFrame)
+            let candidates = object.labelCenterOverride.map {
+                [fixedPlacement(for: object, normalizedCenter: $0, target: target, in: imageFrame)]
+            } ?? nearbyPlacements(for: object, target: target, in: imageFrame)
             var nextStates: [AnnotationLayoutState] = []
 
             for state in states {
@@ -55,16 +60,44 @@ struct AnnotationLayoutEngine {
             states = Array(nextStates.sorted { $0.cost < $1.cost }.prefix(240))
         }
 
-        return states.first?.placements ?? []
+        let best = states.first?.placements ?? []
+        return objects.compactMap { object in best.first { $0.id == object.id } }
     }
 
     private func targetPoint(for object: LearningObject, in frame: CGRect) -> CGPoint {
         // 对窗帘等细长或中空物体，模型给出的可见锚点比边界框中心更准确；中心点作为兼容兜底。
-        let normalizedX = object.anchor?.x ?? (object.box.x + object.box.width / 2)
-        let normalizedY = object.anchor?.y ?? (object.box.y + object.box.height / 2)
+        let normalizedX = object.targetOverride?.x ?? object.anchor?.x ?? (object.box.x + object.box.width / 2)
+        let normalizedY = object.targetOverride?.y ?? object.anchor?.y ?? (object.box.y + object.box.height / 2)
         return CGPoint(
             x: frame.minX + frame.width * normalizedX,
             y: frame.minY + frame.height * normalizedY
+        )
+    }
+
+    private func fixedPlacement(
+        for object: LearningObject,
+        normalizedCenter: ObjectAnchor,
+        target: CGPoint,
+        in frame: CGRect
+    ) -> AnnotationPlacement {
+        let width = wordLabelWidth(object.english, in: frame)
+        let minX = frame.minX + 8 + width / 2
+        let maxX = frame.maxX - 8 - width / 2
+        let minY = frame.minY + 8 + labelHeight / 2
+        let maxY = frame.maxY - 8 - labelHeight / 2
+        let rawCenter = CGPoint(
+            x: frame.minX + frame.width * normalizedCenter.x,
+            y: frame.minY + frame.height * normalizedCenter.y
+        )
+        return AnnotationPlacement(
+            object: object,
+            target: target,
+            labelCenter: CGPoint(
+                x: min(max(rawCenter.x, minX), maxX),
+                y: min(max(rawCenter.y, minY), maxY)
+            ),
+            labelWidth: width,
+            labelHeight: labelHeight
         )
     }
 

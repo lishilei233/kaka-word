@@ -4,6 +4,7 @@ import UIKit
 enum HistoryStoreError: LocalizedError {
     case imageEncoding
     case storageUnavailable
+    case recordNotFound
 
     var errorDescription: String? {
         switch self {
@@ -11,6 +12,8 @@ enum HistoryStoreError: LocalizedError {
             return "历史图片处理失败，本次识别结果没有保存。"
         case .storageUnavailable:
             return "历史记录保存失败，请检查设备可用空间。"
+        case .recordNotFound:
+            return "找不到这条历史记录，修改没有保存。"
         }
     }
 }
@@ -87,6 +90,32 @@ final class HistoryStore: ObservableObject {
 
     func thumbnail(for record: HistoryRecord) -> UIImage? {
         loadImage(named: record.thumbnailFilename)
+    }
+
+    @discardableResult
+    func updateResult(id: UUID, result: AnalyzeResult) throws -> HistoryRecord {
+        guard let index = records.firstIndex(where: { $0.id == id }) else {
+            throw HistoryStoreError.recordNotFound
+        }
+        let previous = records[index]
+        let updated = HistoryRecord(
+            id: previous.id,
+            createdAt: previous.createdAt,
+            imageFilename: previous.imageFilename,
+            thumbnailFilename: previous.thumbnailFilename,
+            result: result,
+            mode: previous.mode,
+            missionID: previous.missionID,
+            earnedStickerID: previous.earnedStickerID
+        )
+        records[index] = updated
+        do {
+            try persistIndex()
+            return updated
+        } catch {
+            records[index] = previous
+            throw HistoryStoreError.storageUnavailable
+        }
     }
 
     func delete(_ record: HistoryRecord) {

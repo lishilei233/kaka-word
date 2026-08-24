@@ -22,4 +22,5 @@ enum ImageProcessor {
         guard let rendered = normalizedImage(from: image, maxDimension: maxDimension) else { return nil }
         return rendered.jpegData(compressionQuality: 0.82)
     }
+
 }

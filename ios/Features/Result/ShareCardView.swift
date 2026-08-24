@@ -16,10 +16,10 @@ struct ShareCardView: View {
     @State private var shareItem: ShareFile?
     @State private var errorMessage: String?
 
-    init(image: UIImage, result: AnalyzeResult, headline: String = "把生活读成英语") {
+    init(image: UIImage, result: AnalyzeResult, headline: String? = nil) {
         self.image = image
         self.result = result
-        self.headline = headline
+        self.headline = headline ?? result.caption ?? "把生活读成英语"
         _normalizedImage = State(initialValue: image)
         _previewImage = State(initialValue: image)
     }

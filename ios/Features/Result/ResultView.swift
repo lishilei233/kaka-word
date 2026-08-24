@@ -1,14 +1,44 @@
 import SwiftUI
 import UIKit
 
+enum PhotoWordCardStatus: Equatable {
+    case preparing
+    case uploading(Double)
+    case recognizing
+    case complete
+    case failed(String)
+    case cancelled
+
+    var isComplete: Bool {
+        if case .complete = self { return true }
+        return false
+    }
+}
+
 struct ResultView: View {
     let image: UIImage
-    let result: AnalyzeResult
+    let recordID: UUID
     var missionUpdate: MissionUpdate?
     var revealsAnnotations = true
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var historyStore: HistoryStore
     @State private var showShareCard = false
+    @State private var result: AnalyzeResult
+
+    init(
+        image: UIImage,
+        result: AnalyzeResult,
+        recordID: UUID,
+        missionUpdate: MissionUpdate? = nil,
+        revealsAnnotations: Bool = true
+    ) {
+        self.image = image
+        self.recordID = recordID
+        self.missionUpdate = missionUpdate
+        self.revealsAnnotations = revealsAnnotations
+        _result = State(initialValue: result)
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -18,8 +48,11 @@ struct ResultView: View {
                 result: result,
                 missionUpdate: missionUpdate,
                 revealsAnnotations: revealsAnnotations,
+                status: .complete,
                 onClose: dismiss.callAsFunction,
-                onShare: { showShareCard = true }
+                onShare: { showShareCard = true },
+                onRetry: nil,
+                onResultChange: persist
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -27,6 +60,16 @@ struct ResultView: View {
             ShareCardView(image: image, result: result)
         }
         .pictureWordBackSwipe { dismiss() }
+    }
+
+    private func persist(_ updated: AnalyzeResult) -> String? {
+        do {
+            try historyStore.updateResult(id: recordID, result: updated)
+            result = updated
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 }
 
@@ -36,14 +79,20 @@ struct PhotoWordCardDetailView: View {
     let result: AnalyzeResult
     var missionUpdate: MissionUpdate?
     var revealsAnnotations = true
+    var status: PhotoWordCardStatus = .complete
     let onClose: () -> Void
     let onShare: () -> Void
+    var onRetry: (() -> Void)?
+    var onResultChange: ((AnalyzeResult) -> String?)?
 
     @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @State private var expandedObjectID: String?
     @State private var selectedObject: LearningObject?
+    @State private var editErrorMessage: String?
+    @State private var editingObjectID: String?
+    @State private var suppressPageDismissUntil = Date.distantPast
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,31 +100,40 @@ struct PhotoWordCardDetailView: View {
 
             decoratedPhoto
 
-            if let missionUpdate {
-                Text(missionUpdate.completedNow
-                     ? "今天的寻宝完成啦 · 贴纸已收入"
-                     : "今日寻宝 \(missionUpdate.count)/\(missionUpdate.target)")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.sun.opacity(0.8))
-                    .padding(.bottom, 5)
-            }
-
-            Text("点击照片上的标签，认识它。")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.ink.opacity(0.52))
-                .padding(.vertical, 17)
+            footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded(dismissEditingFromPageTap))
         .sheet(item: $selectedObject) { object in
-            WordDetailSheet(object: object)
-                .presentationDetents([.medium])
+            WordDetailSheet(
+                object: object,
+                onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil
+            )
+                .presentationDetents([.medium, .large])
+        }
+        .alert("无法保存修改", isPresented: Binding(
+            get: { editErrorMessage != nil },
+            set: { if !$0 { editErrorMessage = nil } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(editErrorMessage ?? "")
+        }
+        .onChange(of: status) { _, newStatus in
+            if !newStatus.isComplete { finishAnnotationEditing() }
+        }
+        .onChange(of: result.objects.map(\.id)) { _, objectIDs in
+            if let editingObjectID, !objectIDs.contains(editingObjectID) {
+                finishAnnotationEditing()
+            }
         }
     }
 
     private var legacyHeader: some View {
         PictureWordPageHeader(
             eyebrow: "FOUND WORDS",
-            title: "发现了 \(result.objects.count) 个单词",
+            title: headerTitle,
             foreground: Color.ink,
             eyebrowColor: Color.sun,
             tint: Color.paperLight.opacity(0.52)
@@ -85,7 +143,10 @@ struct PhotoWordCardDetailView: View {
                 foreground: Color.ink,
                 interactive: true
             ) {
-                Button(action: onClose) {
+                Button {
+                    finishAnnotationEditing()
+                    onClose()
+                } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .bold))
                         .frame(width: 50, height: 50)
@@ -95,18 +156,94 @@ struct PhotoWordCardDetailView: View {
             }
         } trailing: {
             PictureWordHeaderCapsule(
-                tint: Color.sun,
+                tint: status.isComplete ? Color.sun : Color.paperDeep,
                 foreground: Color.ink,
-                interactive: true
+                interactive: status.isComplete
             ) {
-                Button(action: onShare) {
+                Button {
+                    finishAnnotationEditing()
+                    onShare()
+                } label: {
                     Text("AI")
                         .font(.system(size: 12, weight: .black, design: .rounded))
                         .frame(width: 50, height: 50)
                 }
+                .disabled(!status.isComplete)
+                .opacity(status.isComplete ? 1 : 0.48)
                 .accessibilityLabel("生成分享卡")
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    private var headerTitle: String {
+        switch status {
+        case .preparing, .uploading:
+            return "正在寻找单词"
+        case .recognizing:
+            return result.objects.isEmpty ? "正在寻找单词" : "已找到 \(result.objects.count) 个单词…"
+        case .complete:
+            return "发现了 \(result.objects.count) 个单词"
+        case .failed:
+            return "识别遇到问题"
+        case .cancelled:
+            return "正在取消"
+        }
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        switch status {
+        case .complete:
+            VStack(spacing: 0) {
+                if let missionUpdate {
+                    Text(missionUpdate.completedNow
+                         ? "今天的寻宝完成啦 · 贴纸已收入"
+                         : "今日寻宝 \(missionUpdate.count)/\(missionUpdate.target)")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.sun.opacity(0.8))
+                        .padding(.bottom, 5)
+                }
+
+                if let caption = result.caption, !caption.isEmpty {
+                    Text(caption)
+                        .font(.system(size: 16, weight: .bold, design: .serif))
+                        .foregroundStyle(Color.ink.opacity(0.82))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
+                }
+
+                Text("轻点标签看详情；长按标签进入抖动后，可拖动标签和圆点。")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.ink.opacity(0.52))
+                    .padding(.vertical, 17)
+
+                if result.hasAnnotationOverrides {
+                    Button {
+                        apply(result.clearingAnnotationOverrides())
+                    } label: {
+                        Label("恢复自动标注", systemImage: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.coral)
+                    .padding(.bottom, 12)
+                }
+            }
+        case .failed(let message):
+            RecognitionFailureFooter(
+                message: message,
+                onRetry: onRetry ?? {},
+                onClose: onClose
+            )
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+        case .preparing, .uploading, .recognizing, .cancelled:
+            StreamingRecognitionFooter(status: status, objectCount: result.objects.count)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
         }
     }
 
@@ -114,9 +251,14 @@ struct PhotoWordCardDetailView: View {
         AnnotatedPhotoCard(
             image: image,
             objects: result.objects,
-            revealsAnnotations: revealsAnnotations
+            revealsAnnotations: revealsAnnotations,
+            isEditable: status.isComplete && onResultChange != nil,
+            editingObjectID: annotationEditingBinding
         ) { object in
+            finishAnnotationEditing()
             selectedObject = object
+        } onUpdate: { object in
+            updateObject(object).map { editErrorMessage = $0 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 20)
@@ -300,6 +442,151 @@ struct PhotoWordCardDetailView: View {
                 proxy.scrollTo(object.id, anchor: .center)
             }
         }
+    }
+
+    private func updateObject(_ object: LearningObject) -> String? {
+        let updated = result.replacingObject(object)
+        if let error = onResultChange?(updated) {
+            return error
+        }
+        return nil
+    }
+
+    private func apply(_ updated: AnalyzeResult) {
+        if let error = onResultChange?(updated) {
+            editErrorMessage = error
+        }
+    }
+
+    private var annotationEditingBinding: Binding<String?> {
+        Binding(
+            get: { editingObjectID },
+            set: { newValue in
+                if newValue != nil, newValue != editingObjectID {
+                    suppressPageDismissUntil = Date().addingTimeInterval(0.2)
+                }
+                editingObjectID = newValue
+            }
+        )
+    }
+
+    private func dismissEditingFromPageTap() {
+        guard editingObjectID != nil, Date() >= suppressPageDismissUntil else { return }
+        finishAnnotationEditing()
+    }
+
+    private func finishAnnotationEditing() {
+        editingObjectID = nil
+        suppressPageDismissUntil = .distantPast
+    }
+}
+
+private struct StreamingRecognitionFooter: View {
+    let status: PhotoWordCardStatus
+    let objectCount: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isMoving = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text(stageLabel)
+                Spacer()
+                if case .uploading(let progress) = status {
+                    Text("\(Int((progress * 100).rounded()))%")
+                        .contentTransition(.numericText())
+                } else if objectCount > 0 {
+                    Text("\(objectCount) WORDS")
+                        .contentTransition(.numericText())
+                }
+            }
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .tracking(1.5)
+            .foregroundStyle(Color.coral)
+
+            Text(statusText)
+                .font(.system(size: 17, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color.ink)
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(Color.ink.opacity(0.12)).frame(height: 2)
+                    if case .uploading(let progress) = status {
+                        Rectangle()
+                            .fill(Color.coral)
+                            .frame(width: proxy.size.width * min(max(progress, 0), 1), height: 2)
+                    } else {
+                        Rectangle()
+                            .fill(Color.coral)
+                            .frame(width: max(48, proxy.size.width * 0.27), height: 2)
+                            .offset(x: reduceMotion ? proxy.size.width * 0.36 : (isMoving ? proxy.size.width * 0.73 : 0))
+                    }
+                }
+            }
+            .frame(height: 2)
+        }
+        .onAppear(perform: startMoving)
+    }
+
+    private var stageLabel: String {
+        switch status {
+        case .preparing: return "PREPARE"
+        case .uploading: return "UPLOAD"
+        case .recognizing: return "AI VISION"
+        case .cancelled: return "CANCEL"
+        case .complete: return "COMPLETE"
+        case .failed: return "TRY AGAIN"
+        }
+    }
+
+    private var statusText: String {
+        switch status {
+        case .preparing: return "正在准备照片…"
+        case .uploading: return "正在上传照片…"
+        case .recognizing:
+            return objectCount == 0 ? "AI 正在寻找物体…" : "继续寻找更多单词…"
+        case .cancelled: return "正在取消…"
+        case .complete: return "识别完成"
+        case .failed: return "识别遇到问题"
+        }
+    }
+
+    private func startMoving() {
+        guard !reduceMotion else { return }
+        withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
+            isMoving = true
+        }
+    }
+}
+
+private struct RecognitionFailureFooter: View {
+    let message: String
+    let onRetry: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.ink)
+                .lineLimit(2)
+            HStack(spacing: 9) {
+                footerButton("返回首页", tint: Color.ink.opacity(0.08), action: onClose)
+                footerButton("重新识别", tint: Color.sun, action: onRetry)
+            }
+        }
+        .padding(14)
+        .background(Color.paper, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func footerButton(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.ink)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .background(tint, in: Capsule())
+            .buttonStyle(.plain)
     }
 }
 

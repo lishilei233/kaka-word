@@ -65,7 +65,7 @@ struct HomeView: View {
                 .environmentObject(journeyStore)
         }
         .fullScreenCover(item: $presentedHistory) { item in
-            ResultView(image: item.image, result: item.record.result)
+            ResultView(image: item.image, result: item.record.result, recordID: item.record.id)
         }
         .onAppear { journeyStore.refreshForTodayIfNeeded() }
         .confirmationDialog(

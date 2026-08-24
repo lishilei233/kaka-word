@@ -20,11 +20,17 @@ protocol AnalysisProviding {
     func analyze(
         image: UIImage,
         maxObjects: Int,
-        onUploadProgress: @escaping @Sendable (Double) -> Void
+        captionStyle: CaptionStyle,
+        onUploadProgress: @escaping @Sendable (Double) -> Void,
+        onObject: @escaping @Sendable (LearningObject) -> Void
     ) async throws -> AnalyzeResult
 }
 
-struct APIClient: AnalysisProviding, Sendable {
+protocol VocabularyResolving {
+    func resolveVocabulary(term: String) async throws -> VocabularyDetails
+}
+
+struct APIClient: AnalysisProviding, VocabularyResolving, Sendable {
     private let baseURL: URL
 
     init(environment: AppEnvironment = .current) {
@@ -34,7 +40,9 @@ struct APIClient: AnalysisProviding, Sendable {
     func analyze(
         image: UIImage,
         maxObjects: Int,
-        onUploadProgress: @escaping @Sendable (Double) -> Void
+        captionStyle: CaptionStyle,
+        onUploadProgress: @escaping @Sendable (Double) -> Void,
+        onObject: @escaping @Sendable (LearningObject) -> Void
     ) async throws -> AnalyzeResult {
         // 图片重绘和 JPEG 压缩可能耗时，放到后台线程避免扫描动画掉帧。
         let imageData = await Task.detached(priority: .userInitiated) {
@@ -51,15 +59,19 @@ struct APIClient: AnalysisProviding, Sendable {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let body = MultipartBuilder(boundary: boundary)
             .addField(name: "maxObjects", value: String(AppSettings.normalizedMaxObjects(maxObjects)))
+            .addField(name: "captionStyle", value: captionStyle.rawValue)
             .addFile(name: "image", filename: "photo.jpg", mimeType: "image/jpeg", data: imageData)
             .build()
 
-        let uploader = UploadRequestExecutor(onProgress: onUploadProgress)
+        let uploader = UploadRequestExecutor(onProgress: onUploadProgress, onObject: onObject)
         let (data, response) = try await uploader.upload(request: request, body: body)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             if let payload = try? JSONDecoder().decode(ServerError.self, from: data) {
-                throw APIError.server(payload.message ?? localizedMessage(for: payload.error))
+                throw APIError.server(payload.message ?? localizedMessage(
+                    for: payload.error,
+                    retryAfterSeconds: payload.retryAfterSeconds ?? retryAfterSeconds(from: http)
+                ))
             }
             throw APIError.server("识别失败，请稍后重试")
         }
@@ -70,7 +82,36 @@ struct APIClient: AnalysisProviding, Sendable {
         return result
     }
 
-    private func localizedMessage(for code: String?) -> String {
+    func resolveVocabulary(term: String) async throws -> VocabularyDetails {
+        let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, normalized.count <= 60 else {
+            throw APIError.server("请输入 1 到 60 个字符的中文或英文物体名称")
+        }
+
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/vocabulary/resolve"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(VocabularyRequest(term: normalized))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            if let payload = try? JSONDecoder().decode(ServerError.self, from: data) {
+                throw APIError.server(payload.message ?? localizedMessage(
+                    for: payload.error,
+                    retryAfterSeconds: payload.retryAfterSeconds ?? retryAfterSeconds(from: http)
+                ))
+            }
+            throw APIError.server("单词信息生成失败，请稍后重试")
+        }
+        guard let details = try? JSONDecoder().decode(VocabularyDetails.self, from: data) else {
+            throw APIError.invalidResponse
+        }
+        return details
+    }
+
+    private func localizedMessage(for code: String?, retryAfterSeconds: Int? = nil) -> String {
         switch code {
         case "IMAGE_TOO_LARGE":
             return "照片太大，请选择尺寸更小的图片"
@@ -78,17 +119,42 @@ struct APIClient: AnalysisProviding, Sendable {
             return "无法读取这张照片，请重新拍摄或选择其他图片"
         case "ANALYZE_FAILED":
             return "AI 识别暂时失败，请稍后重试"
+        case "RATE_LIMITED":
+            if let retryAfterSeconds, retryAfterSeconds > 0 {
+                return "识别有点频繁，请在 \(retryAfterSeconds) 秒后再试"
+            }
+            return "识别有点频繁，请稍后再试"
+        case "DAILY_LIMIT_REACHED":
+            return "今天的识别额度已用完，请明天再试"
+        case "USAGE_LIMIT_UNAVAILABLE":
+            return "识别服务暂时不可用，请稍后重试"
+        case "INVALID_TERM":
+            return "请输入 1 到 60 个字符的中文或英文物体名称"
+        case "VOCABULARY_FAILED":
+            return "单词信息生成失败，请稍后重试"
         default:
             return "识别失败，请稍后重试"
         }
     }
+
+    private func retryAfterSeconds(from response: HTTPURLResponse) -> Int? {
+        guard let value = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
+        return Int(value)
+    }
+}
+
+private struct VocabularyRequest: Encodable {
+    let term: String
 }
 
 /// 每次识别使用独立的 URLSession delegate，以获得真实上传进度并让 Task 取消传递到底层请求。
 private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     private let onProgress: @Sendable (Double) -> Void
+    private let onObject: @Sendable (LearningObject) -> Void
     private let lock = NSLock()
     private var receivedData = Data()
+    private var eventBuffer = Data()
+    private var completionData: Data?
     private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
     private var session: URLSession?
     private var uploadTask: URLSessionUploadTask?
@@ -96,8 +162,12 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
     private var isFinished = false
     private var lastProgress = 0.0
 
-    init(onProgress: @escaping @Sendable (Double) -> Void) {
+    init(
+        onProgress: @escaping @Sendable (Double) -> Void,
+        onObject: @escaping @Sendable (LearningObject) -> Void
+    ) {
         self.onProgress = onProgress
+        self.onObject = onObject
     }
 
     func upload(request: URLRequest, body: Data) async throws -> (Data, URLResponse) {
@@ -152,7 +222,14 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        receivedData.append(data)
+        guard let response = dataTask.response as? HTTPURLResponse,
+              (200..<300).contains(response.statusCode),
+              response.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
+            receivedData.append(data)
+            return
+        }
+        eventBuffer.append(data)
+        processEvents()
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -160,9 +237,74 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
             finish(.failure(error))
         } else if let response = task.response {
             onProgress(1)
-            finish(.success((receivedData, response)))
+            if let http = response as? HTTPURLResponse,
+               (200..<300).contains(http.statusCode),
+               http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true {
+                processEvents()
+                guard let completionData else {
+                    finish(.failure(APIError.invalidResponse))
+                    return
+                }
+                finish(.success((completionData, response)))
+            } else {
+                finish(.success((receivedData, response)))
+            }
         } else {
             finish(.failure(APIError.invalidResponse))
+        }
+    }
+
+    private func processEvents() {
+        while let boundary = nextEventBoundary(in: eventBuffer) {
+            let block = eventBuffer.subdata(in: eventBuffer.startIndex..<boundary.lowerBound)
+            eventBuffer.removeSubrange(eventBuffer.startIndex..<boundary.upperBound)
+            processEventBlock(String(decoding: block, as: UTF8.self))
+        }
+    }
+
+    private func processEventBlock(_ block: String) {
+        var eventName = "message"
+        var dataLines: [String] = []
+
+        for rawLine in block.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.last == "\r" ? rawLine.dropLast() : rawLine[...]
+            if line.hasPrefix("event:") {
+                eventName = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("data:") {
+                dataLines.append(line.dropFirst(5).trimmingCharacters(in: .whitespaces))
+            }
+        }
+
+        guard let data = dataLines.joined(separator: "\n").data(using: .utf8) else { return }
+        switch eventName {
+        case "object":
+            guard let object = try? JSONDecoder().decode(LearningObject.self, from: data) else {
+                let task = uploadTask
+                finish(.failure(APIError.invalidResponse))
+                task?.cancel()
+                return
+            }
+            onObject(object)
+        case "complete":
+            completionData = data
+        case "error":
+            let payload = try? JSONDecoder().decode(ServerError.self, from: data)
+            let task = uploadTask
+            finish(.failure(APIError.server(payload?.message ?? "AI 识别暂时失败，请稍后重试")))
+            task?.cancel()
+        default:
+            break
+        }
+    }
+
+    private func nextEventBoundary(in data: Data) -> Range<Data.Index>? {
+        let lineFeedBoundary = data.range(of: Data([0x0A, 0x0A]))
+        let carriageReturnBoundary = data.range(of: Data([0x0D, 0x0A, 0x0D, 0x0A]))
+        switch (lineFeedBoundary, carriageReturnBoundary) {
+        case let (left?, right?): return left.lowerBound <= right.lowerBound ? left : right
+        case let (left?, nil): return left
+        case let (nil, right?): return right
+        case (nil, nil): return nil
         }
     }
 
@@ -188,6 +330,7 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
 private struct ServerError: Decodable {
     let error: String?
     let message: String?
+    let retryAfterSeconds: Int?
 }
 
 /// 构造 `/v1/analyze` 所需的单图片 multipart 请求体。

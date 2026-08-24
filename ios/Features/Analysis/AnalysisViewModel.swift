@@ -3,6 +3,7 @@ import UIKit
 @MainActor
 final class AnalysisViewModel: ObservableObject {
     @Published private(set) var phase: AnalysisPhase = .preparing
+    @Published private(set) var objects: [LearningObject] = []
 
     private let client: any AnalysisProviding
     private var analysisTask: Task<Void, Never>?
@@ -12,18 +13,19 @@ final class AnalysisViewModel: ObservableObject {
         self.client = client
     }
 
-    func start(image: UIImage, maxObjects: Int) {
+    func start(image: UIImage, maxObjects: Int, captionStyle: CaptionStyle) {
         analysisTask?.cancel()
         let id = UUID()
         operationID = id
+        objects = []
         phase = .preparing
         analysisTask = Task { [weak self] in
-            await self?.analyze(image: image, maxObjects: maxObjects, operationID: id)
+            await self?.analyze(image: image, maxObjects: maxObjects, captionStyle: captionStyle, operationID: id)
         }
     }
 
-    func retry(image: UIImage, maxObjects: Int) {
-        start(image: image, maxObjects: maxObjects)
+    func retry(image: UIImage, maxObjects: Int, captionStyle: CaptionStyle) {
+        start(image: image, maxObjects: maxObjects, captionStyle: captionStyle)
     }
 
     func cancel() {
@@ -33,23 +35,19 @@ final class AnalysisViewModel: ObservableObject {
         phase = .cancelled
     }
 
-    private func analyze(image: UIImage, maxObjects: Int, operationID id: UUID) async {
-        let uploadStartedAt = Date()
+    private func analyze(image: UIImage, maxObjects: Int, captionStyle: CaptionStyle, operationID id: UUID) async {
         do {
-            let result = try await client.analyze(image: image, maxObjects: maxObjects) { [weak self] progress in
+            let result = try await client.analyze(image: image, maxObjects: maxObjects, captionStyle: captionStyle) { [weak self] progress in
                 Task { @MainActor in
-                    self?.receiveUploadProgress(progress, operationID: id, startedAt: uploadStartedAt)
+                    self?.receiveUploadProgress(progress, operationID: id)
+                }
+            } onObject: { [weak self] object in
+                Task { @MainActor in
+                    self?.receiveObject(object, operationID: id)
                 }
             }
             guard isCurrent(id), !Task.isCancelled else { return }
-
-            // 上传阶段至少停留 0.4 秒，避免局域网环境下状态一闪而过。
-            await waitUntil(uploadStartedAt.addingTimeInterval(0.4))
-            guard isCurrent(id), !Task.isCancelled else { return }
-            phase = .processing
-
-            try await Task.sleep(for: .milliseconds(350))
-            guard isCurrent(id), !Task.isCancelled else { return }
+            objects = result.objects
             phase = .success(result)
         } catch {
             guard isCurrent(id), !Task.isCancelled else { return }
@@ -57,12 +55,12 @@ final class AnalysisViewModel: ObservableObject {
         }
     }
 
-    private func receiveUploadProgress(_ progress: Double, operationID id: UUID, startedAt: Date) {
+    private func receiveUploadProgress(_ progress: Double, operationID id: UUID) {
         guard isCurrent(id) else { return }
         switch phase {
         case .preparing, .uploading:
             break
-        case .analyzing, .processing, .success, .failed, .cancelled:
+        case .analyzing, .success, .failed, .cancelled:
             // URLSession 的最后一次代理回调可能比响应 continuation 更晚抵达主线程。
             return
         }
@@ -70,19 +68,22 @@ final class AnalysisViewModel: ObservableObject {
         phase = .uploading(progress: normalized)
 
         guard normalized >= 1 else { return }
-        Task { [weak self] in
-            await self?.waitUntil(startedAt.addingTimeInterval(0.4))
-            guard let self, self.isCurrent(id), !Task.isCancelled else { return }
-            if case .uploading = self.phase {
-                self.phase = .analyzing
-            }
+        if case .uploading = phase {
+            phase = .analyzing
         }
     }
 
-    private func waitUntil(_ date: Date) async {
-        let remaining = date.timeIntervalSinceNow
-        guard remaining > 0 else { return }
-        try? await Task.sleep(for: .seconds(remaining))
+    private func receiveObject(_ object: LearningObject, operationID id: UUID) {
+        guard isCurrent(id) else { return }
+        switch phase {
+        case .success, .failed, .cancelled:
+            return
+        case .preparing, .uploading, .analyzing:
+            break
+        }
+        guard !objects.contains(where: { $0.id == object.id }) else { return }
+        objects.append(object)
+        phase = .analyzing
     }
 
     private func isCurrent(_ id: UUID) -> Bool {
