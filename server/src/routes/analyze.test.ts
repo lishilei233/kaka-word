@@ -49,6 +49,7 @@ test("streams validated mock objects before the complete result", async () => {
   assert.match(body, /"english":"mug"/);
   assert.match(body, /"captionStyle":"serious"/);
   assert.match(body, /"caption":"A mug, a book, and a plant sit together on the table\."/);
+  assert.match(body, /"captionChinese":"一个杯子、一本书和一盆植物摆在一起。"/);
   assert.equal(limiter.minuteCalls, 1);
   assert.equal(limiter.dailyCalls, 1);
   assert.equal(limiter.lastClientIP, "203.0.113.10");
@@ -305,6 +306,7 @@ class CountingProvider implements VisionProvider {
       imageHeight: input.imageHeight,
       objects: [],
       caption: "There are no learning objects in this image.",
+      captionChinese: "这张图片中没有适合学习的物体。",
       captionStyle: input.captionStyle,
     };
   }

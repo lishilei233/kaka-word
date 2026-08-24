@@ -16,7 +16,11 @@ struct ShareCardView: View {
     @State private var shareItem: ShareFile?
     @State private var errorMessage: String?
 
-    init(image: UIImage, result: AnalyzeResult, headline: String? = nil) {
+    init(
+        image: UIImage,
+        result: AnalyzeResult,
+        headline: String? = nil
+    ) {
         self.image = image
         self.result = result
         self.headline = headline ?? result.caption ?? "把生活读成英语"
@@ -64,7 +68,9 @@ struct ShareCardView: View {
         }
         .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
-        .task { await preparePrivacyPreview() }
+        .task {
+            await preparePrivacyPreview()
+        }
         .onChange(of: blurFaces) { _, _ in
             Task { await updatePreviewImage() }
         }
@@ -85,7 +91,8 @@ struct ShareCardView: View {
         ShareCardCanvas(
             image: previewImage,
             result: result,
-            headline: headline
+            headline: headline,
+            captionChinese: result.captionChinese
         )
         .aspectRatio(ShareCardRenderer.logicalSize, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -167,7 +174,8 @@ struct ShareCardView: View {
             let url = try ShareCardRenderer.render(
                 image: previewImage,
                 result: result,
-                headline: headline
+                headline: headline,
+                captionChinese: result.captionChinese
             )
             shareItem = ShareFile(url: url)
         } catch {
@@ -175,6 +183,7 @@ struct ShareCardView: View {
         }
         isRendering = false
     }
+
 }
 
 private struct ShareFile: Identifiable {

@@ -1,0 +1,80 @@
+export class MockVisionProvider {
+    async analyze(input) {
+        return mockResult(input);
+    }
+    async analyzeStream(input, onObject) {
+        const result = mockResult(input);
+        for (const object of result.objects) {
+            await abortableDelay(350, input.signal);
+            await onObject(object);
+        }
+        return result;
+    }
+    async resolveVocabulary(input) {
+        const normalized = input.term.trim().toLowerCase();
+        if (normalized === "窗户" || normalized === "window") {
+            return { english: "window", chinese: "窗户", ipa: "/ˈwɪndoʊ/", example: "The window is open." };
+        }
+        return { english: input.term.trim(), chinese: input.term.trim(), ipa: "", example: `This is ${input.term.trim()}.` };
+    }
+}
+function mockResult(input) {
+    return {
+        imageWidth: input.imageWidth,
+        imageHeight: input.imageHeight,
+        caption: input.captionStyle === "funny"
+            ? "The mug is patiently waiting for its next coffee mission."
+            : "A mug, a book, and a plant sit together on the table.",
+        captionChinese: input.captionStyle === "funny"
+            ? "这个杯子正耐心地等待下一次咖啡任务。"
+            : "一个杯子、一本书和一盆植物摆在一起。",
+        captionStyle: input.captionStyle,
+        objects: [
+            {
+                id: "obj_01",
+                english: "mug",
+                chinese: "杯子",
+                ipa: "/mʌɡ/",
+                confidence: 0.96,
+                box: { x: 0.58, y: 0.43, width: 0.22, height: 0.28 },
+                anchor: { x: 0.69, y: 0.57 },
+                example: "This is a mug.",
+            },
+            {
+                id: "obj_02",
+                english: "book",
+                chinese: "书",
+                ipa: "/bʊk/",
+                confidence: 0.93,
+                box: { x: 0.12, y: 0.57, width: 0.30, height: 0.20 },
+                anchor: { x: 0.27, y: 0.67 },
+                example: "I am reading a book.",
+            },
+            {
+                id: "obj_03",
+                english: "plant",
+                chinese: "植物",
+                ipa: "/plænt/",
+                confidence: 0.91,
+                box: { x: 0.08, y: 0.12, width: 0.22, height: 0.34 },
+                anchor: { x: 0.19, y: 0.29 },
+                example: "The plant is green.",
+            },
+        ],
+    };
+}
+function abortableDelay(milliseconds, signal) {
+    if (signal?.aborted)
+        return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    return new Promise((resolve, reject) => {
+        const handleAbort = () => {
+            clearTimeout(timer);
+            reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+        };
+        const timer = setTimeout(() => {
+            signal?.removeEventListener("abort", handleAbort);
+            resolve();
+        }, milliseconds);
+        signal?.addEventListener("abort", handleAbort, { once: true });
+    });
+}

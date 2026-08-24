@@ -24,6 +24,7 @@ struct ResultView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
     @State private var showShareCard = false
+    @State private var feedbackErrorMessage: String?
     @State private var result: AnalyzeResult
 
     init(
@@ -50,7 +51,12 @@ struct ResultView: View {
                 revealsAnnotations: revealsAnnotations,
                 status: .complete,
                 onClose: dismiss.callAsFunction,
-                onShare: { showShareCard = true },
+                onShare: {
+                    showShareCard = true
+                },
+                onFeedback: {
+                    openFeedback()
+                },
                 onRetry: nil,
                 onResultChange: persist
             )
@@ -58,6 +64,14 @@ struct ResultView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(isPresented: $showShareCard) {
             ShareCardView(image: image, result: result)
+        }
+        .alert("无法打开邮件", isPresented: Binding(
+            get: { feedbackErrorMessage != nil },
+            set: { if !$0 { feedbackErrorMessage = nil } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(feedbackErrorMessage ?? "请在系统中配置邮件账户后重试。")
         }
         .pictureWordBackSwipe { dismiss() }
     }
@@ -71,10 +85,48 @@ struct ResultView: View {
             return error.localizedDescription
         }
     }
+
+    private func openFeedback() {
+        guard let url = FeedbackMail.url(result: result) else {
+            feedbackErrorMessage = "反馈邮件地址生成失败，请稍后重试。"
+            return
+        }
+        UIApplication.shared.open(url, options: [:]) { didOpen in
+            guard !didOpen else { return }
+            DispatchQueue.main.async {
+                feedbackErrorMessage = "没有可用的邮件客户端，请在系统中配置邮件账户后重试。"
+            }
+        }
+    }
+}
+
+enum FeedbackMail {
+    static func url(result: AnalyzeResult) -> URL? {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+        let caption = result.caption?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let context = caption.flatMap { $0.isEmpty ? nil : "描述：\($0)\n" } ?? ""
+        let body = "应用版本：\(version)\n识别单词数：\(result.objects.count)\n\(context)\n请在这里写下你的反馈："
+
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.queryItems = [
+            URLQueryItem(name: "subject", value: "Picture Word 反馈"),
+            URLQueryItem(name: "body", value: body)
+        ]
+        return components.url
+    }
 }
 
 /// 历史详情与新识别结果共用手账主题的“FOUND WORDS＋标注照片”样式。
 struct PhotoWordCardDetailView: View {
+    private enum Interaction {
+        static let pageDismissSuppression: TimeInterval = 0.2
+    }
+
+    private enum Layout {
+        static let footerMinimumHeight: CGFloat = 128
+    }
+
     let image: UIImage
     let result: AnalyzeResult
     var missionUpdate: MissionUpdate?
@@ -82,35 +134,60 @@ struct PhotoWordCardDetailView: View {
     var status: PhotoWordCardStatus = .complete
     let onClose: () -> Void
     let onShare: () -> Void
+    let onFeedback: () -> Void
     var onRetry: (() -> Void)?
     var onResultChange: ((AnalyzeResult) -> String?)?
 
-    @StateObject private var speech = SpeechService()
-    @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
-    @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
-    @State private var expandedObjectID: String?
     @State private var selectedObject: LearningObject?
     @State private var editErrorMessage: String?
+    @State private var showTips = false
     @State private var editingObjectID: String?
     @State private var suppressPageDismissUntil = Date.distantPast
 
     var body: some View {
-        VStack(spacing: 0) {
-            legacyHeader
+        GeometryReader { proxy in
+            let rawRatio = image.size.width / max(image.size.height, 1)
+            let cardRatio = min(max(rawRatio, 0.76), 1.34)
+            let photoWidth = max(proxy.size.width - 40, 1)
+            let photoHeight = photoWidth / cardRatio
+            let footerHeight = max(
+                Layout.footerMinimumHeight,
+                proxy.size.height - photoHeight
+            )
 
-            decoratedPhoto
-
-            footer
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    decoratedPhoto
+                    footer
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: footerHeight,
+                            alignment: .top
+                        )
+                }
+                .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded(dismissEditingFromPageTap))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            legacyHeader
+                .zIndex(10)
+        }
         .sheet(item: $selectedObject) { object in
             WordDetailSheet(
                 object: object,
                 onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil
             )
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showTips) {
+            AnnotationTipsSheet()
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
         }
         .alert("无法保存修改", isPresented: Binding(
             get: { editErrorMessage != nil },
@@ -155,23 +232,25 @@ struct PhotoWordCardDetailView: View {
                 .buttonStyle(.plain)
             }
         } trailing: {
-            PictureWordHeaderCapsule(
-                tint: status.isComplete ? Color.sun : Color.paperDeep,
-                foreground: Color.ink,
-                interactive: status.isComplete
-            ) {
-                Button {
-                    finishAnnotationEditing()
-                    onShare()
-                } label: {
-                    Text("AI")
-                        .font(.system(size: 12, weight: .black, design: .rounded))
+            if status.isComplete {
+                PictureWordHeaderCapsule(
+                    tint: Color.sun.opacity(0.72),
+                    foreground: Color.ink,
+                    interactive: true
+                ) {
+                    Button {
+                        finishAnnotationEditing()
+                        showTips = true
+                    } label: {
+                        Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 14, weight: .bold))
                         .frame(width: 50, height: 50)
+                    }
+                    .accessibilityLabel("查看 Tips")
+                    .buttonStyle(.plain)
                 }
-                .disabled(!status.isComplete)
-                .opacity(status.isComplete ? 1 : 0.48)
-                .accessibilityLabel("生成分享卡")
-                .buttonStyle(.plain)
+            } else {
+                Color.clear.frame(width: 50, height: 50)
             }
         }
     }
@@ -206,32 +285,51 @@ struct PhotoWordCardDetailView: View {
                 }
 
                 if let caption = result.caption, !caption.isEmpty {
-                    Text(caption)
-                        .font(.system(size: 16, weight: .bold, design: .serif))
-                        .foregroundStyle(Color.ink.opacity(0.82))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 8)
-                }
-
-                Text("轻点标签看详情；长按标签进入抖动后，可拖动标签和圆点。")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.ink.opacity(0.52))
-                    .padding(.vertical, 17)
-
-                if result.hasAnnotationOverrides {
-                    Button {
-                        apply(result.clearingAnnotationOverrides())
-                    } label: {
-                        Label("恢复自动标注", systemImage: "arrow.counterclockwise")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                    VStack(spacing: 10) {
+                        Text(caption)
+                            .font(.system(size: 16, weight: .bold, design: .serif))
+                            .foregroundStyle(Color.ink.opacity(0.82))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                        if let captionChinese = result.captionChinese, !captionChinese.isEmpty {
+                            Text(captionChinese)
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Color.ink.opacity(0.56))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.coral)
-                    .padding(.bottom, 12)
+
                 }
+
+                HStack(spacing: 8) {
+                    resultActionButton(
+                        "分享",
+                        systemImage: "square.and.arrow.up",
+                        foreground: Color.paperLight,
+                        background: Color.ink,
+                        action: onShare
+                    )
+                    resultActionButton(
+                        "反馈",
+                        systemImage: "envelope",
+                        foreground: Color.ink,
+                        background: Color.mint.opacity(0.72),
+                        action: onFeedback
+                    )
+                    if let onRetry {
+                        resultActionButton(
+                            "重新识别",
+                            systemImage: "arrow.clockwise",
+                            foreground: Color.ink,
+                            background: Color.sun.opacity(0.78),
+                            action: onRetry
+                        )
+                    }
+                }
+                .padding(.top, 40)
             }
+            .padding(.horizontal, 20)
         case .failed(let message):
             RecognitionFailureFooter(
                 message: message,
@@ -248,7 +346,10 @@ struct PhotoWordCardDetailView: View {
     }
 
     private var decoratedPhoto: some View {
-        AnnotatedPhotoCard(
+        let rawRatio = image.size.width / max(image.size.height, 1)
+        let cardRatio = min(max(rawRatio, 0.76), 1.34)
+
+        return AnnotatedPhotoCard(
             image: image,
             objects: result.objects,
             revealsAnnotations: revealsAnnotations,
@@ -260,188 +361,10 @@ struct PhotoWordCardDetailView: View {
         } onUpdate: { object in
             updateObject(object).map { editErrorMessage = $0 }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 20)
-    }
-
-    private func photo(proxy: ScrollViewProxy) -> some View {
-        let rawRatio = image.size.width / max(image.size.height, 1)
-        let cardRatio = min(max(rawRatio, 0.76), 1.34)
-        return NotebookPhotoFrame {
-            AnnotatedImageView(
-                image: image,
-                objects: result.objects,
-                revealsAnnotations: revealsAnnotations
-            ) { object in
-                open(object, proxy: proxy)
-            }
-            .aspectRatio(cardRatio, contentMode: .fit)
-            .frame(maxWidth: .infinity)
-        }
+        .aspectRatio(cardRatio, contentMode: .fit)
         .frame(maxWidth: .infinity)
-        .padding(.top, 8)
-    }
-
-    private var wordListHeader: some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("WORDS IN THIS PAGE")
-                    .font(.system(.caption2, design: .rounded, weight: .black))
-                    .tracking(1.7)
-                    .foregroundStyle(Color.coral)
-                Text("这一页的单词")
-                    .font(.scrapbookTitle)
-                    .foregroundStyle(Color.ink)
-            }
-            Spacer()
-            Text("点开看例句")
-                .font(.scrapbookCaption)
-                .foregroundStyle(Color.ink.opacity(0.44))
-        }
-        .padding(.top, 8)
-    }
-
-    private func wordRow(_ object: LearningObject, index: Int) -> some View {
-        let isExpanded = expandedObjectID == object.id
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Button {
-                    toggle(object)
-                } label: {
-                    HStack(spacing: 12) {
-                        Text(String(format: "%02d", index + 1))
-                            .font(.system(size: 15, weight: .black, design: .monospaced))
-                            .foregroundStyle(Color.coral)
-                            .frame(width: 28, alignment: .leading)
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(object.english)
-                                .font(.system(.title3, design: .serif, weight: .bold))
-                                .foregroundStyle(Color.ink)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.64)
-                                .fixedSize(horizontal: false, vertical: true)
-                            HStack(spacing: 8) {
-                                Text(object.ipa)
-                                    .font(.system(.caption, design: .serif, weight: .medium))
-                                    .foregroundStyle(Color.ink.opacity(0.48))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.65)
-                                Text(object.chinese)
-                                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                    .foregroundStyle(Color.ink.opacity(0.72))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.65)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Spacer(minLength: 0)
-
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .black))
-                            .foregroundStyle(Color.ink.opacity(0.35))
-                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button {
-                    speech.speak(object.english, rate: speechRate)
-                } label: {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Color.ink)
-                        .frame(width: 46, height: 46)
-                        .background(speechEnabled ? Color.sun : Color.ink.opacity(0.1), in: Circle())
-                }
-                .disabled(!speechEnabled)
-                .accessibilityLabel("朗读 \(object.english)")
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if isExpanded {
-                Divider()
-                    .overlay(Color.ink.opacity(0.1))
-                    .padding(.horizontal, 16)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("EXAMPLE")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
-                            .tracking(1.4)
-                            .foregroundStyle(Color.coral)
-                        Text(object.example)
-                            .font(.system(.body, design: .rounded, weight: .semibold))
-                            .foregroundStyle(Color.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Label("跟着读一遍，不评分，也不用背诵。", systemImage: "waveform")
-                        .font(.system(.caption, design: .rounded, weight: .bold))
-                        .foregroundStyle(Color.ink.opacity(0.66))
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.mint.opacity(0.42), in: RoundedRectangle(cornerRadius: 16))
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 16)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .background(Color.paperLight.opacity(0.94), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(isExpanded ? Color.coral.opacity(0.45) : Color.ink.opacity(0.07), lineWidth: 1)
-        }
-        .shadow(color: Color.ink.opacity(0.08), radius: 0, x: 2, y: 3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.easeInOut(duration: 0.22), value: isExpanded)
-    }
-
-    private func missionCard(_ update: MissionUpdate) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: update.completedNow ? "seal.fill" : "figure.2.and.child.holdinghands")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(update.completedNow ? Color.coral : Color.ink)
-                .frame(width: 44, height: 44)
-                .background(Color.paperLight.opacity(0.7), in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                Text(update.completedNow ? "寻宝完成" : "今日寻宝 \(update.count)/\(update.target)")
-                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
-                Text(update.completedNow ? "贴纸已经收入单词册。" : "再找到不同的单词就能完成任务。")
-                    .font(.system(.caption, design: .rounded, weight: .medium))
-                    .foregroundStyle(Color.ink.opacity(0.58))
-            }
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(Color.ink)
-        .padding(14)
-        .background((update.completedNow ? Color.sun : Color.mint).opacity(0.72), in: RoundedRectangle(cornerRadius: 20))
-    }
-
-    private func toggle(_ object: LearningObject) {
-        withAnimation(.easeInOut(duration: 0.22)) {
-            expandedObjectID = expandedObjectID == object.id ? nil : object.id
-        }
-    }
-
-    private func open(_ object: LearningObject, proxy: ScrollViewProxy) {
-        withAnimation(.easeInOut(duration: 0.22)) {
-            expandedObjectID = object.id
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(80))
-            withAnimation(.easeInOut(duration: 0.32)) {
-                proxy.scrollTo(object.id, anchor: .center)
-            }
-        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 20)
     }
 
     private func updateObject(_ object: LearningObject) -> String? {
@@ -452,10 +375,24 @@ struct PhotoWordCardDetailView: View {
         return nil
     }
 
-    private func apply(_ updated: AnalyzeResult) {
-        if let error = onResultChange?(updated) {
-            editErrorMessage = error
+    private func resultActionButton(
+        _ title: String,
+        systemImage: String,
+        foreground: Color,
+        background: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            finishAnnotationEditing()
+            action()
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(foreground)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(background, in: Capsule())
         }
+        .buttonStyle(.plain)
     }
 
     private var annotationEditingBinding: Binding<String?> {
@@ -463,7 +400,7 @@ struct PhotoWordCardDetailView: View {
             get: { editingObjectID },
             set: { newValue in
                 if newValue != nil, newValue != editingObjectID {
-                    suppressPageDismissUntil = Date().addingTimeInterval(0.2)
+                    suppressPageDismissUntil = Date().addingTimeInterval(Interaction.pageDismissSuppression)
                 }
                 editingObjectID = newValue
             }
@@ -481,11 +418,77 @@ struct PhotoWordCardDetailView: View {
     }
 }
 
+private struct AnnotationTipsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            NotebookBackground()
+
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("ANNOTATION TIPS")
+                            .font(.system(size: 10, weight: .black, design: .monospaced))
+                            .tracking(1.8)
+                            .foregroundStyle(Color.coral)
+                        Text("如何调整标注")
+                            .font(.system(size: 24, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Color.ink)
+                    }
+
+                    Spacer()
+                }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    tipRow(
+                        number: "01",
+                        title: "轻点标签",
+                        detail: "查看单词详情、发音和例句。"
+                    )
+                    tipRow(
+                        number: "02",
+                        title: "长按标签",
+                        detail: "标签开始轻微抖动后，可以拖动单词胶囊。"
+                    )
+                    tipRow(
+                        number: "03",
+                        title: "拖动圆点",
+                        detail: "长按引导线末端的圆点，可以调整指向位置。"
+                    )
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+        }
+    }
+
+    private func tipRow(number: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 13) {
+            Text(number)
+                .font(.system(size: 11, weight: .black, design: .monospaced))
+                .foregroundStyle(Color.paperLight)
+                .frame(width: 30, height: 30)
+                .background(Color.ink, in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.ink)
+                Text(detail)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.ink.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 private struct StreamingRecognitionFooter: View {
     let status: PhotoWordCardStatus
     let objectCount: Int
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isMoving = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -515,17 +518,27 @@ private struct StreamingRecognitionFooter: View {
                         Rectangle()
                             .fill(Color.coral)
                             .frame(width: proxy.size.width * min(max(progress, 0), 1), height: 2)
-                    } else {
+                    } else if reduceMotion {
+                        let segmentWidth = min(max(48, proxy.size.width * 0.27), proxy.size.width)
                         Rectangle()
                             .fill(Color.coral)
-                            .frame(width: max(48, proxy.size.width * 0.27), height: 2)
-                            .offset(x: reduceMotion ? proxy.size.width * 0.36 : (isMoving ? proxy.size.width * 0.73 : 0))
+                            .frame(width: segmentWidth, height: 2)
+                            .offset(x: max(0, proxy.size.width - segmentWidth) / 2)
+                    } else {
+                        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
+                            let segmentWidth = min(max(48, proxy.size.width * 0.27), proxy.size.width)
+                            let availableWidth = max(0, proxy.size.width - segmentWidth)
+                            let phase = pingPongPhase(at: context.date)
+                            Rectangle()
+                                .fill(Color.coral)
+                                .frame(width: segmentWidth, height: 2)
+                                .offset(x: availableWidth * phase)
+                        }
                     }
                 }
             }
             .frame(height: 2)
         }
-        .onAppear(perform: startMoving)
     }
 
     private var stageLabel: String {
@@ -544,18 +557,18 @@ private struct StreamingRecognitionFooter: View {
         case .preparing: return "正在准备照片…"
         case .uploading: return "正在上传照片…"
         case .recognizing:
-            return objectCount == 0 ? "AI 正在寻找物体…" : "继续寻找更多单词…"
+            return objectCount == 0 ? "正在分析照片…" : "正在识别并整理单词…"
         case .cancelled: return "正在取消…"
         case .complete: return "识别完成"
         case .failed: return "识别遇到问题"
         }
     }
 
-    private func startMoving() {
-        guard !reduceMotion else { return }
-        withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
-            isMoving = true
-        }
+    private func pingPongPhase(at date: Date) -> CGFloat {
+        let duration = 2.4
+        let elapsed = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: duration)
+        let normalized = elapsed / duration
+        return normalized <= 0.5 ? CGFloat(normalized * 2) : CGFloat((1 - normalized) * 2)
     }
 }
 
@@ -565,15 +578,18 @@ private struct RecognitionFailureFooter: View {
     let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .center, spacing: 10) {
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.ink)
                 .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
             HStack(spacing: 9) {
                 footerButton("返回首页", tint: Color.ink.opacity(0.08), action: onClose)
                 footerButton("重新识别", tint: Color.sun, action: onRetry)
             }
+            .frame(maxWidth: .infinity)
         }
         .padding(14)
         .background(Color.paper, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -617,4 +633,67 @@ struct ResultAmbientBackground: View {
         .ignoresSafeArea()
         .accessibilityHidden(true)
     }
+}
+
+#Preview("Result View") {
+    ResultView(
+        image: ResultViewPreviewData.image,
+        result: ResultViewPreviewData.result,
+        recordID: UUID()
+    )
+    .environmentObject(HistoryStore())
+}
+
+private enum ResultViewPreviewData {
+    static let image: UIImage = {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 600))
+        return renderer.image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 800, height: 600))
+
+            UIColor.systemYellow.setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 110, y: 120, width: 180, height: 180))
+
+            UIColor.systemGreen.setFill()
+            context.cgContext.fill(CGRect(x: 470, y: 170, width: 180, height: 220))
+
+            UIColor.white.withAlphaComponent(0.82).setFill()
+            context.cgContext.fill(CGRect(x: 510, y: 215, width: 100, height: 18))
+            context.cgContext.fill(CGRect(x: 510, y: 260, width: 100, height: 18))
+        }
+    }()
+
+    static let result = AnalyzeResult(
+        imageWidth: 800,
+        imageHeight: 600,
+        objects: [
+            LearningObject(
+                id: "preview-sun",
+                english: "sun",
+                chinese: "太阳",
+                ipa: "/sʌn/",
+                confidence: 0.98,
+                box: ObjectBox(x: 0.12, y: 0.18, width: 0.24, height: 0.3),
+                anchor: ObjectAnchor(x: 0.24, y: 0.33),
+                example: "The sun is bright.",
+                labelCenterOverride: nil,
+                targetOverride: nil
+            ),
+            LearningObject(
+                id: "preview-window",
+                english: "window",
+                chinese: "窗户",
+                ipa: "/ˈwɪndoʊ/",
+                confidence: 0.94,
+                box: ObjectBox(x: 0.58, y: 0.28, width: 0.2, height: 0.36),
+                anchor: ObjectAnchor(x: 0.68, y: 0.46),
+                example: "Please open the window.",
+                labelCenterOverride: nil,
+                targetOverride: nil
+            )
+        ],
+        caption: "The sun is visiting the window today.",
+        captionChinese: "今天太阳来拜访窗户了。",
+        captionStyle: .serious
+    )
 }

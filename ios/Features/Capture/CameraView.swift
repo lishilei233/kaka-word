@@ -84,8 +84,67 @@ final class CameraViewController: UIViewController {
                 connection.videoRotationAngle = 90
             }
         }
-        guideView.frame = view.bounds
+        updateGuideFrame()
+    }
+
+    private func updateGuideFrame() {
+        guard let previewLayer else { return }
+
+        // 当前 SDK 没有公开 previewLayer.videoRect，这里根据实际输出尺寸计算
+        // resizeAspect 后真正显示摄像头画面的区域。
+        guard let previewVideoRect = previewVideoRect() else {
+            guideView.isHidden = true
+            return
+        }
+        // 辅助层只覆盖这块区域，避免网格线和取景框落到黑边及控制区。
+        let videoRect = view.layer.convert(previewVideoRect, from: previewLayer)
+        guard videoRect.width > 0, videoRect.height > 0 else {
+            guideView.isHidden = true
+            return
+        }
+
+        guideView.frame = videoRect.integral
+        guideView.isHidden = false
         guideView.setNeedsLayout()
+    }
+
+    private func previewVideoRect() -> CGRect? {
+        guard let previewLayer,
+              let formatDescription = captureDevice?.activeFormat.formatDescription else { return nil }
+
+        let dimensions = CMVideoFormatDescriptionGetDimensions(formatDescription)
+        guard dimensions.width > 0, dimensions.height > 0,
+              previewLayer.bounds.width > 0, previewLayer.bounds.height > 0 else { return nil }
+
+        var videoWidth = CGFloat(dimensions.width)
+        var videoHeight = CGFloat(dimensions.height)
+        let rotationAngle = previewLayer.connection?.videoRotationAngle ?? 0
+        if Int(rotationAngle.rounded()) % 180 != 0 {
+            swap(&videoWidth, &videoHeight)
+        }
+
+        let videoAspectRatio = videoWidth / videoHeight
+        let layerBounds = previewLayer.bounds
+        let layerAspectRatio = layerBounds.width / layerBounds.height
+        if layerAspectRatio > videoAspectRatio {
+            let height = layerBounds.height
+            let width = height * videoAspectRatio
+            return CGRect(
+                x: layerBounds.midX - width / 2,
+                y: layerBounds.minY,
+                width: width,
+                height: height
+            )
+        } else {
+            let width = layerBounds.width
+            let height = width / videoAspectRatio
+            return CGRect(
+                x: layerBounds.minX,
+                y: layerBounds.midY - height / 2,
+                width: width,
+                height: height
+            )
+        }
     }
 
     private func installPreviewLayer() {
@@ -254,7 +313,8 @@ final class CameraViewController: UIViewController {
     }
 
     private func addControls() {
-        guideView.translatesAutoresizingMaskIntoConstraints = false
+        // guideView 根据预览层的 videoRect 手动布局，不参与全屏 Auto Layout。
+        guideView.translatesAutoresizingMaskIntoConstraints = true
         guideView.isUserInteractionEnabled = false
         view.addSubview(guideView)
 
@@ -359,7 +419,7 @@ final class CameraViewController: UIViewController {
 
         var libraryConfiguration = UIButton.Configuration.plain()
         libraryConfiguration.image = UIImage(systemName: "photo.on.rectangle.angled", withConfiguration: UIImage.SymbolConfiguration(weight: .bold))
-        libraryConfiguration.title = "相册"
+        // libraryConfiguration.title = "相册"
         libraryConfiguration.imagePlacement = .top
         libraryConfiguration.imagePadding = 4
         libraryConfiguration.baseForegroundColor = .white
@@ -392,11 +452,6 @@ final class CameraViewController: UIViewController {
         view.addGestureRecognizer(backSwipe)
 
         NSLayoutConstraint.activate([
-            guideView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            guideView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            guideView.topAnchor.constraint(equalTo: view.topAnchor),
-            guideView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
             closeGlass.widthAnchor.constraint(equalToConstant: 50),
             closeGlass.heightAnchor.constraint(equalToConstant: 50),
             cameraSwitchGlass.widthAnchor.constraint(equalToConstant: 50),
@@ -513,7 +568,9 @@ final class CameraViewController: UIViewController {
         let point = recognizer.location(in: view)
         guard point.y > view.safeAreaInsets.top + 82,
               point.y < view.bounds.height - view.safeAreaInsets.bottom - 150 else { return }
-        let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: point)
+        let layerPoint = previewLayer.convert(point, from: view.layer)
+        guard let videoRect = previewVideoRect(), videoRect.contains(layerPoint) else { return }
+        let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint)
         do {
             try device.lockForConfiguration()
             if device.isFocusPointOfInterestSupported {
@@ -525,7 +582,7 @@ final class CameraViewController: UIViewController {
                 device.exposureMode = .continuousAutoExposure
             }
             device.unlockForConfiguration()
-            guideView.showFocus(at: point)
+            guideView.showFocus(at: guideView.convert(point, from: view))
         } catch {}
     }
 
@@ -575,6 +632,7 @@ final class CameraViewController: UIViewController {
     }
 
     private func showCameraRunning() {
+        updateGuideFrame()
         cameraStatusPanel?.isHidden = true
         shutter.isEnabled = true
         shutter.alpha = 1
@@ -792,6 +850,7 @@ private final class CameraGuideView: UIView {
         isOpaque = false
         backgroundColor = .clear
         isUserInteractionEnabled = false
+        clipsToBounds = true
         guideLayer.fillColor = UIColor.clear.cgColor
         guideLayer.lineCap = .round
         guideLayer.lineJoin = .round
@@ -810,7 +869,9 @@ private final class CameraGuideView: UIView {
 
     private func updateGuidePath() {
         guard bounds.width > 0, bounds.height > 0 else { return }
-        let guide = bounds.insetBy(dx: 28, dy: 154).inset(by: UIEdgeInsets(top: 0, left: 0, bottom: 40, right: 0))
+        // guideView 本身已经与真实视频画面重合，这里只留出安全边距。
+        // 网格线、四角取景框和对焦框因此始终不会越出摄像头画面。
+        let guide = bounds.insetBy(dx: 24, dy: 28)
         let path = UIBezierPath()
         let length: CGFloat = 34
         let corners = [

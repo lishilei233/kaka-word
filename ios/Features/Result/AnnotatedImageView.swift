@@ -3,6 +3,15 @@ import UIKit
 
 /// 绘制等比例适配的图片及 `AnnotationLayoutEngine` 计算结果；本视图不负责布局决策。
 struct AnnotatedImageView: View {
+    private enum Interaction {
+        static let longPressDuration = 0.42
+        static let labelDragMinimumDistance: CGFloat = 3
+        static let targetHitSize: CGFloat = 44
+        static let labelInset: CGFloat = 8
+        static let jiggleInterval = 0.28
+        static let jiggleAmplitude = 0.55
+    }
+
     let image: UIImage
     let objects: [LearningObject]
     var revealsAnnotations = true
@@ -47,51 +56,7 @@ struct AnnotatedImageView: View {
                 .animation(.easeOut(duration: 0.28), value: revealsAnnotations)
 
                 ForEach(Array(layout.placements.enumerated()), id: \.element.id) { index, placement in
-                    TimelineView(.animation(
-                        minimumInterval: 1.0 / 30.0,
-                        paused: activeEditingObjectID != placement.id
-                    )) { timeline in
-                        let isActive = activeEditingObjectID == placement.id
-                        let elapsed = timeline.date.timeIntervalSinceReferenceDate
-                        let angle = isActive
-                            ? sin(elapsed * (2 * .pi / 0.28)) * 0.55
-                            : 0
-
-                        Text(placement.object.english)
-                            .font(.system(size: 14, weight: .black, design: .rounded))
-                            .foregroundStyle(Color.ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.66)
-                            .allowsTightening(true)
-                            .padding(.horizontal, 10)
-                            .frame(width: placement.labelWidth, height: placement.labelHeight)
-                            .background(Color.sun, in: Capsule())
-                            .overlay {
-                                Capsule().stroke(Color.ink.opacity(0.18), lineWidth: 1)
-                            }
-                            .contentShape(Capsule())
-                            .position(placement.labelCenter)
-                            .rotationEffect(.degrees(angle))
-                            .scaleEffect(isActive ? 1.01 : 1)
-                            .shadow(
-                                color: isActive ? Color.ink.opacity(0.22) : .clear,
-                                radius: 5,
-                                y: 3
-                            )
-                            .gesture(labelActivationGesture(
-                                for: placement,
-                                wasEditing: activeEditingObjectID != nil
-                            ))
-                            .simultaneousGesture(labelPositionDragGesture(for: placement, in: imageFrame))
-                            .transition(.scale(scale: 0.72).combined(with: .opacity))
-                            .scaleEffect(revealsAnnotations ? 1 : 0.72)
-                            .opacity(revealsAnnotations ? 1 : 0)
-                            .animation(
-                                .spring(response: 0.42, dampingFraction: 0.72)
-                                    .delay(Double(index) * 0.075),
-                                value: revealsAnnotations
-                            )
-                    }
+                    annotationLabel(for: placement, index: index, in: imageFrame)
                 }
 
                 if isEditable, let activeEditingObjectID {
@@ -99,7 +64,7 @@ struct AnnotatedImageView: View {
                         Circle()
                             .fill(Color.clear)
                             .contentShape(Circle())
-                            .frame(width: 44, height: 44)
+                            .frame(width: Interaction.targetHitSize, height: Interaction.targetHitSize)
                             .overlay {
                                 Circle()
                                     .fill(Color.sun)
@@ -124,11 +89,63 @@ struct AnnotatedImageView: View {
         editingObjectID.wrappedValue
     }
 
+    private func annotationLabel(
+        for placement: AnnotationPlacement,
+        index: Int,
+        in imageFrame: CGRect
+    ) -> some View {
+        TimelineView(.animation(
+            minimumInterval: 1.0 / 30.0,
+            paused: activeEditingObjectID != placement.id
+        )) { timeline in
+            let isActive = activeEditingObjectID == placement.id
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+            let angle = isActive
+                ? sin(elapsed * (2 * .pi / Interaction.jiggleInterval)) * Interaction.jiggleAmplitude
+                : 0
+
+            Text(placement.object.english)
+                .font(.system(size: 14, weight: .black, design: .rounded))
+                .foregroundStyle(Color.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.66)
+                .allowsTightening(true)
+                .padding(.horizontal, 10)
+                .frame(width: placement.labelWidth, height: placement.labelHeight)
+                .background(Color.sun, in: Capsule())
+                .overlay {
+                    Capsule().stroke(Color.ink.opacity(0.18), lineWidth: 1)
+                }
+                .contentShape(Capsule())
+                .position(placement.labelCenter)
+                .rotationEffect(.degrees(angle))
+                .scaleEffect(isActive ? 1.01 : 1)
+                .shadow(
+                    color: isActive ? Color.ink.opacity(0.22) : .clear,
+                    radius: 5,
+                    y: 3
+                )
+                .gesture(labelActivationGesture(
+                    for: placement,
+                    wasEditing: activeEditingObjectID != nil
+                ))
+                .simultaneousGesture(labelPositionDragGesture(for: placement, in: imageFrame))
+                .transition(.scale(scale: 0.72).combined(with: .opacity))
+                .scaleEffect(revealsAnnotations ? 1 : 0.72)
+                .opacity(revealsAnnotations ? 1 : 0)
+                .animation(
+                    .spring(response: 0.42, dampingFraction: 0.72)
+                        .delay(Double(index) * 0.075),
+                    value: revealsAnnotations
+                )
+        }
+    }
+
     private func labelActivationGesture(
         for placement: AnnotationPlacement,
         wasEditing: Bool
     ) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.42)
+        LongPressGesture(minimumDuration: Interaction.longPressDuration)
             .exclusively(before: TapGesture())
             .onEnded { value in
                 switch value {
@@ -151,7 +168,10 @@ struct AnnotatedImageView: View {
         for placement: AnnotationPlacement,
         in imageFrame: CGRect
     ) -> some Gesture {
-        DragGesture(minimumDistance: 3, coordinateSpace: .named("annotation-canvas"))
+        DragGesture(
+            minimumDistance: Interaction.labelDragMinimumDistance,
+            coordinateSpace: .named("annotation-canvas")
+        )
             .onChanged { drag in
                 guard isEditable, activeEditingObjectID == placement.id else { return }
                 draftLabelCenters[placement.id] = normalizedLabelCenter(
@@ -211,8 +231,8 @@ struct AnnotatedImageView: View {
         in frame: CGRect
     ) -> ObjectAnchor {
         let clamped = CGPoint(
-            x: min(max(point.x, frame.minX + 8 + labelWidth / 2), frame.maxX - 8 - labelWidth / 2),
-            y: min(max(point.y, frame.minY + 8 + labelHeight / 2), frame.maxY - 8 - labelHeight / 2)
+            x: min(max(point.x, frame.minX + Interaction.labelInset + labelWidth / 2), frame.maxX - Interaction.labelInset - labelWidth / 2),
+            y: min(max(point.y, frame.minY + Interaction.labelInset + labelHeight / 2), frame.maxY - Interaction.labelInset - labelHeight / 2)
         )
         return normalizedPoint(clamped, in: frame)
     }

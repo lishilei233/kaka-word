@@ -80,20 +80,6 @@ struct LearningObject: Codable, Identifiable, Hashable {
         )
     }
 
-    func clearingOverrides() -> LearningObject {
-        LearningObject(
-            id: id,
-            english: english,
-            chinese: chinese,
-            ipa: ipa,
-            confidence: confidence,
-            box: box,
-            anchor: anchor,
-            example: example,
-            labelCenterOverride: nil,
-            targetOverride: nil
-        )
-    }
 }
 
 struct AnalyzeResult: Codable, Hashable {
@@ -101,6 +87,7 @@ struct AnalyzeResult: Codable, Hashable {
     let imageHeight: Int
     let objects: [LearningObject]
     let caption: String?
+    let captionChinese: String?
     let captionStyle: CaptionStyle?
 
     func replacingObject(_ updatedObject: LearningObject) -> AnalyzeResult {
@@ -109,22 +96,9 @@ struct AnalyzeResult: Codable, Hashable {
             imageHeight: imageHeight,
             objects: objects.map { $0.id == updatedObject.id ? updatedObject : $0 },
             caption: caption,
+            captionChinese: captionChinese,
             captionStyle: captionStyle
         )
-    }
-
-    func clearingAnnotationOverrides() -> AnalyzeResult {
-        AnalyzeResult(
-            imageWidth: imageWidth,
-            imageHeight: imageHeight,
-            objects: objects.map { $0.clearingOverrides() },
-            caption: caption,
-            captionStyle: captionStyle
-        )
-    }
-
-    var hasAnnotationOverrides: Bool {
-        objects.contains { $0.labelCenterOverride != nil || $0.targetOverride != nil }
     }
 }
 

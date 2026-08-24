@@ -64,12 +64,14 @@ enum ShareCardRenderer {
     static func render(
         image: UIImage,
         result: AnalyzeResult,
-        headline: String
+        headline: String,
+        captionChinese: String? = nil
     ) throws -> URL {
         let content = ShareCardCanvas(
             image: image,
             result: result,
-            headline: headline
+            headline: headline,
+            captionChinese: captionChinese
         )
         .frame(width: logicalSize.width, height: logicalSize.height)
 
@@ -97,6 +99,7 @@ struct ShareCardCanvas: View {
     let image: UIImage
     let result: AnalyzeResult
     let headline: String
+    var captionChinese: String? = nil
 
     var body: some View {
         ZStack {
@@ -122,6 +125,12 @@ struct ShareCardCanvas: View {
                             .font(.system(size: 30, weight: .bold, design: .serif))
                             .foregroundStyle(Color.ink)
                             .lineLimit(2)
+                        if let captionChinese, !captionChinese.isEmpty {
+                            Text(captionChinese)
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Color.ink.opacity(0.58))
+                                .lineLimit(2)
+                        }
                     }
                     Spacer()
                     StickerSeal(symbol: "sparkles", color: .coral)

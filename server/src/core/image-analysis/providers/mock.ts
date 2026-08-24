@@ -39,6 +39,9 @@ function mockResult(input: VisionInput): AnalyzeResult {
     caption: input.captionStyle === "funny"
       ? "The mug is patiently waiting for its next coffee mission."
       : "A mug, a book, and a plant sit together on the table.",
+    captionChinese: input.captionStyle === "funny"
+      ? "这个杯子正耐心地等待下一次咖啡任务。"
+      : "一个杯子、一本书和一盆植物摆在一起。",
     captionStyle: input.captionStyle,
     objects: [
       {

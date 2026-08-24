@@ -26,6 +26,7 @@ const qwenResultSchema = z.object({
     example: z.string().min(1).max(180),
   })).max(8),
   caption: z.string().min(1).max(220),
+  captionChinese: z.string().min(1).max(220),
 });
 
 export class QwenVisionProvider implements VisionProvider {
@@ -112,6 +113,7 @@ export class QwenVisionProvider implements VisionProvider {
       imageHeight: input.imageHeight,
       objects: parsed.objects.map(normalizeObject),
       caption: parsed.caption,
+      captionChinese: parsed.captionChinese,
       captionStyle: input.captionStyle,
     });
   }

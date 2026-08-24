@@ -1,0 +1,88 @@
+import { getConnInfo } from "@hono/node-server/conninfo";
+import { isIP } from "node:net";
+import { z } from "zod";
+import { errorFields } from "../utils/logger.js";
+const requestSchema = z.object({
+    term: z.string().trim().min(1).max(60),
+});
+export function registerVocabularyRoute(app, dependencies) {
+    const { provider, providerName, providerModel, usageLimiter, trustProxy, logLevel, logger } = dependencies;
+    app.post("/v1/vocabulary/resolve", async (c) => {
+        const requestId = c.get("requestId");
+        let minuteDecision;
+        try {
+            minuteDecision = await usageLimiter.consumeMinute(resolveClientIP(c, trustProxy));
+        }
+        catch (error) {
+            logger.error("usage_limit.unavailable", { requestId, scope: "minute", ...errorFields(error, logLevel === "debug") });
+            return c.json({ error: "USAGE_LIMIT_UNAVAILABLE", message: "识别服务暂时不可用，请稍后重试" }, 503);
+        }
+        if (!minuteDecision.allowed) {
+            c.header("Retry-After", String(minuteDecision.retryAfterSeconds));
+            return c.json({
+                error: "RATE_LIMITED",
+                message: `请求有点频繁，请在 ${minuteDecision.retryAfterSeconds} 秒后再试`,
+                retryAfterSeconds: minuteDecision.retryAfterSeconds,
+            }, 429);
+        }
+        const payload = await c.req.json().catch(() => undefined);
+        const parsed = requestSchema.safeParse(payload);
+        if (!parsed.success) {
+            return c.json({ error: "INVALID_TERM", message: "请输入 1 到 60 个字符的中文或英文物体名称" }, 400);
+        }
+        let dailyDecision;
+        try {
+            dailyDecision = await usageLimiter.consumeDaily();
+        }
+        catch (error) {
+            logger.error("usage_limit.unavailable", { requestId, scope: "daily", ...errorFields(error, logLevel === "debug") });
+            return c.json({ error: "USAGE_LIMIT_UNAVAILABLE", message: "识别服务暂时不可用，请稍后重试" }, 503);
+        }
+        if (!dailyDecision.allowed) {
+            c.header("Retry-After", String(dailyDecision.retryAfterSeconds));
+            return c.json({
+                error: "DAILY_LIMIT_REACHED",
+                message: "今天的 AI 额度已用完，请明天再试",
+                retryAfterSeconds: dailyDecision.retryAfterSeconds,
+            }, 429);
+        }
+        try {
+            const result = await provider.resolveVocabulary({
+                term: parsed.data.term,
+                language: "zh-CN",
+                signal: c.req.raw.signal,
+            });
+            logger.info("vocabulary.request_completed", {
+                requestId,
+                provider: providerName,
+                model: providerModel,
+                inputLength: parsed.data.term.length,
+            });
+            return c.json(result);
+        }
+        catch (error) {
+            logger.error("vocabulary.failed", {
+                requestId,
+                provider: providerName,
+                model: providerModel,
+                ...errorFields(error, logLevel === "debug"),
+            });
+            return c.json({ error: "VOCABULARY_FAILED", message: "单词信息生成失败，请稍后重试" }, 502);
+        }
+    });
+}
+function resolveClientIP(c, trustProxy) {
+    let candidate = "";
+    if (trustProxy) {
+        candidate = c.req.header("x-forwarded-for")?.split(",", 1)[0]?.trim() ?? "";
+    }
+    else {
+        try {
+            candidate = getConnInfo(c).remote.address?.trim() ?? "";
+        }
+        catch {
+            candidate = "";
+        }
+    }
+    return isIP(candidate) === 0 ? "" : candidate;
+}

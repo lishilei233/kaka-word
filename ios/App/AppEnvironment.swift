@@ -6,6 +6,6 @@ struct AppEnvironment {
 
     static let current = AppEnvironment(
         // 真机无法通过 localhost 访问 Mac；提交 TestFlight 前应替换为生产 HTTPS 地址。
-        apiBaseURL: URL(string: "http://192.168.0.105:8787")!
+        apiBaseURL: URL(string: "http://111.231.164.253:8787")!
     )
 }

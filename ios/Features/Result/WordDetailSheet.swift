@@ -4,7 +4,6 @@ struct WordDetailSheet: View {
     let object: LearningObject
     var onUpdate: ((LearningObject) -> String?)?
 
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate

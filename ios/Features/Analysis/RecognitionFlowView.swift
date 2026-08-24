@@ -21,6 +21,8 @@ struct RecognitionFlowView: View {
     @State private var saveErrorMessage: String?
     @State private var missionUpdate: MissionUpdate?
     @State private var savedRecordID: UUID?
+    @State private var isReanalyzing = false
+    @State private var feedbackErrorMessage: String?
 
     var body: some View {
         ZStack {
@@ -35,6 +37,10 @@ struct RecognitionFlowView: View {
                 onShare: {
                     guard completedResult != nil else { return }
                     showShareCard = true
+                },
+                onFeedback: {
+                    guard completedResult != nil else { return }
+                    openFeedback()
                 },
                 onRetry: retry,
                 onResultChange: updateResult
@@ -60,7 +66,10 @@ struct RecognitionFlowView: View {
         }
         .sheet(isPresented: $showShareCard) {
             if let completedResult {
-                ShareCardView(image: image, result: completedResult)
+                ShareCardView(
+                    image: image,
+                    result: completedResult
+                )
             }
         }
         .alert("取消这次识别？", isPresented: $showCancelConfirmation) {
@@ -84,6 +93,14 @@ struct RecognitionFlowView: View {
         } message: {
             Text(saveErrorMessage ?? "")
         }
+        .alert("无法打开邮件", isPresented: Binding(
+            get: { feedbackErrorMessage != nil },
+            set: { if !$0 { feedbackErrorMessage = nil } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(feedbackErrorMessage ?? "请在系统中配置邮件账户后重试。")
+        }
         .pictureWordBackSwipe(action: close)
     }
 
@@ -93,6 +110,7 @@ struct RecognitionFlowView: View {
             imageHeight: max(Int(image.size.height.rounded()), 1),
             objects: model.objects,
             caption: nil,
+            captionChinese: nil,
             captionStyle: nil
         )
     }
@@ -101,7 +119,7 @@ struct RecognitionFlowView: View {
         if let emptyResultMessage {
             return .failed(emptyResultMessage)
         }
-        if let completedResult, !completedResult.objects.isEmpty {
+        if let completedResult, !completedResult.objects.isEmpty, !isReanalyzing {
             return .complete
         }
         switch model.phase {
@@ -132,11 +150,14 @@ struct RecognitionFlowView: View {
     }
 
     private func retry() {
+        isReanalyzing = savedRecordID != nil && completedResult != nil
         emptyResultMessage = nil
-        completedResult = nil
-        didSaveResult = false
-        missionUpdate = nil
-        savedRecordID = nil
+        if !isReanalyzing {
+            completedResult = nil
+            didSaveResult = false
+            missionUpdate = nil
+            savedRecordID = nil
+        }
         showShareCard = false
         model.retry(
             image: image,
@@ -146,13 +167,21 @@ struct RecognitionFlowView: View {
     }
 
     private func accept(_ result: AnalyzeResult) {
-        guard completedResult == nil else { return }
+        guard completedResult == nil || isReanalyzing else { return }
         guard !result.objects.isEmpty else {
             emptyResultMessage = "没有找到适合学习的物体，请换个角度或选择另一张照片。"
             return
         }
 
-        if !didSaveResult {
+        if isReanalyzing, let savedRecordID {
+            do {
+                try historyStore.updateResult(id: savedRecordID, result: result)
+            } catch {
+                saveErrorMessage = error.localizedDescription
+                isReanalyzing = false
+                return
+            }
+        } else if !didSaveResult {
             didSaveResult = true
             let mode = LearningMode(rawValue: modeRawValue) ?? .selfExplore
             let update = mode == .parentChild ? journeyStore.record(objects: result.objects) : nil
@@ -172,6 +201,7 @@ struct RecognitionFlowView: View {
         }
 
         completedResult = result
+        isReanalyzing = false
     }
 
     private var captionStyle: CaptionStyle {
@@ -188,5 +218,19 @@ struct RecognitionFlowView: View {
         }
         completedResult = updated
         return nil
+    }
+
+    private func openFeedback() {
+        guard let completedResult,
+              let url = FeedbackMail.url(result: completedResult) else {
+            feedbackErrorMessage = "反馈邮件地址生成失败，请稍后重试。"
+            return
+        }
+        UIApplication.shared.open(url, options: [:]) { didOpen in
+            guard !didOpen else { return }
+            DispatchQueue.main.async {
+                feedbackErrorMessage = "没有可用的邮件客户端，请在系统中配置邮件账户后重试。"
+            }
+        }
     }
 }

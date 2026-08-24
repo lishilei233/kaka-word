@@ -39,6 +39,7 @@ export const analyzeResultSchema = z.object({
   imageHeight: z.number().int().positive(),
   objects: z.array(learningObjectSchema).max(8),
   caption: z.string().min(1).max(220),
+  captionChinese: z.string().min(1).max(220),
   captionStyle: captionStyleSchema,
 });
 
