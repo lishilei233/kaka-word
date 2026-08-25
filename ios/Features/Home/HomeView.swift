@@ -144,7 +144,7 @@ private struct TodayDashboard: View {
     private var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("PICTURE WORD")
+                Text("KAKAWORD")
                     .font(.system(.caption2, design: .rounded, weight: .black))
                     .tracking(2.2)
                     .foregroundStyle(Color.coral)

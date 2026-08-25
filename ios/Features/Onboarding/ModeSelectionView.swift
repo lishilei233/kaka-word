@@ -38,7 +38,7 @@ struct ModeSelectionView: View {
     private var brand: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
-                Text("PICTURE WORD")
+                Text("KAKAWORD")
                     .font(.system(.caption2, design: .rounded, weight: .black))
                     .tracking(2.2)
                 Text("看见，就会说。")

@@ -26,6 +26,7 @@
 		111111111111111111111111 /* AnnotationLayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222219 /* AnnotationLayoutEngine.swift */; };
 		111111111111111111111112 /* WordDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221A /* WordDetailSheet.swift */; };
 		111111111111111111111113 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221B /* AppSettings.swift */; };
+		111111111111111111111114 /* ContentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221C /* ContentModels.swift */; };
 		111111111111111111111115 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221D /* SettingsView.swift */; };
 		111111111111111111111116 /* LearningJourneyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221E /* LearningJourneyModels.swift */; };
 		111111111111111111111117 /* LearningJourneyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221F /* LearningJourneyStore.swift */; };
@@ -33,6 +34,7 @@
 		111111111111111111111119 /* ShareCardRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222221 /* ShareCardRenderer.swift */; };
 		11111111111111111111111A /* ShareCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222222 /* ShareCardView.swift */; };
 		11111111111111111111111B /* PageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222223 /* PageHeader.swift */; };
+		A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96C244B303D79F8009BAAFD /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +59,7 @@
 		222222222222222222222219 /* AnnotationLayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationLayoutEngine.swift; sourceTree = "<group>"; };
 		22222222222222222222221A /* WordDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordDetailSheet.swift; sourceTree = "<group>"; };
 		22222222222222222222221B /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		22222222222222222222221C /* ContentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentModels.swift; sourceTree = "<group>"; };
 		22222222222222222222221D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		22222222222222222222221E /* LearningJourneyModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LearningJourneyModels.swift; sourceTree = "<group>"; };
 		22222222222222222222221F /* LearningJourneyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LearningJourneyStore.swift; sourceTree = "<group>"; };
@@ -64,6 +67,7 @@
 		222222222222222222222221 /* ShareCardRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCardRenderer.swift; sourceTree = "<group>"; };
 		222222222222222222222222 /* ShareCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCardView.swift; sourceTree = "<group>"; };
 		222222222222222222222223 /* PageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageHeader.swift; sourceTree = "<group>"; };
+		A96C244B303D79F8009BAAFD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -92,8 +96,17 @@
 				444444444444444444444405 /* Core */,
 				444444444444444444444406 /* Features */,
 				222222222222222222222208 /* Info.plist */,
+				A96C244B303D79F8009BAAFD /* Assets.xcassets */,
 			);
 			name = PictureWord;
+			sourceTree = "<group>";
+		};
+		444444444444444444444403 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222210 /* PictureWord.app */,
+			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 		444444444444444444444404 /* App */ = {
@@ -136,6 +149,7 @@
 			isa = PBXGroup;
 			children = (
 				222222222222222222222202 /* AnalyzeModels.swift */,
+				22222222222222222222221C /* ContentModels.swift */,
 				222222222222222222222213 /* HistoryRecord.swift */,
 				22222222222222222222221E /* LearningJourneyModels.swift */,
 			);
@@ -178,14 +192,6 @@
 			path = Home;
 			sourceTree = "<group>";
 		};
-		444444444444444444444411 /* Onboarding */ = {
-			isa = PBXGroup;
-			children = (
-				222222222222222222222220 /* ModeSelectionView.swift */,
-			);
-			path = Onboarding;
-			sourceTree = "<group>";
-		};
 		44444444444444444444440C /* Capture */ = {
 			isa = PBXGroup;
 			children = (
@@ -223,12 +229,12 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
-		444444444444444444444403 /* Products */ = {
+		444444444444444444444411 /* Onboarding */ = {
 			isa = PBXGroup;
 			children = (
-				222222222222222222222210 /* PictureWord.app */,
+				222222222222222222222220 /* ModeSelectionView.swift */,
 			);
-			name = Products;
+			path = Onboarding;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -287,6 +293,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -316,6 +323,7 @@
 				111111111111111111111111 /* AnnotationLayoutEngine.swift in Sources */,
 				111111111111111111111112 /* WordDetailSheet.swift in Sources */,
 				111111111111111111111113 /* AppSettings.swift in Sources */,
+				111111111111111111111114 /* ContentModels.swift in Sources */,
 				111111111111111111111115 /* SettingsView.swift in Sources */,
 				111111111111111111111116 /* LearningJourneyModels.swift in Sources */,
 				111111111111111111111117 /* LearningJourneyStore.swift in Sources */,
@@ -332,6 +340,8 @@
 		BBBBBBBBBBBBBBBBBBBBBB01 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
@@ -353,6 +363,8 @@
 		BBBBBBBBBBBBBBBBBBBBBB02 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;

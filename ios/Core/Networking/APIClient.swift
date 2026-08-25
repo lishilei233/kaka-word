@@ -30,7 +30,11 @@ protocol VocabularyResolving {
     func resolveVocabulary(term: String) async throws -> VocabularyDetails
 }
 
-struct APIClient: AnalysisProviding, VocabularyResolving, Sendable {
+protocol ContentProviding: Sendable {
+    func fetchContent(for key: ContentKey) async throws -> ContentDocument
+}
+
+struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Sendable {
     private let baseURL: URL
 
     init(environment: AppEnvironment = .current) {
@@ -109,6 +113,26 @@ struct APIClient: AnalysisProviding, VocabularyResolving, Sendable {
             throw APIError.invalidResponse
         }
         return details
+    }
+
+    func fetchContent(for key: ContentKey) async throws -> ContentDocument {
+        let requestURL = baseURL.appendingPathComponent("v1/content/\(key.rawValue)")
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            if let payload = try? JSONDecoder().decode(ServerError.self, from: data) {
+                throw APIError.server(payload.message ?? "内容暂时无法加载")
+            }
+            throw APIError.server("内容暂时无法加载")
+        }
+        guard let document = try? JSONDecoder().decode(ContentDocument.self, from: data) else {
+            throw APIError.invalidResponse
+        }
+        return document
     }
 
     private func localizedMessage(for code: String?, retryAfterSeconds: Int? = nil) -> String {

@@ -13,6 +13,10 @@ npm run dev
 
 `POST /v1/vocabulary/resolve` 接收 JSON `{ "term": "窗户" }` 或 `{ "term": "window" }`，返回英文、简体中文、IPA 和初学者例句；该接口不会接收或重新上传照片。
 
+## 页面文案
+
+`GET /v1/content/privacy`、`GET /v1/content/terms` 和 `GET /v1/content/about` 返回隐私政策、服务条款和关于页面的结构化中文文案。文案直接维护在 `src/content/documents.ts`，修改后重新部署服务即可生效；该接口不消耗模型调用额度。
+
 两个模型接口默认启用 PostgreSQL 用量保护：每个 IP 平均每分钟 10 次、最多瞬时突发 10 次，全部实例每天共享 500 次模型调用额度。每日额度按北京时间零点重置。限制值可通过 `.env` 的 `ANALYZE_RATE_LIMIT_PER_MINUTE` 和 `ANALYZE_DAILY_LIMIT` 调整。
 
 生产环境必须配置 `DATABASE_URL` 和至少 32 字符的随机 `RATE_LIMIT_IP_HASH_SECRET`，然后在发布新服务前执行 `npm run db:migrate`。服务端只保存 IP 的 HMAC 摘要，不保存原始 IP。数据库不可用时，识别接口返回 503，避免绕过费用保护。本地使用 Mock 且不需要数据库时，可以显式设置 `USAGE_LIMIT_ENABLED=false`。
@@ -45,6 +49,7 @@ src/
 ├── index.ts                   # 进程入口，只负责启动服务
 ├── app.ts                     # Hono 应用装配
 ├── config.ts                  # 环境变量与运行配置
+├── content/                   # 隐私政策、服务条款、关于页面文案
 ├── routes/                    # HTTP 业务路由
 ├── core/image-analysis/       # 图片分析核心能力与供应商适配器
 └── utils/                     # 日志、图片尺寸解析等通用能力

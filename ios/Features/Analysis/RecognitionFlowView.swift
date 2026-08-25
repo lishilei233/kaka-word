@@ -14,7 +14,8 @@ struct RecognitionFlowView: View {
     @StateObject private var model = AnalysisViewModel()
     @State private var completedResult: AnalyzeResult?
     @State private var showCancelConfirmation = false
-    @State private var showShareCard = false
+    @State private var sharedImage: SharedImageFile?
+    @State private var shareErrorMessage: String?
     @State private var didStart = false
     @State private var didSaveResult = false
     @State private var emptyResultMessage: String?
@@ -35,8 +36,8 @@ struct RecognitionFlowView: View {
                 status: cardStatus,
                 onClose: close,
                 onShare: {
-                    guard completedResult != nil else { return }
-                    showShareCard = true
+                    guard let completedResult else { return }
+                    shareDecoratedPhoto(completedResult)
                 },
                 onFeedback: {
                     guard completedResult != nil else { return }
@@ -64,13 +65,16 @@ struct RecognitionFlowView: View {
             guard !isPresented, case .success(let result) = model.phase else { return }
             accept(result)
         }
-        .sheet(isPresented: $showShareCard) {
-            if let completedResult {
-                ShareCardView(
-                    image: image,
-                    result: completedResult
-                )
-            }
+        .sheet(item: $sharedImage) { item in
+            SystemShareView(items: [item.url])
+        }
+        .alert("无法分享图片", isPresented: Binding(
+            get: { shareErrorMessage != nil },
+            set: { if !$0 { shareErrorMessage = nil } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(shareErrorMessage ?? "")
         }
         .alert("取消这次识别？", isPresented: $showCancelConfirmation) {
             Button("继续等待", role: .cancel) {
@@ -158,7 +162,8 @@ struct RecognitionFlowView: View {
             missionUpdate = nil
             savedRecordID = nil
         }
-        showShareCard = false
+        sharedImage = nil
+        shareErrorMessage = nil
         model.retry(
             image: image,
             maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
@@ -218,6 +223,17 @@ struct RecognitionFlowView: View {
         }
         completedResult = updated
         return nil
+    }
+
+    private func shareDecoratedPhoto(_ result: AnalyzeResult) {
+        do {
+            sharedImage = SharedImageFile(url: try DecoratedPhotoRenderer.render(
+                image: image,
+                result: result
+            ))
+        } catch {
+            shareErrorMessage = error.localizedDescription
+        }
     }
 
     private func openFeedback() {

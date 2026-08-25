@@ -325,7 +325,7 @@ final class CameraViewController: UIViewController {
         let closeGlass = glassControl(containing: close)
 
         let eyebrow = UILabel()
-        eyebrow.text = "PICTURE WORD"
+        eyebrow.text = "KAKAWORD"
         eyebrow.textColor = UIColor(red: 0.96, green: 0.79, blue: 0.37, alpha: 1)
         eyebrow.font = .systemFont(ofSize: 10, weight: .black)
         eyebrow.textAlignment = .center

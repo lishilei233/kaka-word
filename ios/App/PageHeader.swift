@@ -96,4 +96,3 @@ struct PictureWordHeaderCapsule<Content: View>: View {
             )
     }
 }
-

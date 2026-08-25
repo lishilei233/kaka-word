@@ -198,14 +198,14 @@ struct SettingsView: View {
                 NavigationLink {
                     AboutView()
                 } label: {
-                    SettingsLinkRow(title: "关于 Picture Word")
+                    SettingsLinkRow(title: "关于咔咔单词")
                 }
             }
         }
     }
 
     private var versionFooter: some View {
-        Text("PICTURE WORD · VERSION \(appVersion)")
+        Text("KAKAWORD · VERSION \(appVersion)")
             .font(.system(size: 9, weight: .bold, design: .monospaced))
             .tracking(1.5)
             .foregroundStyle(Color.ink.opacity(0.3))
@@ -283,73 +283,140 @@ private enum LegalDocument {
     case privacy
     case terms
 
-    var title: String { self == .privacy ? "隐私政策" : "服务条款" }
-    var code: String { self == .privacy ? "PRIVACY" : "TERMS" }
-    var text: String {
+    var key: ContentKey {
         switch self {
-        case .privacy:
-            return "Picture Word 会将你主动拍摄或选择的照片发送给 AI 服务进行即时识别。照片不会写入应用服务器、对象存储或业务数据库。识别完成后，照片、任务进度与贴纸仅保存在当前设备。生成分享卡时，人脸检测和模糊处理也只在本机完成，导出图片不会包含拍摄位置和时间元数据。"
-        case .terms:
-            return "Picture Word 提供基于 AI 的图片识别与语言学习辅助。AI 返回的物体名称、位置、音标和例句可能存在错误，仅供学习参考。请勿上传包含敏感个人信息、违法内容或你无权处理的照片。"
+        case .privacy: return .privacy
+        case .terms: return .terms
         }
     }
 }
 
 private struct LegalDocumentView: View {
     let document: LegalDocument
+
+    var body: some View {
+        ContentDocumentView(key: document.key)
+    }
+}
+
+private struct AboutView: View {
+    var body: some View {
+        ContentDocumentView(key: .about)
+    }
+}
+
+private struct ContentDocumentView: View {
+    let key: ContentKey
+    private let provider: any ContentProviding
     @Environment(\.dismiss) private var dismiss
+    @State private var document: ContentDocument
+
+    init(key: ContentKey, provider: any ContentProviding = APIClient()) {
+        self.key = key
+        self.provider = provider
+        _document = State(initialValue: .fallback(for: key))
+    }
 
     var body: some View {
         ZStack {
             NotebookBackground()
             VStack(spacing: 0) {
                 EditorialBackHeader(title: document.title, code: document.code, dismiss: dismiss.callAsFunction)
-                ScrollView {
-                    Text(document.text)
-                        .font(.system(size: 17, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color.ink.opacity(0.8))
-                        .lineSpacing(7)
-                        .padding(24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-                        .padding(20)
+                if key == .about {
+                    aboutContent
+                } else {
+                    legalContent
                 }
             }
         }
         .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
         .pictureWordBackSwipe { dismiss() }
+        .task {
+            await refresh()
+        }
+    }
+
+    private var legalContent: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                if !document.summary.isEmpty {
+                    Text(document.summary)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.ink.opacity(0.82))
+                        .lineSpacing(7)
+                }
+                ForEach(Array(document.sections.enumerated()), id: \.offset) { _, section in
+                    ContentSectionView(section: section)
+                }
+                metadataFooter
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .padding(20)
+        }
+    }
+
+    private var aboutContent: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                Text(document.summary)
+                    .font(.system(size: 48, weight: .black, design: .rounded))
+                    .foregroundStyle(Color.ink)
+                    .lineSpacing(-4)
+
+                ForEach(Array(document.sections.enumerated()), id: \.offset) { _, section in
+                    ContentSectionView(section: section, showsHeading: false)
+                }
+
+                metadataFooter
+            }
+            .padding(26)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.sun, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .padding(20)
+        }
+    }
+
+    private var metadataFooter: some View {
+        Text("VERSION \(document.version) · \(document.updatedDate)")
+            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .tracking(1.2)
+            .foregroundStyle(Color.ink.opacity(0.34))
+            .padding(.top, 4)
+    }
+
+    private func refresh() async {
+        guard let remoteDocument = try? await provider.fetchContent(for: key) else { return }
+        document = remoteDocument
     }
 }
 
-private struct AboutView: View {
-    @Environment(\.dismiss) private var dismiss
+private struct ContentSectionView: View {
+    let section: ContentSection
+    var showsHeading = true
 
     var body: some View {
-        ZStack {
-            NotebookBackground()
-            VStack(spacing: 0) {
-                EditorialBackHeader(title: "关于", code: "ABOUT", dismiss: dismiss.callAsFunction)
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("看见，\n就会说。")
-                        .font(.system(size: 48, weight: .black, design: .rounded))
-                        .foregroundStyle(Color.ink)
-                        .lineSpacing(-4)
-                    Text("Picture Word 用 AI 找到照片中值得学习的物体，把英文单词贴回真实世界。")
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color.ink.opacity(0.68))
-                        .lineSpacing(5)
-                }
-                .padding(26)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.sun, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-                .padding(20)
-                Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            if showsHeading && !section.heading.isEmpty {
+                Text(section.heading)
+                    .font(.system(size: 15, weight: .black, design: .rounded))
+                    .foregroundStyle(Color.ink)
+            }
+            ForEach(Array(section.paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                Text(paragraph)
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.ink.opacity(0.76))
+                    .lineSpacing(6)
+            }
+            ForEach(Array(section.bullets.enumerated()), id: \.offset) { _, bullet in
+                Text("• \(bullet)")
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.ink.opacity(0.76))
+                    .lineSpacing(5)
             }
         }
-        .navigationBarBackButtonHidden()
-        .toolbar(.hidden, for: .navigationBar)
-        .pictureWordBackSwipe { dismiss() }
     }
 }
 

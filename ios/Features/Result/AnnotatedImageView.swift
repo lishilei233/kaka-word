@@ -288,15 +288,25 @@ struct AnnotatedImageView: View {
     }
 }
 
-/// Shared photo presentation used by result details and exported share cards.
-/// It keeps the full image visible, applies the same bounded aspect ratio, and
-/// fits the framed photo inside whatever space its parent provides.
+enum DecoratedPhotoLayout {
+    static let horizontalPadding: CGFloat = 20
+    static let verticalPadding: CGFloat = 20
+
+    static func cardRatio(for image: UIImage) -> CGFloat {
+        let rawRatio = image.size.width / max(image.size.height, 1)
+        return min(max(rawRatio, 0.76), 1.34)
+    }
+}
+
+/// Shared photo presentation used by result details and exported decorated photos.
 struct AnnotatedPhotoCard: View {
     let image: UIImage
     let objects: [LearningObject]
     var revealsAnnotations = true
     var isEditable = false
     var editingObjectID: Binding<String?> = .constant(nil)
+    var showsShadow = true
+    var usesOriginalAspectRatio = false
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
 
@@ -304,7 +314,7 @@ struct AnnotatedPhotoCard: View {
         GeometryReader { proxy in
             let contentSize = fittedContentSize(in: proxy.size)
 
-            NotebookPhotoFrame {
+            NotebookPhotoFrame(showsShadow: showsShadow) {
                 AnnotatedImageView(
                     image: image,
                     objects: objects,
@@ -322,7 +332,7 @@ struct AnnotatedPhotoCard: View {
 
     private func fittedContentSize(in container: CGSize) -> CGSize {
         let rawRatio = image.size.width / max(image.size.height, 1)
-        let cardRatio = min(max(rawRatio, 0.76), 1.34)
+        let cardRatio = usesOriginalAspectRatio ? rawRatio : min(max(rawRatio, 0.76), 1.34)
         let availableWidth = max(container.width - 16, 1)
         let availableHeight = max(container.height - 16, 1)
 

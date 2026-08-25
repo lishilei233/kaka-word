@@ -4,6 +4,7 @@ import type { ServerConfig } from "./config.js";
 import type { VisionProvider } from "./core/image-analysis/types.js";
 import type { AnalyzeUsageLimiter } from "./core/usage-limits/index.js";
 import { registerAnalyzeRoute } from "./routes/analyze.js";
+import { registerContentRoute } from "./routes/content.js";
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
 import { errorFields, type LogLevel, type Logger } from "./utils/logger.js";
 
@@ -31,6 +32,7 @@ export function createApp({ config, provider, usageLimiter, logger }: AppDepende
   app.use("*", requestLogger(logger, config.logLevel));
 
   app.get("/health", (c) => c.json({ ok: true, provider: config.vision.name }));
+  registerContentRoute(app);
   registerAnalyzeRoute(app, {
     provider,
     providerName: config.vision.name,

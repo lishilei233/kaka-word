@@ -71,8 +71,19 @@ struct InteractivePopGestureEnabler: UIViewControllerRepresentable {
 
 struct WashiTape: View {
     var color: Color = .sun
+    var showsShadow = true
 
+    @ViewBuilder
     var body: some View {
+        if showsShadow {
+            tape
+                .shadow(color: Color.ink.opacity(0.08), radius: 2, y: 1)
+        } else {
+            tape
+        }
+    }
+
+    private var tape: some View {
         Rectangle()
             .fill(color.opacity(0.78))
             .frame(width: 72, height: 20)
@@ -80,25 +91,36 @@ struct WashiTape: View {
                 Rectangle().stroke(Color.white.opacity(0.28), lineWidth: 1)
             }
             .rotationEffect(.degrees(-4))
-            .shadow(color: Color.ink.opacity(0.08), radius: 2, y: 1)
             .accessibilityHidden(true)
     }
 }
 
 /// Shared scrapbook-style frame for photos shown inside the app.
 struct NotebookPhotoFrame<Content: View>: View {
+    private let showsShadow: Bool
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    init(showsShadow: Bool = true, @ViewBuilder content: () -> Content) {
+        self.showsShadow = showsShadow
         self.content = content()
     }
 
+    @ViewBuilder
     var body: some View {
+        if showsShadow {
+            frameContent
+                .shadow(color: Color.ink.opacity(0.14), radius: 0, x: 3, y: 4)
+        } else {
+            frameContent
+        }
+    }
+
+    private var frameContent: some View {
         content
             .padding(8)
             .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
             .overlay(alignment: .topTrailing) {
-                WashiTape(color: .sun)
+                WashiTape(color: .sun, showsShadow: showsShadow)
                     .rotationEffect(.degrees(3))
                     .offset(x: -24, y: -9)
             }
@@ -106,15 +128,25 @@ struct NotebookPhotoFrame<Content: View>: View {
                 RoundedRectangle(cornerRadius: 30, style: .continuous)
                     .stroke(Color.ink.opacity(0.08), lineWidth: 1)
             }
-            .shadow(color: Color.ink.opacity(0.14), radius: 0, x: 3, y: 4)
     }
 }
 
 struct StickerSeal: View {
     let symbol: String
     var color: Color = .coral
+    var showsShadow = true
 
+    @ViewBuilder
     var body: some View {
+        if showsShadow {
+            seal
+                .shadow(color: Color.ink.opacity(0.1), radius: 5, y: 3)
+        } else {
+            seal
+        }
+    }
+
+    private var seal: some View {
         ZStack {
             Circle().fill(Color.paperLight)
             Circle().stroke(color, style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
@@ -124,7 +156,6 @@ struct StickerSeal: View {
         }
         .frame(width: 54, height: 54)
         .rotationEffect(.degrees(5))
-        .shadow(color: Color.ink.opacity(0.1), radius: 5, y: 3)
     }
 }
 

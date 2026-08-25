@@ -23,7 +23,8 @@ struct ResultView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
-    @State private var showShareCard = false
+    @State private var sharedImage: SharedImageFile?
+    @State private var shareErrorMessage: String?
     @State private var feedbackErrorMessage: String?
     @State private var result: AnalyzeResult
 
@@ -51,9 +52,7 @@ struct ResultView: View {
                 revealsAnnotations: revealsAnnotations,
                 status: .complete,
                 onClose: dismiss.callAsFunction,
-                onShare: {
-                    showShareCard = true
-                },
+                onShare: shareDecoratedPhoto,
                 onFeedback: {
                     openFeedback()
                 },
@@ -62,8 +61,16 @@ struct ResultView: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .sheet(isPresented: $showShareCard) {
-            ShareCardView(image: image, result: result)
+        .sheet(item: $sharedImage) { item in
+            SystemShareView(items: [item.url])
+        }
+        .alert("无法分享图片", isPresented: Binding(
+            get: { shareErrorMessage != nil },
+            set: { if !$0 { shareErrorMessage = nil } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(shareErrorMessage ?? "")
         }
         .alert("无法打开邮件", isPresented: Binding(
             get: { feedbackErrorMessage != nil },
@@ -83,6 +90,18 @@ struct ResultView: View {
             return nil
         } catch {
             return error.localizedDescription
+        }
+    }
+
+    private func shareDecoratedPhoto() {
+        do {
+            sharedImage = SharedImageFile(url: try DecoratedPhotoRenderer.render(
+                image: image,
+                result: result,
+                revealsAnnotations: revealsAnnotations
+            ))
+        } catch {
+            shareErrorMessage = error.localizedDescription
         }
     }
 
@@ -110,7 +129,7 @@ enum FeedbackMail {
         var components = URLComponents()
         components.scheme = "mailto"
         components.queryItems = [
-            URLQueryItem(name: "subject", value: "Picture Word 反馈"),
+            URLQueryItem(name: "subject", value: "咔咔单词反馈"),
             URLQueryItem(name: "body", value: body)
         ]
         return components.url
@@ -146,8 +165,7 @@ struct PhotoWordCardDetailView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let rawRatio = image.size.width / max(image.size.height, 1)
-            let cardRatio = min(max(rawRatio, 0.76), 1.34)
+            let cardRatio = DecoratedPhotoLayout.cardRatio(for: image)
             let photoWidth = max(proxy.size.width - 40, 1)
             let photoHeight = photoWidth / cardRatio
             let footerHeight = max(
@@ -346,15 +364,15 @@ struct PhotoWordCardDetailView: View {
     }
 
     private var decoratedPhoto: some View {
-        let rawRatio = image.size.width / max(image.size.height, 1)
-        let cardRatio = min(max(rawRatio, 0.76), 1.34)
+        let cardRatio = DecoratedPhotoLayout.cardRatio(for: image)
 
         return AnnotatedPhotoCard(
             image: image,
             objects: result.objects,
             revealsAnnotations: revealsAnnotations,
             isEditable: status.isComplete && onResultChange != nil,
-            editingObjectID: annotationEditingBinding
+            editingObjectID: annotationEditingBinding,
+            showsShadow: false
         ) { object in
             finishAnnotationEditing()
             selectedObject = object
@@ -363,8 +381,8 @@ struct PhotoWordCardDetailView: View {
         }
         .aspectRatio(cardRatio, contentMode: .fit)
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 20)
+        .padding(.horizontal, DecoratedPhotoLayout.horizontalPadding)
+        .padding(.vertical, DecoratedPhotoLayout.verticalPadding)
     }
 
     private func updateObject(_ object: LearningObject) -> String? {
