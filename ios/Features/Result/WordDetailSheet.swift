@@ -7,7 +7,6 @@ struct WordDetailSheet: View {
     var onEditingChanged: ((Bool) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var membership: MembershipStore
     @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
@@ -17,7 +16,6 @@ struct WordDetailSheet: View {
     @State private var isResolving = false
     @State private var errorMessage: String?
     @State private var showDeleteConfirmation = false
-    @State private var showPaywall = false
     @FocusState private var termIsFocused: Bool
 
     init(
@@ -99,10 +97,6 @@ struct WordDetailSheet: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("只会从当前照片卡片中移除这个单词，不会删除整条历史记录。")
-        }
-        .sheet(isPresented: $showPaywall) {
-            PaywallView(onPurchaseCompleted: startEditing)
-                .environmentObject(membership)
         }
         .task(id: isEditing) {
             guard isEditing else { return }
@@ -210,10 +204,6 @@ struct WordDetailSheet: View {
     }
 
     private func startEditing() {
-        guard membership.isMember else {
-            showPaywall = true
-            return
-        }
         editingTerm = displayedObject.english
         errorMessage = nil
         onEditingChanged?(true)

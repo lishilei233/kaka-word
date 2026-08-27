@@ -5,9 +5,7 @@ struct PictureWordApp: App {
     // 历史记录跟随 App 生命周期持有，确保所有页面共享同一份内存索引和本地文件。
     @StateObject private var historyStore = HistoryStore()
     @StateObject private var journeyStore = LearningJourneyStore()
-    @StateObject private var membershipStore = MembershipStore()
     @AppStorage(AppSettings.Key.didCompleteOnboarding) private var didCompleteOnboarding = false
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -24,12 +22,6 @@ struct PictureWordApp: App {
             }
             .environmentObject(historyStore)
             .environmentObject(journeyStore)
-            .environmentObject(membershipStore)
-            .task { await membershipStore.prepare() }
-            .onChange(of: scenePhase) { _, phase in
-                guard phase == .active else { return }
-                Task { await membershipStore.refreshCurrentEntitlements() }
-            }
             // Picture Word uses a paper-first visual system; keep system UI in light appearance.
             .preferredColorScheme(.light)
         }

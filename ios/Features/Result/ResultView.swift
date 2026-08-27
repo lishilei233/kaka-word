@@ -23,7 +23,6 @@ struct ResultView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
-    @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
     @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
     @StateObject private var analysisModel = AnalysisViewModel()
@@ -32,7 +31,6 @@ struct ResultView: View {
     @State private var feedbackErrorMessage: String?
     @State private var isReanalyzing = false
     @State private var reanalysisErrorMessage: String?
-    @State private var paywallPresented = false
     @State private var result: AnalyzeResult
 
     init(
@@ -90,13 +88,6 @@ struct ResultView: View {
         .onChange(of: analysisModel.phase) { _, phase in
             handleReanalysisPhase(phase)
         }
-        .onChange(of: analysisModel.shouldPresentPaywall) { _, shouldPresent in
-            if shouldPresent { paywallPresented = true }
-        }
-        .sheet(isPresented: $paywallPresented) {
-            PaywallView(onPurchaseCompleted: retry)
-                .environmentObject(membership)
-        }
         .pictureWordBackSwipe(action: close)
     }
 
@@ -143,10 +134,6 @@ struct ResultView: View {
     }
 
     private func retry() {
-        guard membership.canStartRecognition else {
-            paywallPresented = true
-            return
-        }
         reanalysisErrorMessage = nil
         isReanalyzing = true
         analysisModel.retry(
@@ -254,14 +241,12 @@ struct PhotoWordCardDetailView: View {
     @State private var editErrorMessage: String?
     @State private var showTips = false
     @State private var showAddWord = false
-    @State private var showVocabularyPaywall = false
     @State private var wordDetailDetent: PresentationDetent = .medium
     @State private var editingObjectID: String?
     @State private var suppressPageDismissUntil = Date.distantPast
     @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
-    @EnvironmentObject private var membership: MembershipStore
 
     var body: some View {
         GeometryReader { proxy in
@@ -312,12 +297,6 @@ struct PhotoWordCardDetailView: View {
         .sheet(isPresented: $showAddWord) {
             ManualVocabularySheet(onAdd: addObject)
                 .pictureWordSheetPresentation()
-        }
-        .sheet(isPresented: $showVocabularyPaywall) {
-            PaywallView {
-                showAddWord = true
-            }
-            .environmentObject(membership)
         }
         .sheet(isPresented: $showTips) {
             AnnotationTipsSheet()
@@ -468,11 +447,7 @@ struct PhotoWordCardDetailView: View {
                             size: .large
                         ) {
                             finishAnnotationEditing()
-                            if membership.isMember {
-                                showAddWord = true
-                            } else {
-                                showVocabularyPaywall = true
-                            }
+                            showAddWord = true
                         }
                         .frame(maxWidth: .infinity)
                     }

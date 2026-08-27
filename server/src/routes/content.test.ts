@@ -21,18 +21,6 @@ const config: ServerConfig = {
     dailyTimeZone: "Asia/Shanghai",
     trustProxy: true,
   },
-  access: {
-    enabled: false,
-    databaseURL: "",
-    tokenHashSecret: "",
-    tokenTTLSeconds: 7_776_000,
-    bundleId: "com.kakaword.app",
-    appleRootCertificatePaths: [],
-    appleOnlineChecks: false,
-    monthlyProductId: "com.kakaword.app.membership.monthly",
-    annualProductId: "com.kakaword.app.membership.annual",
-    deviceCheck: { keyId: "", teamId: "", privateKey: "", environment: "development" },
-  },
 };
 
 test("returns each supported content document without consuming usage limits", async () => {

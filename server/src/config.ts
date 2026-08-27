@@ -7,28 +7,6 @@ export type ServerConfig = {
   logLevel: LogLevel;
   vision: VisionProviderConfig;
   usageLimits: UsageLimitConfig;
-  access: AccessConfig;
-};
-
-export type AccessConfig = {
-  enabled: boolean;
-  databaseURL: string;
-  tokenHashSecret: string;
-  tokenTTLSeconds: number;
-  bundleId: string;
-  appAppleId?: number;
-  appleRootCertificatePaths: string[];
-  appleOnlineChecks: boolean;
-  monthlyProductId: string;
-  annualProductId: string;
-  deviceCheck: DeviceCheckConfig;
-};
-
-export type DeviceCheckConfig = {
-  keyId: string;
-  teamId: string;
-  privateKey: string;
-  environment: "development" | "production";
 };
 
 export type UsageLimitConfig = {
@@ -44,57 +22,13 @@ export type UsageLimitConfig = {
 const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 export function readServerConfig(environment: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const vision = readVisionConfig(environment);
   return {
     port: Number(environment.PORT ?? 8787),
     maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
     logLevel: readLogLevel(environment.LOG_LEVEL),
-    vision,
+    vision: readVisionConfig(environment),
     usageLimits: readUsageLimitConfig(environment),
-    access: readAccessConfig(environment, vision.name !== "mock"),
   };
-}
-
-function readAccessConfig(environment: NodeJS.ProcessEnv, defaultEnabled: boolean): AccessConfig {
-  const enabled = readBoolean(environment.ACCESS_CONTROL_ENABLED, defaultEnabled, "ACCESS_CONTROL_ENABLED");
-  const appAppleId = readOptionalPositiveInteger(environment.APPLE_APP_ID, "APPLE_APP_ID");
-  const config: AccessConfig = {
-    enabled,
-    databaseURL: environment.DATABASE_URL?.trim() ?? "",
-    tokenHashSecret: environment.ACCESS_TOKEN_HASH_SECRET?.trim() ?? "",
-    tokenTTLSeconds: readPositiveInteger(environment.ACCESS_TOKEN_TTL_SECONDS, 90 * 24 * 60 * 60, "ACCESS_TOKEN_TTL_SECONDS"),
-    bundleId: environment.APPLE_BUNDLE_ID?.trim() || "com.kakaword.app",
-    appAppleId,
-    appleRootCertificatePaths: (environment.APPLE_ROOT_CERTIFICATE_PATHS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
-    appleOnlineChecks: readBoolean(environment.APPLE_JWS_ONLINE_CHECKS, true, "APPLE_JWS_ONLINE_CHECKS"),
-    monthlyProductId: environment.APPLE_MONTHLY_PRODUCT_ID?.trim() || "com.kakaword.app.membership.monthly",
-    annualProductId: environment.APPLE_ANNUAL_PRODUCT_ID?.trim() || "com.kakaword.app.membership.annual",
-    deviceCheck: {
-      keyId: environment.DEVICECHECK_KEY_ID?.trim() ?? "",
-      teamId: environment.APPLE_TEAM_ID?.trim() ?? "",
-      privateKey: normalizeMultilineSecret(environment.DEVICECHECK_PRIVATE_KEY ?? ""),
-      environment: readDeviceCheckEnvironment(environment.DEVICECHECK_ENVIRONMENT),
-    },
-  };
-
-  if (!enabled) return config;
-  if (!config.databaseURL) throw new Error("DATABASE_URL is required when access control is enabled");
-  if (config.tokenHashSecret.length < 32) {
-    throw new Error("ACCESS_TOKEN_HASH_SECRET must contain at least 32 characters");
-  }
-  if (!config.appAppleId) throw new Error("APPLE_APP_ID is required when access control is enabled");
-  if (config.appleRootCertificatePaths.length === 0) {
-    throw new Error("APPLE_ROOT_CERTIFICATE_PATHS is required when access control is enabled");
-  }
-  if (!config.deviceCheck.keyId) throw new Error("DEVICECHECK_KEY_ID is required when access control is enabled");
-  if (!config.deviceCheck.teamId) throw new Error("APPLE_TEAM_ID is required when access control is enabled");
-  if (!config.deviceCheck.privateKey) {
-    throw new Error("DEVICECHECK_PRIVATE_KEY is required when access control is enabled");
-  }
-  return config;
 }
 
 function readUsageLimitConfig(environment: NodeJS.ProcessEnv): UsageLimitConfig {
@@ -177,21 +111,4 @@ function readBoolean(value: string | undefined, fallback: boolean, name: string)
   if (value === "true") return true;
   if (value === "false") return false;
   throw new Error(`${name} must be true or false`);
-}
-
-function readOptionalPositiveInteger(value: string | undefined, name: string): number | undefined {
-  if (value == null || value.trim() === "") return undefined;
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`);
-  return parsed;
-}
-
-function normalizeMultilineSecret(value: string): string {
-  return value.trim().replaceAll("\\n", "\n");
-}
-
-function readDeviceCheckEnvironment(value: string | undefined): DeviceCheckConfig["environment"] {
-  const normalized = value?.trim() || "production";
-  if (normalized === "development" || normalized === "production") return normalized;
-  throw new Error("DEVICECHECK_ENVIRONMENT must be development or production");
 }

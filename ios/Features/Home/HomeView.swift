@@ -9,7 +9,6 @@ private enum HomeTab: String {
 struct HomeView: View {
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
-    @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
 
     @State private var selectedTab: HomeTab = .today
@@ -19,7 +18,6 @@ struct HomeView: View {
     @State private var presentedHistory: PresentedHistory?
     @State private var historyMessage: String?
     @State private var confirmMissionSwitch = false
-    @State private var paywallPresented = false
 
     private var mode: LearningMode {
         LearningMode(rawValue: modeRawValue) ?? .selfExplore
@@ -69,12 +67,6 @@ struct HomeView: View {
         .fullScreenCover(item: $presentedHistory) { item in
             ResultView(image: item.image, result: item.record.result, recordID: item.record.id)
         }
-        .sheet(isPresented: $paywallPresented) {
-            PaywallView {
-                cameraPresented = true
-            }
-            .environmentObject(membership)
-        }
         .onAppear { journeyStore.refreshForTodayIfNeeded() }
         .confirmationDialog(
             "换一个今日任务？",
@@ -111,11 +103,7 @@ struct HomeView: View {
     }
 
     private func requestCamera() {
-        if membership.canStartRecognition {
-            cameraPresented = true
-        } else {
-            paywallPresented = true
-        }
+        cameraPresented = true
     }
 
     private func openHistory(_ record: HistoryRecord) {

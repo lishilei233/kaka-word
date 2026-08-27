@@ -36,8 +36,6 @@
 		11111111111111111111111B /* PageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222223 /* PageHeader.swift */; };
 		11111111111111111111111C /* PictureWordButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222224 /* PictureWordButton.swift */; };
 		11111111111111111111111D /* PictureWordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222225 /* PictureWordSheet.swift */; };
-		11111111111111111111111E /* MembershipStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222226 /* MembershipStore.swift */; };
-		11111111111111111111111F /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222227 /* PaywallView.swift */; };
 		A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96C244B303D79F8009BAAFD /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -73,9 +71,6 @@
 		222222222222222222222223 /* PageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageHeader.swift; sourceTree = "<group>"; };
 		222222222222222222222224 /* PictureWordButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordButton.swift; sourceTree = "<group>"; };
 		222222222222222222222225 /* PictureWordSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordSheet.swift; sourceTree = "<group>"; };
-		222222222222222222222226 /* MembershipStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembershipStore.swift; sourceTree = "<group>"; };
-		222222222222222222222227 /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
-		A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = KakawordSubscriptions.storekit; sourceTree = "<group>"; };
 		A96C244B303D79F8009BAAFD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -93,7 +88,6 @@
 		444444444444444444444401 = {
 			isa = PBXGroup;
 			children = (
-				A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */,
 				444444444444444444444402 /* PictureWord */,
 				444444444444444444444403 /* Products */,
 			);
@@ -140,7 +134,6 @@
 				444444444444444444444408 /* Networking */,
 				444444444444444444444409 /* Persistence */,
 				44444444444444444444440A /* Media */,
-				444444444444444444444412 /* Purchases */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -151,7 +144,6 @@
 				444444444444444444444411 /* Onboarding */,
 				44444444444444444444440B /* Home */,
 				444444444444444444444410 /* Settings */,
-				444444444444444444444413 /* Paywall */,
 				44444444444444444444440C /* Capture */,
 				44444444444444444444440D /* Analysis */,
 				44444444444444444444440E /* Result */,
@@ -251,22 +243,6 @@
 			path = Onboarding;
 			sourceTree = "<group>";
 		};
-		444444444444444444444412 /* Purchases */ = {
-			isa = PBXGroup;
-			children = (
-				222222222222222222222226 /* MembershipStore.swift */,
-			);
-			path = Purchases;
-			sourceTree = "<group>";
-		};
-		444444444444444444444413 /* Paywall */ = {
-			isa = PBXGroup;
-			children = (
-				222222222222222222222227 /* PaywallView.swift */,
-			);
-			path = Paywall;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -363,8 +339,6 @@
 				11111111111111111111111B /* PageHeader.swift in Sources */,
 				11111111111111111111111C /* PictureWordButton.swift in Sources */,
 				11111111111111111111111D /* PictureWordSheet.swift in Sources */,
-				11111111111111111111111E /* MembershipStore.swift in Sources */,
-				11111111111111111111111F /* PaywallView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

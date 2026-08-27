@@ -1,14 +1,10 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import type { ServerConfig } from "./config.js";
-import { DisabledAccessService, type AccessService } from "./core/access/index.js";
 import type { VisionProvider } from "./core/image-analysis/types.js";
 import type { AnalyzeUsageLimiter } from "./core/usage-limits/index.js";
-import { registerAccessRoutes } from "./routes/access.js";
 import { registerAnalyzeRoute } from "./routes/analyze.js";
 import { registerContentRoute } from "./routes/content.js";
-import { registerMetricsRoute } from "./routes/metrics.js";
-import { registerStoreRoutes } from "./routes/store.js";
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
 import { errorFields, type LogLevel, type Logger } from "./utils/logger.js";
 
@@ -22,32 +18,27 @@ type AppDependencies = {
   config: ServerConfig;
   provider: VisionProvider;
   usageLimiter: AnalyzeUsageLimiter;
-  accessService?: AccessService;
   logger: Logger;
 };
 
-export function createApp({ config, provider, usageLimiter, accessService = new DisabledAccessService(), logger }: AppDependencies): Hono<AppEnv> {
+export function createApp({ config, provider, usageLimiter, logger }: AppDependencies): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.use("*", cors({
     origin: "*",
-    allowHeaders: ["Authorization", "Content-Type", "X-DeviceCheck-Token", "X-Operation-ID", "X-Request-ID"],
+    allowHeaders: ["Content-Type", "X-Request-ID"],
     exposeHeaders: ["X-Request-ID", "Retry-After"],
   }));
   app.use("*", requestLogger(logger, config.logLevel));
 
   app.get("/health", (c) => c.json({ ok: true, provider: config.vision.name }));
   registerContentRoute(app);
-  registerAccessRoutes(app, { accessService, logger });
-  registerStoreRoutes(app, { accessService, logger });
-  registerMetricsRoute(app, { accessService, logger });
   registerAnalyzeRoute(app, {
     provider,
     providerName: config.vision.name,
     providerModel: config.vision.model,
     maxUploadBytes: config.maxUploadBytes,
     usageLimiter,
-    accessService,
     trustProxy: config.usageLimits.trustProxy,
     logLevel: config.logLevel,
     logger,
@@ -57,7 +48,6 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
     providerName: config.vision.name,
     providerModel: config.vision.model,
     usageLimiter,
-    accessService,
     trustProxy: config.usageLimits.trustProxy,
     logLevel: config.logLevel,
     logger,

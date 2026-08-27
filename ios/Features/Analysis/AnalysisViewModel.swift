@@ -4,7 +4,6 @@ import UIKit
 final class AnalysisViewModel: ObservableObject {
     @Published private(set) var phase: AnalysisPhase = .preparing
     @Published private(set) var objects: [LearningObject] = []
-    @Published private(set) var shouldPresentPaywall = false
 
     private let client: any AnalysisProviding
     private var analysisTask: Task<Void, Never>?
@@ -19,7 +18,6 @@ final class AnalysisViewModel: ObservableObject {
         let id = UUID()
         operationID = id
         objects = []
-        shouldPresentPaywall = false
         phase = .preparing
         analysisTask = Task { [weak self] in
             await self?.analyze(image: image, maxObjects: maxObjects, captionStyle: captionStyle, operationID: id)
@@ -53,9 +51,6 @@ final class AnalysisViewModel: ObservableObject {
             phase = .success(result)
         } catch {
             guard isCurrent(id), !Task.isCancelled else { return }
-            if let apiError = error as? APIError {
-                shouldPresentPaywall = apiError.shouldPresentPaywall
-            }
             phase = .failed(error.localizedDescription)
         }
     }

@@ -5,8 +5,7 @@ struct AppEnvironment {
     let apiBaseURL: URL
 
     static let current = AppEnvironment(
-        // 真机无法通过 localhost 访问 Mac；提交 TestFlight 前应替换为生产 HTTPS 地址。
-//        apiBaseURL: URL(string: "https://api.kakaword.com")!
-        apiBaseURL: URL(string: "http://192.168.0.103:8787")!
+        // Release/TestFlight/App Store 必须使用审核员可访问的生产 HTTPS 服务。
+        apiBaseURL: URL(string: "https://api.kakaword.com")!
     )
 }

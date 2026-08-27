@@ -8,7 +8,6 @@ test("reads the production usage-limit defaults", () => {
     DATABASE_URL: "postgres://localhost/picture_word",
     RATE_LIMIT_IP_HASH_SECRET: "a-secret-with-at-least-thirty-two-characters",
     TRUST_PROXY: "true",
-    ACCESS_CONTROL_ENABLED: "false",
   });
 
   assert.equal(config.usageLimits.enabled, true);
@@ -21,22 +20,6 @@ test("reads the production usage-limit defaults", () => {
 test("allows limits to be explicitly disabled for local mock development", () => {
   const config = readServerConfig({ VISION_PROVIDER: "mock", USAGE_LIMIT_ENABLED: "false" });
   assert.equal(config.usageLimits.enabled, false);
-});
-
-test("keeps access control disabled by default for the mock provider", () => {
-  const config = readServerConfig({ VISION_PROVIDER: "mock", USAGE_LIMIT_ENABLED: "false" });
-  assert.equal(config.access.enabled, false);
-});
-
-test("requires Apple and DeviceCheck secrets when access control is enabled", () => {
-  assert.throws(
-    () => readServerConfig({
-      VISION_PROVIDER: "mock",
-      USAGE_LIMIT_ENABLED: "false",
-      ACCESS_CONTROL_ENABLED: "true",
-    }),
-    /DATABASE_URL is required when access control is enabled/,
-  );
 });
 
 test("requires database and HMAC secret when limits are enabled", () => {
