@@ -14,7 +14,13 @@ const usageLimiter = createAnalyzeUsageLimiter(config.usageLimits, logger);
 const accessService = await createAccessService(config.access, logger);
 const app = createApp({ config, provider, usageLimiter, accessService, logger });
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
+// Bind IPv4 explicitly so a real device on the local network can reach the
+// development server via its LAN address (for example, 192.168.x.x).
+serve({
+  fetch: app.fetch,
+  port: config.port,
+  hostname: process.env.SERVER_HOSTNAME?.trim() || "0.0.0.0",
+}, (info) => {
   logger.info("server.started", {
     port: info.port,
     provider: config.vision.name,

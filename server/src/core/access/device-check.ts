@@ -47,12 +47,25 @@ export class AppleDeviceCheckClient implements DeviceChecking {
       }),
       signal: AbortSignal.timeout(10_000),
     });
+    const body = await response.text().catch(() => "");
     if (!response.ok) {
-      const body = await response.text().catch(() => "");
       throw new Error(`DeviceCheck ${action} failed (${response.status}): ${body.slice(0, 256)}`);
     }
     if (action === "update_two_bits") return undefined as T;
-    return await response.json() as T;
+    // Apple returns HTTP 200 with this plain-text response for a device whose
+    // two-bit state has never been initialized. Treat it as both bits false;
+    // the first successful quota commit will initialize the state via update.
+    if (action === "query_two_bits" && body.trim() === "Failed to find bit state") {
+      return {} as T;
+    }
+    try {
+      return JSON.parse(body) as T;
+    } catch {
+      const contentType = response.headers.get("content-type") ?? "unknown content type";
+      throw new Error(
+        `DeviceCheck ${action} returned invalid JSON (${response.status}, ${contentType}): ${body.slice(0, 256)}`,
+      );
+    }
   }
 
   private authorizationToken(): string {

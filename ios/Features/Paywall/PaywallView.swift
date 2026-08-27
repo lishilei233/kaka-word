@@ -7,6 +7,7 @@ struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var membership: MembershipStore
     @State private var selectedProductId = MembershipStore.annualProductId
+    @State private var canPresentMembershipAlert = false
 
     var body: some View {
         NavigationStack {
@@ -41,17 +42,29 @@ struct PaywallView: View {
         }
         .preferredColorScheme(.light)
         .task {
+            // Wait until the sheet's hosting controller is in the window hierarchy
+            // before presenting an alert triggered by startup or StoreKit work.
+            await Task.yield()
+            canPresentMembershipAlert = true
             membership.recordMetric("paywall_exposure")
             if membership.products.isEmpty { await membership.prepare() }
         }
         .alert("会员", isPresented: Binding(
-            get: { membership.message != nil },
-            set: { if !$0 { membership.message = nil } }
+            get: { canPresentMembershipAlert && membership.message != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                // Avoid publishing synchronously from SwiftUI's alert transaction.
+                Task { @MainActor in
+                    await Task.yield()
+                    membership.message = nil
+                }
+            }
         )) {
             Button("知道了", role: .cancel) {}
         } message: {
             Text(membership.message ?? "")
         }
+        .onDisappear { canPresentMembershipAlert = false }
     }
 
     private var hero: some View {
@@ -82,12 +95,29 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var plans: some View {
-        if membership.products.isEmpty {
+        if membership.isLoading {
             VStack(spacing: 12) {
                 ProgressView().tint(Color.ink)
                 Text("正在从 App Store 获取价格…")
                     .font(.system(.caption, design: .rounded, weight: .bold))
                     .foregroundStyle(Color.ink.opacity(0.55))
+            }
+            .frame(maxWidth: .infinity, minHeight: 150)
+        } else if membership.products.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: membership.productLoadFailed ? "exclamationmark.triangle" : "bag.badge.questionmark")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Color.coral)
+                Text(membership.productLoadFailed ? "暂时没有获取到订阅商品" : "正在从 App Store 获取价格…")
+                    .font(.system(.caption, design: .rounded, weight: .bold))
+                    .foregroundStyle(Color.ink.opacity(0.55))
+                if membership.productLoadFailed {
+                    Button("重试") {
+                        Task { await membership.retryProducts() }
+                    }
+                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                    .foregroundStyle(Color.ink)
+                }
             }
             .frame(maxWidth: .infinity, minHeight: 150)
         } else {

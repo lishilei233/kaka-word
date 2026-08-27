@@ -70,7 +70,7 @@ function readAccessConfig(environment: NodeJS.ProcessEnv, defaultEnabled: boolea
       .map((value) => value.trim())
       .filter(Boolean),
     appleOnlineChecks: readBoolean(environment.APPLE_JWS_ONLINE_CHECKS, true, "APPLE_JWS_ONLINE_CHECKS"),
-    monthlyProductId: environment.APPLE_MONTHLY_PRODUCT_ID?.trim() || "com.kakaword.app.membership.monthly",
+    monthlyProductId: environment.APPLE_MONTHLY_PRODUCT_ID?.trim() || "com.kakaword.app.membership.month",
     annualProductId: environment.APPLE_ANNUAL_PRODUCT_ID?.trim() || "com.kakaword.app.membership.annual",
     deviceCheck: {
       keyId: environment.DEVICECHECK_KEY_ID?.trim() ?? "",

@@ -29,7 +29,7 @@ const config: ServerConfig = {
     bundleId: "com.kakaword.app",
     appleRootCertificatePaths: [],
     appleOnlineChecks: false,
-    monthlyProductId: "com.kakaword.app.membership.monthly",
+    monthlyProductId: "com.kakaword.app.membership.month",
     annualProductId: "com.kakaword.app.membership.annual",
     deviceCheck: { keyId: "", teamId: "", privateKey: "", environment: "development" },
   },

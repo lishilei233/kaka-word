@@ -47,8 +47,15 @@ struct SettingsView: View {
                 .environmentObject(membership)
         }
         .alert("会员", isPresented: Binding(
-            get: { membership.message != nil },
-            set: { if !$0 { membership.message = nil } }
+            get: { !paywallPresented && membership.message != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                // Avoid publishing synchronously from SwiftUI's alert transaction.
+                Task { @MainActor in
+                    await Task.yield()
+                    membership.message = nil
+                }
+            }
         )) {
             Button("知道了", role: .cancel) {}
         } message: {

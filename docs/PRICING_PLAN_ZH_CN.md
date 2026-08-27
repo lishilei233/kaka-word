@@ -123,7 +123,7 @@ ChatGPT 部分按 2026 年 8 月 26 日美元兑人民币中间价约 6.7829 估
 
 两个产品必须位于同一订阅组、同一等级，且关闭家庭共享与介绍性优惠：
 
-- 月会员：`com.kakaword.app.membership.monthly`
+- 月会员：`com.kakaword.app.membership.month`
 - 年会员：`com.kakaword.app.membership.annual`
 
 中国大陆店面基准价格分别为 15 元/月和 108 元/年。其他店面由 App Store Connect 生成本地价格，App 内只显示 StoreKit 返回的价格和币种。

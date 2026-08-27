@@ -5,7 +5,7 @@
 ## App Store Connect
 
 - [ ] 已接受付费 App 协议，并完成税务与收款账户配置。
-- [ ] 在同一订阅组、同一等级创建月会员 `com.kakaword.app.membership.monthly` 与年会员 `com.kakaword.app.membership.annual`。
+- [ ] 在同一订阅组、同一等级创建月会员 `com.kakaword.app.membership.month` 与年会员 `com.kakaword.app.membership.annual`。
 - [ ] 中国大陆价格配置为 15 元/月、108 元/年；其他店面的价格已检查。
 - [ ] 未配置免费试用、介绍性优惠、家庭共享、次数包或无限识别。
 - [ ] 已启用 16 天账单宽限期，并同时覆盖生产与 Sandbox。

@@ -98,7 +98,7 @@ function accessConfig(databaseURL: string): AccessConfig {
     appAppleId: 123456789,
     appleRootCertificatePaths: [],
     appleOnlineChecks: false,
-    monthlyProductId: "com.kakaword.app.membership.monthly",
+    monthlyProductId: "com.kakaword.app.membership.month",
     annualProductId: "com.kakaword.app.membership.annual",
     deviceCheck: { keyId: "test", teamId: "test", privateKey: "test", environment: "development" },
   };

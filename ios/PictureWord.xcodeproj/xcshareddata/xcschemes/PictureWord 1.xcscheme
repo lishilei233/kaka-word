@@ -54,12 +54,9 @@
          <EnvironmentVariable
             key = "SWIFT_ACTIVE_COMPILATION_CONDITIONS"
             value = "DEBUG"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </EnvironmentVariable>
       </EnvironmentVariables>
-      <StoreKitConfigurationFileReference
-         identifier = "../../KakawordSubscriptions.storekit">
-      </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

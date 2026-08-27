@@ -194,11 +194,12 @@ actor AccessCredentialStore {
 
 @MainActor
 final class MembershipStore: ObservableObject {
-    static let monthlyProductId = "com.kakaword.app.membership.monthly"
+    static let monthlyProductId = "com.kakaword.app.membership.month"
     static let annualProductId = "com.kakaword.app.membership.annual"
 
     @Published private(set) var entitlement: EntitlementSummary?
     @Published private(set) var products: [Product] = []
+    @Published private(set) var productLoadFailed = false
     @Published private(set) var isLoading = false
     @Published private(set) var isPurchasing = false
     @Published var message: String?
@@ -230,13 +231,14 @@ final class MembershipStore: ObservableObject {
     var monthlyProduct: Product? { products.first { $0.id == Self.monthlyProductId } }
 
     func prepare() async {
-        guard !didPrepare else {
+        guard !didPrepare || products.isEmpty else {
             await refreshStatus()
             return
         }
         didPrepare = true
         isLoading = true
         defer { isLoading = false }
+        productLoadFailed = false
         async let productRequest = Product.products(for: [Self.monthlyProductId, Self.annualProductId])
         do {
             let initialEntitlement = try await AccessCredentialStore.shared.bootstrapIfNeeded()
@@ -249,10 +251,20 @@ final class MembershipStore: ObservableObject {
         }
         do {
             products = sortProducts(try await productRequest)
+            productLoadFailed = products.isEmpty
+            if productLoadFailed {
+                message = "暂时没有找到可用的订阅商品，请确认 App Store 商品配置后重试"
+            }
         } catch {
+            productLoadFailed = true
             message = error.localizedDescription
         }
         await syncCurrentEntitlements()
+    }
+
+    func retryProducts() async {
+        didPrepare = false
+        await prepare()
     }
 
     func refreshStatus() async {

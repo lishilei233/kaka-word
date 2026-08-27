@@ -85,7 +85,7 @@
               "locale" : "zh_Hans"
             }
           ],
-          "productID" : "com.kakaword.app.membership.monthly",
+          "productID" : "com.kakaword.app.membership.month",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "咔咔单词月会员",
           "subscriptionGroupID" : "CCDE358D",
