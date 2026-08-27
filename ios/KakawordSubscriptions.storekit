@@ -1,0 +1,104 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "7198694F",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : true,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "zh_Hans",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "CHN",
+    "_storeKitErrors" : [
+
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "CCDE358D",
+      "localizations" : [
+
+      ],
+      "name" : "咔咔会员",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "108",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6B1D6751",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "每个订阅月 100 次 AI 拍照识别，并可使用 AI 单词纠错。",
+              "displayName" : "咔咔单词年会员",
+              "locale" : "zh_Hans"
+            }
+          ],
+          "productID" : "com.kakaword.app.membership.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "咔咔单词年会员",
+          "subscriptionGroupID" : "CCDE358D",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "15",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "C5549550",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "每个订阅月 100 次 AI 拍照识别，并可使用 AI 单词纠错。",
+              "displayName" : "咔咔单词月会员",
+              "locale" : "zh_Hans"
+            }
+          ],
+          "productID" : "com.kakaword.app.membership.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "咔咔单词月会员",
+          "subscriptionGroupID" : "CCDE358D",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

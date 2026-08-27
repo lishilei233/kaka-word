@@ -23,9 +23,16 @@ struct ResultView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
+    @EnvironmentObject private var membership: MembershipStore
+    @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
+    @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
+    @StateObject private var analysisModel = AnalysisViewModel()
     @State private var sharedImage: SharedImageFile?
     @State private var shareErrorMessage: String?
     @State private var feedbackErrorMessage: String?
+    @State private var isReanalyzing = false
+    @State private var reanalysisErrorMessage: String?
+    @State private var paywallPresented = false
     @State private var result: AnalyzeResult
 
     init(
@@ -47,16 +54,16 @@ struct ResultView: View {
             NotebookBackground()
             PhotoWordCardDetailView(
                 image: image,
-                result: result,
+                result: visibleResult,
                 missionUpdate: missionUpdate,
                 revealsAnnotations: revealsAnnotations,
-                status: .complete,
-                onClose: dismiss.callAsFunction,
+                status: cardStatus,
+                onClose: close,
                 onShare: shareDecoratedPhoto,
                 onFeedback: {
                     openFeedback()
                 },
-                onRetry: nil,
+                onRetry: retry,
                 onResultChange: persist
             )
         }
@@ -80,7 +87,93 @@ struct ResultView: View {
         } message: {
             Text(feedbackErrorMessage ?? "请在系统中配置邮件账户后重试。")
         }
-        .pictureWordBackSwipe { dismiss() }
+        .onChange(of: analysisModel.phase) { _, phase in
+            handleReanalysisPhase(phase)
+        }
+        .onChange(of: analysisModel.shouldPresentPaywall) { _, shouldPresent in
+            if shouldPresent { paywallPresented = true }
+        }
+        .sheet(isPresented: $paywallPresented) {
+            PaywallView(onPurchaseCompleted: retry)
+                .environmentObject(membership)
+        }
+        .pictureWordBackSwipe(action: close)
+    }
+
+    private var visibleResult: AnalyzeResult {
+        guard isReanalyzing else { return result }
+        return AnalyzeResult(
+            imageWidth: max(Int(image.size.width.rounded()), 1),
+            imageHeight: max(Int(image.size.height.rounded()), 1),
+            objects: analysisModel.objects,
+            caption: nil,
+            captionChinese: nil,
+            captionStyle: nil
+        )
+    }
+
+    private var cardStatus: PhotoWordCardStatus {
+        if let reanalysisErrorMessage, !isReanalyzing {
+            return .failed(reanalysisErrorMessage)
+        }
+        guard isReanalyzing else { return .complete }
+        switch analysisModel.phase {
+        case .preparing:
+            return .preparing
+        case .uploading(let progress):
+            return .uploading(progress)
+        case .analyzing, .success:
+            return .recognizing
+        case .failed(let message):
+            return .failed(message)
+        case .cancelled:
+            return .cancelled
+        }
+    }
+
+    private var captionStyle: CaptionStyle {
+        CaptionStyle(rawValue: captionStyleRawValue) ?? .serious
+    }
+
+    private func close() {
+        if isReanalyzing {
+            analysisModel.cancel()
+        }
+        dismiss()
+    }
+
+    private func retry() {
+        guard membership.canStartRecognition else {
+            paywallPresented = true
+            return
+        }
+        reanalysisErrorMessage = nil
+        isReanalyzing = true
+        analysisModel.retry(
+            image: image,
+            maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
+            captionStyle: captionStyle
+        )
+    }
+
+    private func handleReanalysisPhase(_ phase: AnalysisPhase) {
+        guard isReanalyzing else { return }
+        switch phase {
+        case .success(let updatedResult):
+            do {
+                try historyStore.updateResult(id: recordID, result: updatedResult)
+                result = updatedResult
+                isReanalyzing = false
+            } catch {
+                reanalysisErrorMessage = error.localizedDescription
+                isReanalyzing = false
+            }
+        case .failed(let message):
+            reanalysisErrorMessage = message
+            isReanalyzing = false
+        case .preparing, .uploading, .analyzing, .cancelled:
+            break
+        }
     }
 
     private func persist(_ updated: AnalyzeResult) -> String? {
@@ -160,8 +253,15 @@ struct PhotoWordCardDetailView: View {
     @State private var selectedObject: LearningObject?
     @State private var editErrorMessage: String?
     @State private var showTips = false
+    @State private var showAddWord = false
+    @State private var showVocabularyPaywall = false
+    @State private var wordDetailDetent: PresentationDetent = .medium
     @State private var editingObjectID: String?
     @State private var suppressPageDismissUntil = Date.distantPast
+    @StateObject private var speech = SpeechService()
+    @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
+    @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
+    @EnvironmentObject private var membership: MembershipStore
 
     var body: some View {
         GeometryReader { proxy in
@@ -198,14 +298,30 @@ struct PhotoWordCardDetailView: View {
         .sheet(item: $selectedObject) { object in
             WordDetailSheet(
                 object: object,
-                onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil
+                onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil,
+                onDelete: status.isComplete && onResultChange != nil ? deleteObject : nil,
+                onEditingChanged: { isEditing in
+                    wordDetailDetent = isEditing ? .large : .medium
+                }
             )
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.medium, .large], selection: $wordDetailDetent)
+                .presentationContentInteraction(.scrolls)
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color.paper)
+        }
+        .sheet(isPresented: $showAddWord) {
+            ManualVocabularySheet(onAdd: addObject)
+                .pictureWordSheetPresentation()
+        }
+        .sheet(isPresented: $showVocabularyPaywall) {
+            PaywallView {
+                showAddWord = true
+            }
+            .environmentObject(membership)
         }
         .sheet(isPresented: $showTips) {
             AnnotationTipsSheet()
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+                .pictureWordSheetPresentation()
         }
         .alert("无法保存修改", isPresented: Binding(
             get: { editErrorMessage != nil },
@@ -304,11 +420,20 @@ struct PhotoWordCardDetailView: View {
 
                 if let caption = result.caption, !caption.isEmpty {
                     VStack(spacing: 10) {
-                        Text(caption)
-                            .font(.system(size: 16, weight: .bold, design: .serif))
-                            .foregroundStyle(Color.ink.opacity(0.82))
-                            .multilineTextAlignment(.center)
-                            .lineLimit(3)
+                        Button {
+                            speech.speak(caption, rate: speechRate)
+                        } label: {
+                            Text(caption)
+                                .font(.system(size: 16, weight: .bold, design: .serif))
+                                .foregroundStyle(Color.ink.opacity(0.82))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(3)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!speechEnabled)
+                        .accessibilityLabel("朗读图片描述")
+                        .accessibilityHint(speechEnabled ? "点击播放英文句子" : "请先在设置中开启英文发音")
                         if let captionChinese = result.captionChinese, !captionChinese.isEmpty {
                             Text(captionChinese)
                                 .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -320,32 +445,46 @@ struct PhotoWordCardDetailView: View {
 
                 }
 
+                // 暂时隐藏分享、反馈入口，后续恢复时取消下面两段注释。
+                // resultActionButton(
+                //     "分享",
+                //     systemImage: "square.and.arrow.up",
+                //     style: .primary,
+                //     action: onShare
+                // )
+                // resultActionButton(
+                //     "反馈",
+                //     systemImage: "envelope",
+                //     style: .secondary,
+                //     action: onFeedback
+                // )
+
                 HStack(spacing: 8) {
-                    resultActionButton(
-                        "分享",
-                        systemImage: "square.and.arrow.up",
-                        foreground: Color.paperLight,
-                        background: Color.ink,
-                        action: onShare
-                    )
-                    resultActionButton(
-                        "反馈",
-                        systemImage: "envelope",
-                        foreground: Color.ink,
-                        background: Color.mint.opacity(0.72),
-                        action: onFeedback
-                    )
+                    if onResultChange != nil {
+                        PictureWordButton(
+                            "添加单词",
+                            systemImage: "plus",
+                            style: .secondary,
+                            size: .large
+                        ) {
+                            finishAnnotationEditing()
+                            if membership.isMember {
+                                showAddWord = true
+                            } else {
+                                showVocabularyPaywall = true
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
                     if let onRetry {
-                        resultActionButton(
+                        resultIconActionButton(
                             "重新识别",
                             systemImage: "arrow.clockwise",
-                            foreground: Color.ink,
-                            background: Color.sun.opacity(0.78),
                             action: onRetry
                         )
                     }
                 }
-                .padding(.top, 40)
+                .padding(.top, 28)
             }
             .padding(.horizontal, 20)
         case .failed(let message):
@@ -375,6 +514,7 @@ struct PhotoWordCardDetailView: View {
             showsShadow: false
         ) { object in
             finishAnnotationEditing()
+            wordDetailDetent = .medium
             selectedObject = object
         } onUpdate: { object in
             updateObject(object).map { editErrorMessage = $0 }
@@ -393,24 +533,58 @@ struct PhotoWordCardDetailView: View {
         return nil
     }
 
+    private func deleteObject(_ object: LearningObject) -> String? {
+        let updated = result.removingObject(id: object.id)
+        if let error = onResultChange?(updated) {
+            return error
+        }
+        selectedObject = nil
+        return nil
+    }
+
+    private func addObject(_ object: LearningObject) -> String? {
+        let updated = AnalyzeResult(
+            imageWidth: result.imageWidth,
+            imageHeight: result.imageHeight,
+            objects: result.objects + [object],
+            caption: result.caption,
+            captionChinese: result.captionChinese,
+            captionStyle: result.captionStyle
+        )
+        return onResultChange?(updated)
+    }
+
     private func resultActionButton(
         _ title: String,
         systemImage: String,
-        foreground: Color,
-        background: Color,
+        style: PictureWordButton.Style,
         action: @escaping () -> Void
     ) -> some View {
-        Button {
+        PictureWordButton(
+            title,
+            systemImage: systemImage,
+            style: style,
+            size: .compact
+        ) {
             finishAnnotationEditing()
             action()
-        } label: {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(foreground)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(background, in: Capsule())
         }
-        .buttonStyle(.plain)
+    }
+
+    private func resultIconActionButton(
+        _ accessibilityLabel: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        PictureWordButton(
+            systemImage: systemImage,
+            accessibilityLabel: accessibilityLabel,
+            style: .secondary,
+            size: .large
+        ) {
+            finishAnnotationEditing()
+            action()
+        }
     }
 
     private var annotationEditingBinding: Binding<String?> {
@@ -436,27 +610,112 @@ struct PhotoWordCardDetailView: View {
     }
 }
 
+private struct ManualVocabularySheet: View {
+    let onAdd: (LearningObject) -> String?
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var term = ""
+    @State private var isResolving = false
+    @State private var errorMessage: String?
+    @FocusState private var termIsFocused: Bool
+
+    var body: some View {
+        PictureWordSheet {
+            VStack(alignment: .leading, spacing: 20) {
+                PictureWordSheetHeader(
+                    eyebrow: "ADD WORD",
+                    title: "手动增加单词"
+                )
+
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("输入中文或英文物体名称")
+                        .font(.system(.caption, design: .rounded, weight: .bold))
+                        .foregroundStyle(Color.ink.opacity(0.62))
+                    TextField("例如：窗户 / window", text: $term)
+                        .focused($termIsFocused)
+                        .submitLabel(.done)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .padding(16)
+                        .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.ink.opacity(0.1), lineWidth: 1)
+                        }
+                        .onSubmit(resolveVocabulary)
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(.caption, design: .rounded, weight: .semibold))
+                        .foregroundStyle(Color.coral)
+                }
+
+                PictureWordButton(
+                    "添加单词",
+                    systemImage: "plus",
+                    isLoading: isResolving,
+                    action: resolveVocabulary
+                )
+                .disabled(isResolving || submittedTerm.isEmpty || submittedTerm.count > 60)
+
+                Spacer(minLength: 0)
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(180))
+            termIsFocused = true
+        }
+    }
+
+    private var submittedTerm: String {
+        term.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func resolveVocabulary() {
+        guard !submittedTerm.isEmpty, submittedTerm.count <= 60, !isResolving else { return }
+        isResolving = true
+        errorMessage = nil
+        Task {
+            do {
+                let details = try await APIClient().resolveVocabulary(term: submittedTerm)
+                let object = LearningObject(
+                    id: "manual-\(UUID().uuidString)",
+                    english: details.english,
+                    chinese: details.chinese,
+                    ipa: details.ipa,
+                    confidence: 1,
+                    box: ObjectBox(x: 0.42, y: 0.42, width: 0.16, height: 0.16),
+                    anchor: ObjectAnchor(x: 0.5, y: 0.5),
+                    example: details.example,
+                    exampleChinese: details.exampleChinese,
+                    labelCenterOverride: nil,
+                    targetOverride: nil
+                )
+                if let persistenceError = onAdd(object) {
+                    errorMessage = persistenceError
+                } else {
+                    dismiss()
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isResolving = false
+        }
+    }
+}
+
 private struct AnnotationTipsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack {
-            NotebookBackground()
-
+        PictureWordSheet {
             VStack(alignment: .leading, spacing: 20) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("ANNOTATION TIPS")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
-                            .tracking(1.8)
-                            .foregroundStyle(Color.coral)
-                        Text("如何调整标注")
-                            .font(.system(size: 24, weight: .heavy, design: .rounded))
-                            .foregroundStyle(Color.ink)
-                    }
-
-                    Spacer()
-                }
+                PictureWordSheetHeader(
+                    eyebrow: "ANNOTATION TIPS",
+                    title: "如何调整标注"
+                )
 
                 VStack(alignment: .leading, spacing: 14) {
                     tipRow(
@@ -478,7 +737,6 @@ private struct AnnotationTipsSheet: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(24)
         }
     }
 
@@ -604,23 +862,21 @@ private struct RecognitionFailureFooter: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
             HStack(spacing: 9) {
-                footerButton("返回首页", tint: Color.ink.opacity(0.08), action: onClose)
-                footerButton("重新识别", tint: Color.sun, action: onRetry)
+                PictureWordButton(
+                    "返回首页",
+                    style: .secondary,
+                    action: onClose
+                )
+                PictureWordButton(
+                    "重新识别",
+                    systemImage: "arrow.clockwise",
+                    action: onRetry
+                )
             }
             .frame(maxWidth: .infinity)
         }
         .padding(14)
         .background(Color.paper, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private func footerButton(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .font(.system(size: 13, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.ink)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 11)
-            .background(tint, in: Capsule())
-            .buttonStyle(.plain)
     }
 }
 
@@ -694,6 +950,7 @@ private enum ResultViewPreviewData {
                 box: ObjectBox(x: 0.12, y: 0.18, width: 0.24, height: 0.3),
                 anchor: ObjectAnchor(x: 0.24, y: 0.33),
                 example: "The sun is bright.",
+                exampleChinese: "太阳很明亮。",
                 labelCenterOverride: nil,
                 targetOverride: nil
             ),
@@ -706,6 +963,7 @@ private enum ResultViewPreviewData {
                 box: ObjectBox(x: 0.58, y: 0.28, width: 0.2, height: 0.36),
                 anchor: ObjectAnchor(x: 0.68, y: 0.46),
                 example: "Please open the window.",
+                exampleChinese: "请打开窗户。",
                 labelCenterOverride: nil,
                 targetOverride: nil
             )

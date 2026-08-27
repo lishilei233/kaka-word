@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { registerAnalyzeRoute } from "./routes/analyze.js";
+import { registerContentRoute } from "./routes/content.js";
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
 import { errorFields } from "./utils/logger.js";
 export function createApp({ config, provider, usageLimiter, logger }) {
@@ -12,6 +13,7 @@ export function createApp({ config, provider, usageLimiter, logger }) {
     }));
     app.use("*", requestLogger(logger, config.logLevel));
     app.get("/health", (c) => c.json({ ok: true, provider: config.vision.name }));
+    registerContentRoute(app);
     registerAnalyzeRoute(app, {
         provider,
         providerName: config.vision.name,

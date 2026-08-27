@@ -65,6 +65,7 @@ test("resolves Chinese or English vocabulary without an image", async () => {
         chinese: "窗户",
         ipa: "/ˈwɪndoʊ/",
         example: "The window is open.",
+        exampleChinese: "窗户是开着的。",
     });
     assert.equal(limiter.minuteCalls, 1);
     assert.equal(limiter.dailyCalls, 1);

@@ -7,7 +7,40 @@ npm run db:migrate
 npm run dev
 ```
 
-## 用量保护
+## 访问、订阅与额度
+
+App 首次启动调用 `POST /v1/access/bootstrap`，提交随机安装 ID 与 Apple DeviceCheck token，取得匿名访问令牌和权益摘要。之后：
+
+- `GET /v1/access/status` 返回当前方案、订阅状态、已用/预占/剩余次数与重置时间。
+- `POST /v1/store/sync` 接收 StoreKit 2 签名交易和可选的签名续订信息；服务端验证成功后才允许客户端完成交易。
+- `POST /v1/store/notifications` 接收 App Store Server Notifications V2，按 `notificationUUID` 幂等处理续订、到期、退款、撤销和账单宽限期。
+
+`POST /v1/analyze` 必须携带 `Authorization: Bearer ...`、唯一的 UUID v4 `X-Operation-ID`，免费用户还需携带最新 `X-DeviceCheck-Token`。服务端先创建 10 分钟预占；只有生成至少一个有效物体且成功写出 SSE `complete` 后才扣除 1 次。失败、空结果、取消、超时和过期预占都会释放。相同操作 ID 不会重复扣次；额度耗尽返回 `402 QUOTA_EXHAUSTED` 和最新 `entitlement`。
+
+`POST /v1/vocabulary/resolve` 仅会员可用，修改物体名称后重新生成音标、释义和例句，不扣拍照额度；免费用户返回 `403 MEMBERSHIP_REQUIRED`。
+
+`POST /v1/metrics` 只接收经过白名单限制的付费墙、方案选择、购买和恢复结果。服务端还会聚合识别结果、额度耗尽、纠错与订阅通知；数据按日、事件、产品和结果累计，不保存照片、安装标识、交易标识或其他个人身份。
+
+免费额度按设备终身 3 次。会员通过 Apple 的 `originalTransactionId` 跨设备共享每个订阅月 100 次额度，周期以首次购买时间为锚点并按月末截断。活跃订阅与账单宽限期提供权益，退款、撤销或宽限期结束后不再提供会员权益。
+
+生产部署需要在 `.env` 配置：
+
+```env
+ACCESS_CONTROL_ENABLED=true
+ACCESS_TOKEN_HASH_SECRET=<至少 32 字符且不同于 IP 哈希的随机值>
+APPLE_BUNDLE_ID=com.kakaword.app
+APPLE_APP_ID=<App Store Connect 中的数字 Apple ID>
+APPLE_ROOT_CERTIFICATE_PATHS=/run/secrets/AppleRootCA-G3.cer
+APPLE_JWS_ONLINE_CHECKS=true
+APPLE_TEAM_ID=<Apple Team ID>
+DEVICECHECK_KEY_ID=<DeviceCheck Key ID>
+DEVICECHECK_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----
+DEVICECHECK_ENVIRONMENT=production
+```
+
+Apple Root CA 证书和 DeviceCheck 私钥必须作为部署密钥挂载，不能提交到仓库。本地 Mock 开发可同时设置 `ACCESS_CONTROL_ENABLED=false` 和 `USAGE_LIMIT_ENABLED=false`。生产与 Sandbox 的 Apple 交易按 `environment` 分区保存；DeviceCheck 测试环境使用 `development`。
+
+## 全站用量保护
 
 `POST /v1/analyze` 接收图片、3–8 的 `maxObjects`，以及 `serious`、`funny` 或 `random` 的 `captionStyle`。成功响应通过 SSE 逐个发送物体，并在 `complete` 事件中返回完整结果、英文描述和实际采用的风格。
 
@@ -50,6 +83,7 @@ src/
 ├── app.ts                     # Hono 应用装配
 ├── config.ts                  # 环境变量与运行配置
 ├── content/                   # 隐私政策、服务条款、关于页面文案
+├── core/access/               # 匿名令牌、DeviceCheck、StoreKit 验证与额度预占
 ├── routes/                    # HTTP 业务路由
 ├── core/image-analysis/       # 图片分析核心能力与供应商适配器
 └── utils/                     # 日志、图片尺寸解析等通用能力

@@ -34,6 +34,10 @@
 		111111111111111111111119 /* ShareCardRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222221 /* ShareCardRenderer.swift */; };
 		11111111111111111111111A /* ShareCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222222 /* ShareCardView.swift */; };
 		11111111111111111111111B /* PageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222223 /* PageHeader.swift */; };
+		11111111111111111111111C /* PictureWordButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222224 /* PictureWordButton.swift */; };
+		11111111111111111111111D /* PictureWordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222225 /* PictureWordSheet.swift */; };
+		11111111111111111111111E /* MembershipStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222226 /* MembershipStore.swift */; };
+		11111111111111111111111F /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222227 /* PaywallView.swift */; };
 		A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96C244B303D79F8009BAAFD /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -67,6 +71,11 @@
 		222222222222222222222221 /* ShareCardRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCardRenderer.swift; sourceTree = "<group>"; };
 		222222222222222222222222 /* ShareCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCardView.swift; sourceTree = "<group>"; };
 		222222222222222222222223 /* PageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageHeader.swift; sourceTree = "<group>"; };
+		222222222222222222222224 /* PictureWordButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordButton.swift; sourceTree = "<group>"; };
+		222222222222222222222225 /* PictureWordSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordSheet.swift; sourceTree = "<group>"; };
+		222222222222222222222226 /* MembershipStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembershipStore.swift; sourceTree = "<group>"; };
+		222222222222222222222227 /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
+		A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = KakawordSubscriptions.storekit; sourceTree = "<group>"; };
 		A96C244B303D79F8009BAAFD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -84,6 +93,7 @@
 		444444444444444444444401 = {
 			isa = PBXGroup;
 			children = (
+				A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */,
 				444444444444444444444402 /* PictureWord */,
 				444444444444444444444403 /* Products */,
 			);
@@ -117,6 +127,8 @@
 				222222222222222222222212 /* AppTheme.swift */,
 				22222222222222222222221B /* AppSettings.swift */,
 				222222222222222222222223 /* PageHeader.swift */,
+				222222222222222222222224 /* PictureWordButton.swift */,
+				222222222222222222222225 /* PictureWordSheet.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -128,6 +140,7 @@
 				444444444444444444444408 /* Networking */,
 				444444444444444444444409 /* Persistence */,
 				44444444444444444444440A /* Media */,
+				444444444444444444444412 /* Purchases */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -138,6 +151,7 @@
 				444444444444444444444411 /* Onboarding */,
 				44444444444444444444440B /* Home */,
 				444444444444444444444410 /* Settings */,
+				444444444444444444444413 /* Paywall */,
 				44444444444444444444440C /* Capture */,
 				44444444444444444444440D /* Analysis */,
 				44444444444444444444440E /* Result */,
@@ -237,6 +251,22 @@
 			path = Onboarding;
 			sourceTree = "<group>";
 		};
+		444444444444444444444412 /* Purchases */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222226 /* MembershipStore.swift */,
+			);
+			path = Purchases;
+			sourceTree = "<group>";
+		};
+		444444444444444444444413 /* Paywall */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222227 /* PaywallView.swift */,
+			);
+			path = Paywall;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -331,6 +361,10 @@
 				111111111111111111111119 /* ShareCardRenderer.swift in Sources */,
 				11111111111111111111111A /* ShareCardView.swift in Sources */,
 				11111111111111111111111B /* PageHeader.swift in Sources */,
+				11111111111111111111111C /* PictureWordButton.swift in Sources */,
+				11111111111111111111111D /* PictureWordSheet.swift in Sources */,
+				11111111111111111111111E /* MembershipStore.swift in Sources */,
+				11111111111111111111111F /* PaywallView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -348,15 +382,17 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词Test";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.pictureword;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -371,15 +407,17 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.pictureword;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

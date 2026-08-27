@@ -129,6 +129,9 @@ Header 采用分离胶囊结构：
 
 按钮规范：
 
+- 普通页面的主要、次要和危险 CTA 统一使用 `PictureWordButton`，不要在业务页面重复实现字体、圆角、阴影和按压反馈。
+- `PictureWordButton.Style.primary` 使用 `Color.sun`，用于页面中最重要的下一步；`secondary` 用于返回、跳过等弱操作；`destructive` 用于明确的删除或清空操作。
+- 大面积 CTA 使用默认的 `large` 尺寸；工具栏和短文本操作使用 `compact`。加载过程通过 `isLoading` 表达，业务层继续通过 `.disabled(...)` 提供输入校验状态。
 - 圆形按钮用于相机、播放、语音等单一图标操作。
 - Capsule 用于返回、筛选、状态和短文本操作。
 - 圆角矩形用于主要行动按钮和较长文字按钮。
@@ -174,6 +177,23 @@ Header 采用分离胶囊结构：
 - `.sheet`：图片、滚动内容、编辑和单词详情等复杂内容。
 
 不要为短暂错误或提示新增自定义 Toast overlay、自动消失动画或重复的弹窗系统。
+
+### 8.1 Sheet UI 规范
+
+普通内容 Sheet 使用 `PictureWordSheet` 作为内容容器，统一以下行为：
+
+- 背景使用 `Color.paper`，内容水平边距为 24pt。
+- 长内容使用无滚动条的纵向滚动，并支持交互式下滑收起键盘。
+- 标题使用 `PictureWordSheetHeader`，采用英文大写 eyebrow + 中文标题的层级结构。
+- eyebrow 使用 10pt 黑体等宽字，标题使用 24pt heavy rounded 字体。
+- 右侧取消、完成等操作放在标题行，使用明确文字或图标无障碍标签。
+- Sheet 呈现优先使用 `pictureWordSheetPresentation()`，统一纸张背景和拖拽指示器。
+
+高度规范：
+
+- 信息提示、简单表单默认使用 `.medium`。
+- 详情和可滚动内容可以提供 `.medium`、`.large` 两档，并通过 selection binding 控制当前高度。
+- 键盘和 detent 行为由具体 Sheet 根据内容决定；共用容器只负责内容滚动和视觉层级，不强制改变 Sheet 高度。
 
 系统弹窗按钮文字应明确：
 

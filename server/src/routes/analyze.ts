@@ -3,6 +3,12 @@ import { isIP } from "node:net";
 import type { Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
+  DeviceAttestationRequiredError,
+  isValidOperationId,
+  type AccessPrincipal,
+  type AccessService,
+} from "../core/access/index.js";
+import {
   requestedCaptionStyleSchema,
   type AnalyzeResult,
   type CaptionStyle,
@@ -12,6 +18,7 @@ import type { AnalyzeUsageLimiter, UsageLimitDecision } from "../core/usage-limi
 import { getImageDimensions } from "../utils/image-dimensions.js";
 import { errorFields, type LogLevel, type Logger } from "../utils/logger.js";
 import type { AppEnv } from "../app.js";
+import { authenticateAccess, unauthorized } from "./access-auth.js";
 
 type AnalyzeRouteDependencies = {
   provider: VisionProvider;
@@ -19,6 +26,7 @@ type AnalyzeRouteDependencies = {
   providerModel: string;
   maxUploadBytes: number;
   usageLimiter: AnalyzeUsageLimiter;
+  accessService: AccessService;
   trustProxy: boolean;
   logLevel: LogLevel;
   logger: Logger;
@@ -31,6 +39,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
     providerModel,
     maxUploadBytes,
     usageLimiter,
+    accessService,
     trustProxy,
     logLevel,
     logger,
@@ -42,6 +51,14 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
     let stage = "validate_request";
 
     try {
+      stage = "authenticate";
+      const principal = await authenticateAccess(c, accessService);
+      if (!principal) return unauthorized(c);
+      const operationId = c.req.header("x-operation-id");
+      if (!isValidOperationId(operationId)) {
+        return c.json({ error: "INVALID_OPERATION_ID", message: "识别请求标识无效" }, 400);
+      }
+
       stage = "minute_limit";
       let minuteDecision: UsageLimitDecision;
       try {
@@ -119,11 +136,52 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         imageHeight: dimensions.height,
       });
 
+      stage = "quota_reservation";
+      let reservation;
+      try {
+        reservation = await accessService.reserveAnalyze(
+          principal,
+          operationId,
+          c.req.header("x-devicecheck-token"),
+        );
+      } catch (error) {
+        if (error instanceof DeviceAttestationRequiredError) {
+          return c.json({
+            error: "DEVICE_ATTESTATION_REQUIRED",
+            message: "需要重新验证设备后才能使用免费识别",
+          }, 401);
+        }
+        logger.error("quota.reserve_failed", {
+          requestId,
+          ...errorFields(error, logLevel === "debug"),
+        });
+        return c.json({ error: "QUOTA_UNAVAILABLE", message: "暂时无法读取识别额度，请稍后重试" }, 503);
+      }
+      if (!reservation.allowed) {
+        if ("conflict" in reservation && reservation.conflict) {
+          return c.json({
+            error: "OPERATION_ALREADY_USED",
+            message: "这次识别请求已经处理过，请重新操作",
+            entitlement: reservation.entitlement,
+          }, 409);
+        }
+        await recordMetricSafely(accessService, logger, "quota_exhausted", reservation.entitlement);
+        return c.json({
+          error: "QUOTA_EXHAUSTED",
+          message: reservation.entitlement.tier === "member"
+            ? "本月识别额度已用完，请在下个额度周期继续使用"
+            : "免费识别次数已用完，开通会员后可继续识别",
+          entitlement: reservation.entitlement,
+        }, 402);
+      }
+      await recordMetricSafely(accessService, logger, "recognition_attempt", reservation.entitlement);
+
       stage = "daily_limit";
       let dailyDecision: UsageLimitDecision;
       try {
         dailyDecision = await usageLimiter.consumeDaily();
       } catch (error) {
+        await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
         logger.error("usage_limit.unavailable", {
           requestId,
           scope: "daily",
@@ -135,6 +193,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         }, 503);
       }
       if (!dailyDecision.allowed) {
+        await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
         logger.warn("usage_limit.rejected", {
           requestId,
           scope: "daily",
@@ -204,6 +263,17 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
 
           stage = "serialize_response";
           await stream.writeSSE({ event: "complete", data: JSON.stringify(result) });
+          const entitlement = result.objects.length > 0
+            ? await accessService.commitAnalyze(reservation.reservationId, c.req.header("x-devicecheck-token"))
+            : await releaseAndReadEntitlement(accessService, reservation.reservationId, principal);
+          await stream.writeSSE({ event: "quota", data: JSON.stringify(entitlement) });
+          await recordMetricSafely(
+            accessService,
+            logger,
+            "recognition_result",
+            entitlement,
+            result.objects.length > 0 ? "success" : "empty",
+          );
           logger.info("vision.request_completed", {
             requestId,
             provider: providerName,
@@ -212,7 +282,9 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             durationMs: Math.round(performance.now() - providerStartedAt),
           });
         } catch (error) {
+          await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
           if (abortController.signal.aborted) {
+            await accessService.recordMetric({ eventName: "recognition_result", outcome: "cancelled" }).catch(() => undefined);
             logger.info("vision.request_cancelled", {
               requestId,
               provider: providerName,
@@ -222,6 +294,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             });
             return;
           }
+          await accessService.recordMetric({ eventName: "recognition_result", outcome: "failure" }).catch(() => undefined);
           logger.error("analyze.failed", {
             requestId,
             provider: providerName,
@@ -249,6 +322,27 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
       return c.json({ error: "ANALYZE_FAILED", message: error instanceof Error ? error.message : "Unknown error" }, 502);
     }
   });
+}
+
+async function recordMetricSafely(
+  accessService: AccessService,
+  logger: Logger,
+  eventName: string,
+  entitlement: { tier: string; productId: string | null },
+  outcome = entitlement.tier,
+): Promise<void> {
+  await accessService.recordMetric({ eventName, productId: entitlement.productId, outcome }).catch((error) => {
+    logger.warn("metrics.record_failed", { eventName, message: error instanceof Error ? error.message : String(error) });
+  });
+}
+
+async function releaseAndReadEntitlement(
+  accessService: AccessService,
+  reservationId: string,
+  principal: AccessPrincipal,
+) {
+  await accessService.releaseAnalyze(reservationId);
+  return await accessService.status(principal);
 }
 
 function resolveClientIP(c: Context<AppEnv>, trustProxy: boolean): string {

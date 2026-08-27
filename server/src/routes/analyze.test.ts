@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createApp } from "../app.js";
 import type { ServerConfig } from "../config.js";
+import type {
+  AccessPrincipal,
+  AccessService,
+  BootstrapInput,
+  BootstrapResult,
+  EntitlementSummary,
+  QuotaReservation,
+} from "../core/access/types.js";
 import { MockVisionProvider } from "../core/image-analysis/providers/mock.js";
 import type {
   AnalyzeResult,
@@ -34,6 +43,18 @@ const config: ServerConfig = {
     dailyTimeZone: "Asia/Shanghai",
     trustProxy: true,
   },
+  access: {
+    enabled: false,
+    databaseURL: "",
+    tokenHashSecret: "",
+    tokenTTLSeconds: 7_776_000,
+    bundleId: "com.kakaword.app",
+    appleRootCertificatePaths: [],
+    appleOnlineChecks: false,
+    monthlyProductId: "com.kakaword.app.membership.monthly",
+    annualProductId: "com.kakaword.app.membership.annual",
+    deviceCheck: { keyId: "", teamId: "", privateKey: "", environment: "development" },
+  },
 };
 
 test("streams validated mock objects before the complete result", async () => {
@@ -45,7 +66,7 @@ test("streams validated mock objects before the complete result", async () => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/event-stream/);
   const events = [...body.matchAll(/^event: (.+)$/gm)].map((match) => match[1]);
-  assert.deepEqual(events, ["started", "object", "object", "object", "complete"]);
+  assert.deepEqual(events, ["started", "object", "object", "object", "complete", "quota"]);
   assert.match(body, /"english":"mug"/);
   assert.match(body, /"captionStyle":"serious"/);
   assert.match(body, /"caption":"A mug, a book, and a plant sit together on the table\."/);
@@ -68,6 +89,39 @@ test("uses the requested caption style and resolves random to an actual style", 
   assert.doesNotMatch(randomBody, /"captionStyle":"random"/);
 });
 
+test("returns the current entitlement when recognition quota is exhausted", async () => {
+  const access = new FakeAccessService(freeEntitlement(3));
+  access.reservation = { allowed: false, entitlement: freeEntitlement(3) };
+  const provider = new CountingProvider();
+  const app = makeApp(new FakeUsageLimiter(), provider, access);
+  const response = await app.request("/v1/analyze", analyzeRequest());
+
+  assert.equal(response.status, 402);
+  assert.equal(provider.calls, 0);
+  assert.equal(access.reserveCalls, 1);
+  assert.deepEqual(await response.json(), {
+    error: "QUOTA_EXHAUSTED",
+    message: "免费识别次数已用完，开通会员后可继续识别",
+    entitlement: freeEntitlement(3),
+  });
+});
+
+test("commits only a non-empty completed recognition and releases an empty result", async () => {
+  const successAccess = new FakeAccessService(freeEntitlement(0));
+  const successApp = makeApp(new FakeUsageLimiter(), new MockVisionProvider(), successAccess);
+  const successResponse = await successApp.request("/v1/analyze", analyzeRequest());
+  await successResponse.text();
+  assert.equal(successAccess.commitCalls, 1);
+  assert.equal(successAccess.releaseCalls, 0);
+
+  const emptyAccess = new FakeAccessService(freeEntitlement(0));
+  const emptyApp = makeApp(new FakeUsageLimiter(), new CountingProvider(), emptyAccess);
+  const emptyResponse = await emptyApp.request("/v1/analyze", analyzeRequest());
+  await emptyResponse.text();
+  assert.equal(emptyAccess.commitCalls, 0);
+  assert.equal(emptyAccess.releaseCalls, 1);
+});
+
 test("resolves Chinese or English vocabulary without an image", async () => {
   const limiter = new FakeUsageLimiter();
   const app = makeApp(limiter);
@@ -83,9 +137,23 @@ test("resolves Chinese or English vocabulary without an image", async () => {
     chinese: "窗户",
     ipa: "/ˈwɪndoʊ/",
     example: "The window is open.",
+    exampleChinese: "窗户是开着的。",
   });
   assert.equal(limiter.minuteCalls, 1);
   assert.equal(limiter.dailyCalls, 1);
+});
+
+test("rejects AI vocabulary correction for a free user without consuming model quota", async () => {
+  const limiter = new FakeUsageLimiter();
+  const provider = new CountingProvider();
+  const app = makeApp(limiter, provider, new FakeAccessService(freeEntitlement(0)));
+  const response = await app.request("/v1/vocabulary/resolve", vocabularyRequest("window"));
+
+  assert.equal(response.status, 403);
+  assert.equal(limiter.minuteCalls, 0);
+  assert.equal(limiter.dailyCalls, 0);
+  assert.equal(provider.calls, 0);
+  assert.equal((await response.json() as { error: string }).error, "MEMBERSHIP_REQUIRED");
 });
 
 test("rejects invalid vocabulary before consuming the daily allowance", async () => {
@@ -138,7 +206,7 @@ test("rejects a minute-limited request before parsing the image or calling the p
   const app = makeApp(limiter, provider);
   const response = await app.request("/v1/analyze", {
     method: "POST",
-    headers: { "X-Forwarded-For": "203.0.113.11" },
+    headers: { "X-Forwarded-For": "203.0.113.11", "X-Operation-ID": randomUUID() },
     body: new FormData(),
   });
 
@@ -162,7 +230,7 @@ test("invalid images consume the minute allowance but not the daily model allowa
 
   const response = await app.request("/v1/analyze", {
     method: "POST",
-    headers: { "X-Forwarded-For": "203.0.113.12" },
+    headers: { "X-Forwarded-For": "203.0.113.12", "X-Operation-ID": randomUUID() },
     body: form,
   });
 
@@ -244,8 +312,9 @@ test("aborts the provider when the client cancels the SSE response", async () =>
 function makeApp(
   usageLimiter: AnalyzeUsageLimiter,
   provider: VisionProvider = new MockVisionProvider(),
+  accessService?: AccessService,
 ) {
-  return createApp({ config, provider, usageLimiter, logger });
+  return createApp({ config, provider, usageLimiter, accessService, logger });
 }
 
 function analyzeRequest(ip = "203.0.113.10", captionStyle?: string): RequestInit {
@@ -257,7 +326,11 @@ function analyzeRequest(ip = "203.0.113.10", captionStyle?: string): RequestInit
   form.append("maxObjects", "3");
   if (captionStyle) form.append("captionStyle", captionStyle);
   form.append("image", new File([png], "test.png", { type: "image/png" }));
-  return { method: "POST", headers: { "X-Forwarded-For": ip }, body: form };
+  return {
+    method: "POST",
+    headers: { "X-Forwarded-For": ip, "X-Operation-ID": randomUUID() },
+    body: form,
+  };
 }
 
 function vocabularyRequest(term: string): RequestInit {
@@ -348,4 +421,57 @@ class FailingVocabularyProvider extends MockVisionProvider {
   override async resolveVocabulary(): Promise<VocabularyDetails> {
     throw new Error("provider unavailable");
   }
+}
+
+class FakeAccessService implements AccessService {
+  reserveCalls = 0;
+  commitCalls = 0;
+  releaseCalls = 0;
+  reservation: QuotaReservation;
+  private readonly principal: AccessPrincipal = {
+    accessTokenHash: "test",
+    installationId: randomUUID(),
+    subscriptionEnvironment: null,
+    originalTransactionId: null,
+  };
+
+  constructor(private entitlement: EntitlementSummary) {
+    this.reservation = { allowed: true, reservationId: randomUUID(), entitlement };
+  }
+
+  async bootstrap(_input: BootstrapInput): Promise<BootstrapResult> {
+    return { accessToken: "test", entitlement: this.entitlement };
+  }
+  async authenticate(): Promise<AccessPrincipal> { return this.principal; }
+  async status(): Promise<EntitlementSummary> { return this.entitlement; }
+  async syncSubscription(): Promise<EntitlementSummary> { return this.entitlement; }
+  async processStoreNotification(): Promise<void> {}
+  async recordMetric(): Promise<void> {}
+  async reserveAnalyze(): Promise<QuotaReservation> {
+    this.reserveCalls += 1;
+    return this.reservation;
+  }
+  async commitAnalyze(): Promise<EntitlementSummary> {
+    this.commitCalls += 1;
+    return this.entitlement;
+  }
+  async releaseAnalyze(): Promise<void> { this.releaseCalls += 1; }
+  async close(): Promise<void> {}
+}
+
+function freeEntitlement(used: number): EntitlementSummary {
+  return {
+    tier: "free",
+    productId: null,
+    subscriptionState: "none",
+    limit: 3,
+    used,
+    reserved: 0,
+    remaining: Math.max(0, 3 - used),
+    periodStart: null,
+    resetAt: null,
+    expiresAt: null,
+    autoRenewEnabled: null,
+    vocabularyCorrectionEnabled: false,
+  };
 }

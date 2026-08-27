@@ -9,6 +9,7 @@ private enum HomeTab: String {
 struct HomeView: View {
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
+    @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
 
     @State private var selectedTab: HomeTab = .today
@@ -18,6 +19,7 @@ struct HomeView: View {
     @State private var presentedHistory: PresentedHistory?
     @State private var historyMessage: String?
     @State private var confirmMissionSwitch = false
+    @State private var paywallPresented = false
 
     private var mode: LearningMode {
         LearningMode(rawValue: modeRawValue) ?? .selfExplore
@@ -34,7 +36,7 @@ struct HomeView: View {
                         TodayDashboard(
                             mode: mode,
                             onModeChange: { modeRawValue = $0.rawValue },
-                            onCamera: { cameraPresented = true },
+                            onCamera: requestCamera,
                             onSwitchMission: switchMission,
                             onOpenHistory: openHistory
                         )
@@ -46,7 +48,7 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .overlay(alignment: .bottom) {
                 ScrapbookTabBar(selectedTab: $selectedTab) {
-                    cameraPresented = true
+                    requestCamera()
                 }
             }
         }
@@ -66,6 +68,12 @@ struct HomeView: View {
         }
         .fullScreenCover(item: $presentedHistory) { item in
             ResultView(image: item.image, result: item.record.result, recordID: item.record.id)
+        }
+        .sheet(isPresented: $paywallPresented) {
+            PaywallView {
+                cameraPresented = true
+            }
+            .environmentObject(membership)
         }
         .onAppear { journeyStore.refreshForTodayIfNeeded() }
         .confirmationDialog(
@@ -100,6 +108,14 @@ struct HomeView: View {
         guard let image = capturedImage else { return }
         recognitionImage = PresentedImage(image: image)
         capturedImage = nil
+    }
+
+    private func requestCamera() {
+        if membership.canStartRecognition {
+            cameraPresented = true
+        } else {
+            paywallPresented = true
+        }
     }
 
     private func openHistory(_ record: HistoryRecord) {
@@ -208,13 +224,11 @@ private struct TodayDashboard: View {
                     .padding(.top, 4)
             }
 
-            Button(action: onCamera) {
-                Label("拍下今天的一页", systemImage: "camera.fill")
-                    .font(.system(.headline, design: .rounded, weight: .heavy))
-                    .foregroundStyle(Color.paperLight)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(Color.ink, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }
+            PictureWordButton(
+                "拍下今天的一页",
+                systemImage: "camera.fill",
+                action: onCamera
+            )
         }
         .padding(24)
         .background(Color.sky, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
@@ -254,13 +268,11 @@ private struct TodayDashboard: View {
                 .lineSpacing(3)
 
             HStack(spacing: 10) {
-                Button(action: onCamera) {
-                    Label(journeyStore.isComplete ? "再去发现" : "开始寻宝", systemImage: "camera.fill")
-                        .font(.system(.headline, design: .rounded, weight: .heavy))
-                        .foregroundStyle(Color.paperLight)
-                        .frame(maxWidth: .infinity, minHeight: 54)
-                        .background(Color.ink, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
+                PictureWordButton(
+                    journeyStore.isComplete ? "再去发现" : "开始寻宝",
+                    systemImage: "camera.fill",
+                    action: onCamera
+                )
 
                 Button(action: onSwitchMission) {
                     Image(systemName: "arrow.triangle.2.circlepath")

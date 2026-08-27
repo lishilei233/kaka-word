@@ -35,6 +35,7 @@ struct VocabularyDetails: Codable, Hashable {
     let chinese: String
     let ipa: String
     let example: String
+    let exampleChinese: String?
 }
 
 struct LearningObject: Codable, Identifiable, Hashable {
@@ -46,6 +47,7 @@ struct LearningObject: Codable, Identifiable, Hashable {
     let box: ObjectBox
     let anchor: ObjectAnchor?
     let example: String
+    let exampleChinese: String?
     /// 用户手动放置的标签中心与引导线终点；缺失时继续使用自动布局和 AI 锚点。
     let labelCenterOverride: ObjectAnchor?
     let targetOverride: ObjectAnchor?
@@ -60,6 +62,7 @@ struct LearningObject: Codable, Identifiable, Hashable {
             box: box,
             anchor: anchor,
             example: details.example,
+            exampleChinese: details.exampleChinese,
             labelCenterOverride: labelCenterOverride,
             targetOverride: targetOverride
         )
@@ -75,6 +78,7 @@ struct LearningObject: Codable, Identifiable, Hashable {
             box: box,
             anchor: anchor,
             example: example,
+            exampleChinese: exampleChinese,
             labelCenterOverride: labelCenter ?? labelCenterOverride,
             targetOverride: target ?? targetOverride
         )
@@ -95,6 +99,17 @@ struct AnalyzeResult: Codable, Hashable {
             imageWidth: imageWidth,
             imageHeight: imageHeight,
             objects: objects.map { $0.id == updatedObject.id ? updatedObject : $0 },
+            caption: caption,
+            captionChinese: captionChinese,
+            captionStyle: captionStyle
+        )
+    }
+
+    func removingObject(id: String) -> AnalyzeResult {
+        AnalyzeResult(
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
+            objects: objects.filter { $0.id != id },
             caption: caption,
             captionChinese: captionChinese,
             captionStyle: captionStyle

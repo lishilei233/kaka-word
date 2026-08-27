@@ -4,13 +4,23 @@ import UIKit
 enum APIError: LocalizedError {
     case invalidResponse
     case server(String)
+    case quotaExhausted(String)
+    case membershipRequired(String)
     case imageEncoding
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse: return "服务器返回了无法识别的结果"
         case .server(let message): return message
+        case .quotaExhausted(let message), .membershipRequired(let message): return message
         case .imageEncoding: return "图片处理失败，请重新选择照片"
+        }
+    }
+
+    var shouldPresentPaywall: Bool {
+        switch self {
+        case .quotaExhausted, .membershipRequired: return true
+        case .invalidResponse, .server, .imageEncoding: return false
         }
     }
 }
@@ -48,6 +58,7 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
         onUploadProgress: @escaping @Sendable (Double) -> Void,
         onObject: @escaping @Sendable (LearningObject) -> Void
     ) async throws -> AnalyzeResult {
+        let credentials = try await AccessCredentialStore.shared.credentialsForAnalyze()
         // 图片重绘和 JPEG 压缩可能耗时，放到后台线程避免扫描动画掉帧。
         let imageData = await Task.detached(priority: .userInitiated) {
             ImageProcessor.jpegData(from: image)
@@ -61,21 +72,31 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
         request.httpMethod = "POST"
         request.timeoutInterval = 45
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(credentials.deviceCheckToken, forHTTPHeaderField: "X-DeviceCheck-Token")
+        request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Operation-ID")
         let body = MultipartBuilder(boundary: boundary)
             .addField(name: "maxObjects", value: String(AppSettings.normalizedMaxObjects(maxObjects)))
             .addField(name: "captionStyle", value: captionStyle.rawValue)
             .addFile(name: "image", filename: "photo.jpg", mimeType: "image/jpeg", data: imageData)
             .build()
 
-        let uploader = UploadRequestExecutor(onProgress: onUploadProgress, onObject: onObject)
+        let uploader = UploadRequestExecutor(
+            onProgress: onUploadProgress,
+            onObject: onObject,
+            onEntitlement: { entitlement in Self.publishEntitlement(entitlement) }
+        )
         let (data, response) = try await uploader.upload(request: request, body: body)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             if let payload = try? JSONDecoder().decode(ServerError.self, from: data) {
-                throw APIError.server(payload.message ?? localizedMessage(
+                Self.publishEntitlement(payload.entitlement)
+                let message = payload.message ?? localizedMessage(
                     for: payload.error,
                     retryAfterSeconds: payload.retryAfterSeconds ?? retryAfterSeconds(from: http)
-                ))
+                )
+                if payload.error == "QUOTA_EXHAUSTED" { throw APIError.quotaExhausted(message) }
+                throw APIError.server(message)
             }
             throw APIError.server("识别失败，请稍后重试")
         }
@@ -96,16 +117,21 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let accessToken = try await AccessCredentialStore.shared.authorizationToken()
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(VocabularyRequest(term: normalized))
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             if let payload = try? JSONDecoder().decode(ServerError.self, from: data) {
-                throw APIError.server(payload.message ?? localizedMessage(
+                Self.publishEntitlement(payload.entitlement)
+                let message = payload.message ?? localizedMessage(
                     for: payload.error,
                     retryAfterSeconds: payload.retryAfterSeconds ?? retryAfterSeconds(from: http)
-                ))
+                )
+                if payload.error == "MEMBERSHIP_REQUIRED" { throw APIError.membershipRequired(message) }
+                throw APIError.server(message)
             }
             throw APIError.server("单词信息生成失败，请稍后重试")
         }
@@ -152,6 +178,12 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
             return "今天的识别额度已用完，请明天再试"
         case "USAGE_LIMIT_UNAVAILABLE":
             return "识别服务暂时不可用，请稍后重试"
+        case "QUOTA_EXHAUSTED":
+            return "识别额度已用完"
+        case "MEMBERSHIP_REQUIRED":
+            return "AI 单词修改是会员功能"
+        case "UNAUTHORIZED", "DEVICE_ATTESTATION_REQUIRED":
+            return "设备验证已失效，请重新打开应用"
         case "INVALID_TERM":
             return "请输入 1 到 60 个字符的中文或英文物体名称"
         case "VOCABULARY_FAILED":
@@ -165,6 +197,11 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
         guard let value = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
         return Int(value)
     }
+
+    private static func publishEntitlement(_ entitlement: EntitlementSummary?) {
+        guard let entitlement else { return }
+        NotificationCenter.default.post(name: MembershipNotification.entitlementDidChange, object: entitlement)
+    }
 }
 
 private struct VocabularyRequest: Encodable {
@@ -175,6 +212,7 @@ private struct VocabularyRequest: Encodable {
 private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     private let onProgress: @Sendable (Double) -> Void
     private let onObject: @Sendable (LearningObject) -> Void
+    private let onEntitlement: @Sendable (EntitlementSummary?) -> Void
     private let lock = NSLock()
     private var receivedData = Data()
     private var eventBuffer = Data()
@@ -188,10 +226,12 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
 
     init(
         onProgress: @escaping @Sendable (Double) -> Void,
-        onObject: @escaping @Sendable (LearningObject) -> Void
+        onObject: @escaping @Sendable (LearningObject) -> Void,
+        onEntitlement: @escaping @Sendable (EntitlementSummary?) -> Void
     ) {
         self.onProgress = onProgress
         self.onObject = onObject
+        self.onEntitlement = onEntitlement
     }
 
     func upload(request: URLRequest, body: Data) async throws -> (Data, URLResponse) {
@@ -311,6 +351,8 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
             onObject(object)
         case "complete":
             completionData = data
+        case "quota":
+            onEntitlement(try? JSONDecoder().decode(EntitlementSummary.self, from: data))
         case "error":
             let payload = try? JSONDecoder().decode(ServerError.self, from: data)
             let task = uploadTask
@@ -355,6 +397,7 @@ private struct ServerError: Decodable {
     let error: String?
     let message: String?
     let retryAfterSeconds: Int?
+    let entitlement: EntitlementSummary?
 }
 
 /// 构造 `/v1/analyze` 所需的单图片 multipart 请求体。

@@ -18,6 +18,7 @@ export const learningObjectSchema = z.object({
     box: objectBoxSchema,
     anchor: objectAnchorSchema.optional(),
     example: z.string().min(1).max(180),
+    exampleChinese: z.string().min(1).max(180).optional(),
 });
 export const captionStyleSchema = z.enum(["serious", "funny"]);
 export const requestedCaptionStyleSchema = z.enum(["serious", "funny", "random"]);
@@ -26,6 +27,7 @@ export const vocabularyDetailsSchema = z.object({
     chinese: z.string().min(1).max(60),
     ipa: z.string().max(80).default(""),
     example: z.string().min(1).max(180),
+    exampleChinese: z.string().min(1).max(180).optional(),
 });
 export const analyzeResultSchema = z.object({
     imageWidth: z.number().int().positive(),

@@ -4,18 +4,21 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
+    @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
     @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
     @State private var confirmClearHistory = false
+    @State private var paywallPresented = false
 
     var body: some View {
         ZStack {
             NotebookBackground()
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 18) {
+                    membershipSection
                     experienceSection
                     recognitionSection
                     speechSection
@@ -38,6 +41,64 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("所有本地照片和识别结果都会被删除，且无法恢复。")
+        }
+        .sheet(isPresented: $paywallPresented) {
+            PaywallView()
+                .environmentObject(membership)
+        }
+        .alert("会员", isPresented: Binding(
+            get: { membership.message != nil },
+            set: { if !$0 { membership.message = nil } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(membership.message ?? "")
+        }
+    }
+
+    private var membershipSection: some View {
+        SettingsCard(index: "00", title: "会员") {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: membership.isMember ? "sparkles" : "camera.viewfinder")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(Color.ink)
+                        .frame(width: 46, height: 46)
+                        .background(membership.isMember ? Color.sun : Color.sky, in: Circle())
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(membershipPlanName)
+                            .font(.system(size: 17, weight: .heavy, design: .rounded))
+                        Text(membershipQuotaText)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.ink.opacity(0.58))
+                        if let reset = membership.entitlement?.resetDate {
+                            Text("\(reset.formatted(date: .abbreviated, time: .omitted)) 重置")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color.coral)
+                        }
+                    }
+                    Spacer()
+                }
+
+                if membership.isMember {
+                    Button("管理订阅") {
+                        Task { await membership.showManageSubscriptions() }
+                    }
+                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                    .foregroundStyle(Color.ink)
+                } else {
+                    PictureWordButton("开通会员", systemImage: "sparkles") {
+                        paywallPresented = true
+                    }
+                }
+
+                Button("恢复购买") {
+                    Task { _ = await membership.restorePurchases() }
+                }
+                .font(.system(.caption, design: .rounded, weight: .bold))
+                .foregroundStyle(Color.ink.opacity(0.62))
+                .disabled(membership.isPurchasing)
+            }
         }
     }
 
@@ -76,7 +137,7 @@ struct SettingsView: View {
     }
 
     private var experienceSection: some View {
-        SettingsCard(index: "00", title: "玩法") {
+        SettingsCard(index: "01", title: "玩法") {
             VStack(alignment: .leading, spacing: 12) {
                 Text("选择首页更适合谁使用，拍照识词和单词册会始终保留。")
                     .font(.system(.caption, design: .rounded, weight: .medium))
@@ -92,7 +153,7 @@ struct SettingsView: View {
     }
 
     private var recognitionSection: some View {
-        SettingsCard(index: "01", title: "识别") {
+        SettingsCard(index: "02", title: "识别") {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     SettingsLabel(icon: "viewfinder", title: "每次识别单词")
@@ -125,7 +186,7 @@ struct SettingsView: View {
     }
 
     private var speechSection: some View {
-        SettingsCard(index: "02", title: "发音") {
+        SettingsCard(index: "03", title: "发音") {
             VStack(spacing: 18) {
                 // Toggle(isOn: $speechEnabled) {
                 //     SettingsLabel(icon: "speaker.wave.2.fill", title: "英文发音")
@@ -153,7 +214,7 @@ struct SettingsView: View {
     }
 
     private var storageSection: some View {
-        SettingsCard(index: "03", title: "本地数据") {
+        SettingsCard(index: "04", title: "本地数据") {
             VStack(alignment: .leading, spacing: 16) {
                 Label {
                     Text("识别照片和历史记录仅保存在当前设备。服务器只转发识别请求，不保存照片。")
@@ -181,7 +242,7 @@ struct SettingsView: View {
     }
 
     private var informationSection: some View {
-        SettingsCard(index: "04", title: "关于") {
+        SettingsCard(index: "05", title: "关于") {
             VStack(spacing: 0) {
                 NavigationLink {
                     LegalDocumentView(document: .privacy)
@@ -222,6 +283,16 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+    }
+
+    private var membershipPlanName: String {
+        guard membership.isMember else { return "免费版" }
+        return membership.entitlement?.productId == MembershipStore.annualProductId ? "年会员" : "月会员"
+    }
+
+    private var membershipQuotaText: String {
+        guard let entitlement = membership.entitlement else { return "正在读取识别额度…" }
+        return "本期剩余 \(entitlement.remaining)/\(entitlement.limit) 次识别"
     }
 }
 
@@ -279,7 +350,7 @@ private struct SettingsLinkRow: View {
     }
 }
 
-private enum LegalDocument {
+enum LegalDocument {
     case privacy
     case terms
 
@@ -291,7 +362,7 @@ private enum LegalDocument {
     }
 }
 
-private struct LegalDocumentView: View {
+struct LegalDocumentView: View {
     let document: LegalDocument
 
     var body: some View {

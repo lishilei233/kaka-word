@@ -7,7 +7,7 @@
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.example.pictureword</string>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
 	<string>kakaword</string>
 	<key>CFBundlePackageType</key>
@@ -18,27 +18,22 @@
 	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>咔咔单词需要使用相机来识别照片中的物体。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>咔咔单词需要连接本地开发服务器来完成 AI 识别。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>咔咔单词需要访问照片来识别你选择的图片。</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>咔咔单词需要使用相机来识别照片中的物体。</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>咔咔单词需要访问照片来识别你选择的图片。</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>咔咔单词需要连接本地开发服务器来完成 AI 识别。</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
 </dict>
 </plist>

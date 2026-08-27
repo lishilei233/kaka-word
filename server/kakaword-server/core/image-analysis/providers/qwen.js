@@ -13,6 +13,7 @@ const qwenResultSchema = z.object({
         bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
         anchor: z.tuple([z.number(), z.number()]).optional(),
         example: z.string().min(1).max(180),
+        exampleChinese: z.string().min(1).max(180).optional(),
     })).max(8),
     caption: z.string().min(1).max(220),
     captionChinese: z.string().min(1).max(220),

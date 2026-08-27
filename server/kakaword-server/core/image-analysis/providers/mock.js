@@ -13,9 +13,9 @@ export class MockVisionProvider {
     async resolveVocabulary(input) {
         const normalized = input.term.trim().toLowerCase();
         if (normalized === "窗户" || normalized === "window") {
-            return { english: "window", chinese: "窗户", ipa: "/ˈwɪndoʊ/", example: "The window is open." };
+            return { english: "window", chinese: "窗户", ipa: "/ˈwɪndoʊ/", example: "The window is open.", exampleChinese: "窗户是开着的。" };
         }
-        return { english: input.term.trim(), chinese: input.term.trim(), ipa: "", example: `This is ${input.term.trim()}.` };
+        return { english: input.term.trim(), chinese: input.term.trim(), ipa: "", example: `This is ${input.term.trim()}.`, exampleChinese: `这是${input.term.trim()}。` };
     }
 }
 function mockResult(input) {
@@ -39,6 +39,7 @@ function mockResult(input) {
                 box: { x: 0.58, y: 0.43, width: 0.22, height: 0.28 },
                 anchor: { x: 0.69, y: 0.57 },
                 example: "This is a mug.",
+                exampleChinese: "这是一个杯子。",
             },
             {
                 id: "obj_02",
@@ -49,6 +50,7 @@ function mockResult(input) {
                 box: { x: 0.12, y: 0.57, width: 0.30, height: 0.20 },
                 anchor: { x: 0.27, y: 0.67 },
                 example: "I am reading a book.",
+                exampleChinese: "我正在读一本书。",
             },
             {
                 id: "obj_03",
@@ -59,6 +61,7 @@ function mockResult(input) {
                 box: { x: 0.08, y: 0.12, width: 0.22, height: 0.34 },
                 anchor: { x: 0.19, y: 0.29 },
                 example: "The plant is green.",
+                exampleChinese: "这株植物是绿色的。",
             },
         ],
     };

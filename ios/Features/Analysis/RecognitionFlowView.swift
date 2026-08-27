@@ -8,6 +8,7 @@ struct RecognitionFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
+    @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
     @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
@@ -24,6 +25,7 @@ struct RecognitionFlowView: View {
     @State private var savedRecordID: UUID?
     @State private var isReanalyzing = false
     @State private var feedbackErrorMessage: String?
+    @State private var paywallPresented = false
 
     var body: some View {
         ZStack {
@@ -60,6 +62,9 @@ struct RecognitionFlowView: View {
             guard case .success(let result) = newPhase,
                   !showCancelConfirmation else { return }
             accept(result)
+        }
+        .onChange(of: model.shouldPresentPaywall) { _, shouldPresent in
+            if shouldPresent { paywallPresented = true }
         }
         .onChange(of: showCancelConfirmation) { _, isPresented in
             guard !isPresented, case .success(let result) = model.phase else { return }
@@ -105,6 +110,10 @@ struct RecognitionFlowView: View {
         } message: {
             Text(feedbackErrorMessage ?? "请在系统中配置邮件账户后重试。")
         }
+        .sheet(isPresented: $paywallPresented) {
+            PaywallView(onPurchaseCompleted: retry)
+                .environmentObject(membership)
+        }
         .pictureWordBackSwipe(action: close)
     }
 
@@ -123,7 +132,7 @@ struct RecognitionFlowView: View {
         if let emptyResultMessage {
             return .failed(emptyResultMessage)
         }
-        if let completedResult, !completedResult.objects.isEmpty, !isReanalyzing {
+        if completedResult != nil, !isReanalyzing {
             return .complete
         }
         switch model.phase {
@@ -154,6 +163,10 @@ struct RecognitionFlowView: View {
     }
 
     private func retry() {
+        guard membership.canStartRecognition else {
+            paywallPresented = true
+            return
+        }
         isReanalyzing = savedRecordID != nil && completedResult != nil
         emptyResultMessage = nil
         if !isReanalyzing {
