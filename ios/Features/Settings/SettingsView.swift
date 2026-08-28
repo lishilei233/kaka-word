@@ -104,20 +104,22 @@ struct SettingsView: View {
                     .disabled(membership.isPurchasing || membership.isLoading || membership.isRefreshingEntitlements)
                 }
 
-                Button {
-                    Task { _ = await membership.restorePurchases() }
-                } label: {
-                    HStack(spacing: 8) {
-                        if membership.isRestoring {
-                            ProgressView()
-                                .controlSize(.small)
+                if !membership.isMember {
+                    Button {
+                        Task { _ = await membership.restorePurchases() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if membership.isRestoring {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(membership.isRestoring ? "正在恢复购买…" : "恢复购买")
                         }
-                        Text(membership.isRestoring ? "正在恢复购买…" : "恢复购买")
                     }
+                    .font(.system(.caption, design: .rounded, weight: .bold))
+                    .foregroundStyle(Color.ink.opacity(0.62))
+                    .disabled(membership.isPurchasing)
                 }
-                .font(.system(.caption, design: .rounded, weight: .bold))
-                .foregroundStyle(Color.ink.opacity(0.62))
-                .disabled(membership.isPurchasing)
             }
         }
     }

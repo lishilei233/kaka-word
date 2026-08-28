@@ -117,6 +117,103 @@ LIMIT 5;
 
 退款、撤销、账单宽限期、月/年切换、100 次额度耗尽、跨月重置、并发识别和 10 分钟预占过期，统一放入第二轮回归测试。
 
+## 11. 下一轮测试顺序
+
+### P0：先验证当前问题修复
+
+1. 网络恢复后重新购买或点击“恢复购买”，确认 `/v1/store/sync` 成功、设置页显示会员，且不再出现 `The network connection was lost`。
+2. 新设备使用同一个 Sandbox 账号启动 App，不点击“恢复购买”，等待自动同步；确认会员自动出现、额度与原设备共享。
+3. 在有效会员额度为 0 时点击拍照或重新识别；确认不展示购买按钮，只提示本期额度已用完并提供“管理订阅”。
+4. 点击“恢复购买”，确认设置页和会员页都有 loading，恢复期间不能重复点击。
+
+### P1：订阅生命周期
+
+5. 取消自动续订：确认到期前仍是会员、`autoRenewEnabled=false`，到期后才切换为免费版和“开通会员”。
+6. Sandbox 自动续订：确认续订后仍使用同一原始交易链路，额度按新订阅月正确重置，不重复创建订阅额度。
+7. 月会员与年会员换购：确认 Apple 订阅组按预期处理，服务端产品、有效期和额度状态保持一致。
+8. 退款/撤销通知：确认会员权益停止，历史记录、发音和分享等非会员功能仍保留。
+9. 账单失败与宽限期：确认宽限期内仍可使用会员，宽限期结束后才停止会员权益。
+
+### P2：额度与可靠性
+
+10. 空结果、识别失败、取消和超时均不扣次数。
+11. 同一个操作 ID 重试、快速重复点击和并发识别不重复扣次数、不超额。
+12. 会员跨设备连续识别，确认同一订阅月共享 `100` 次额度。
+
+## 12. Sandbox 测试额度调整
+
+可以直接调整 Sandbox 数据库中的当前订阅周期额度，用于快速测试“额度即将用完”或“额度已用完”。仅允许对专用 Sandbox/测试数据库操作，不要修改生产用户数据。
+
+先查找目标 Sandbox 订阅：
+
+```sql
+SELECT environment, original_transaction_id, product_id
+FROM picture_word_subscriptions
+WHERE environment = 'Sandbox'
+ORDER BY updated_at DESC
+LIMIT 10;
+```
+
+项目将订阅额度主体保存为 `Sandbox:<original_transaction_id>`，`remaining` 是计算字段，不要直接修改它。
+
+将当前额度调整为“剩余 1 次”：
+
+```sql
+BEGIN;
+
+UPDATE picture_word_quota_periods
+SET used_count = GREATEST(0, quota_limit - reserved_count - 1),
+    updated_at = clock_timestamp()
+WHERE subject_type = 'subscription'
+  AND subject_id = 'Sandbox:<original_transaction_id>'
+  AND period_start = (
+    SELECT MAX(period_start)
+    FROM picture_word_quota_periods
+    WHERE subject_type = 'subscription'
+      AND subject_id = 'Sandbox:<original_transaction_id>'
+  );
+
+COMMIT;
+```
+
+将当前额度调整为“已用完”：
+
+```sql
+BEGIN;
+
+UPDATE picture_word_quota_periods
+SET used_count = GREATEST(0, quota_limit - reserved_count),
+    updated_at = clock_timestamp()
+WHERE subject_type = 'subscription'
+  AND subject_id = 'Sandbox:<original_transaction_id>'
+  AND period_start = (
+    SELECT MAX(period_start)
+    FROM picture_word_quota_periods
+    WHERE subject_type = 'subscription'
+      AND subject_id = 'Sandbox:<original_transaction_id>'
+  );
+
+COMMIT;
+```
+
+恢复当前周期额度：
+
+```sql
+UPDATE picture_word_quota_periods
+SET used_count = 0,
+    updated_at = clock_timestamp()
+WHERE subject_type = 'subscription'
+  AND subject_id = 'Sandbox:<original_transaction_id>'
+  AND period_start = (
+    SELECT MAX(period_start)
+    FROM picture_word_quota_periods
+    WHERE subject_type = 'subscription'
+      AND subject_id = 'Sandbox:<original_transaction_id>'
+  );
+```
+
+改库后关闭并重新打开 App，或触发一次会员状态刷新；客户端会通过 `MembershipStore` 重新读取服务端权益。不要把 `picture_word_subscriptions` 的商品、有效期或交易标识改成伪造值，否则会破坏 Apple 交易状态测试。
+
 ## 10. 产品与合规记录
 
 ### MBR-POLICY-001：是否仅在 Debug 显示“管理订阅”
@@ -136,7 +233,7 @@ LIMIT 5;
 ### MBR-POLICY-003：非会员状态是否显示“恢复购买”
 
 - 结论：应显示。免费用户也可能是在新设备、重装 App、服务端同步失败或本地状态丢失后尝试恢复已有订阅。
-- 当前实现：设置页和会员页均提供“恢复购买”，符合恢复可恢复内购的要求。
+- 当前实现：设置页和会员页仅对非会员提供“恢复购买”；有效会员改为只显示“管理订阅”，避免提供无意义的重复操作。
 - 预期行为：有有效购买记录时恢复会员；没有购买记录时提示“没有找到可恢复的有效会员”，不能误开通会员。
 - 依据：Apple 要求可恢复的 App 内购买提供恢复机制，并建议提供 Restore Purchases 按钮。[Apple 恢复购买说明](https://developer.apple.com/documentation/storekit/restoring-purchased-products)
 
