@@ -24,9 +24,9 @@
 
 ## 测试与审核
 
-- [x] 工程已包含并在共享 Run Scheme 中启用 `ios/KakawordSubscriptions.storekit`；两个产品同组同级，使用中国大陆本地价格与简体中文商品文案。
+- [x] 工程已包含 `ios/KakawordSubscriptions.storekit`；两个产品同组同级，使用中国大陆本地价格与简体中文商品文案。真实 Sandbox 测试时共享 Run Scheme 不使用本地 StoreKit 配置。
 - [ ] 使用 Xcode StoreKit 配置验证购买成功、取消、待批准、未验证交易、续订、到期、退款、撤销与宽限期。
-- [ ] 使用 App Store Sandbox 验证真实产品价格、恢复购买、跨设备共享额度和 Server Notifications V2。
+- [ ] 使用[会员 Sandbox 快速冒烟测试](MEMBERSHIP_SANDBOX_SMOKE_TEST_ZH_CN.md)验证真实产品价格、购买生效、恢复购买、跨设备共享额度和订阅管理；Server Notifications V2 另按第二轮回归验证。
 - [ ] 验证免费前三次成功后剩余 2、1、0；失败、空结果、取消不扣次；第四次被客户端与服务端同时拦截。
 - [ ] 验证相同 `X-Operation-ID`、并发请求、进程中断和 10 分钟预占过期不会重复扣次或超额。
 - [ ] 覆盖 1 月 31 日、闰年、跨年和 UTC 边界的月度额度重置测试。

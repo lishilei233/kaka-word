@@ -17,8 +17,13 @@ struct PaywallView: View {
                     VStack(spacing: 24) {
                         hero
                         benefits
-                        plans
-                        purchaseButton
+                        if membership.isMember {
+                            quotaExhaustedCard
+                            manageSubscriptionButton
+                        } else {
+                            plans
+                            purchaseButton
+                        }
                         footer
                     }
                     .padding(.horizontal, 20)
@@ -47,7 +52,11 @@ struct PaywallView: View {
             await Task.yield()
             canPresentMembershipAlert = true
             membership.recordMetric("paywall_exposure")
-            if membership.products.isEmpty { await membership.prepare() }
+            if membership.products.isEmpty {
+                await membership.prepare()
+            } else {
+                await membership.refreshCurrentEntitlements()
+            }
         }
         .alert("会员", isPresented: Binding(
             get: { canPresentMembershipAlert && membership.message != nil },
@@ -139,7 +148,7 @@ struct PaywallView: View {
 
     private var purchaseButton: some View {
         PictureWordButton(
-            membership.isPurchasing ? "正在连接 App Store…" : "开通咔咔会员",
+            membership.isRestoring ? "正在恢复购买…" : (membership.isPurchasing ? "正在连接 App Store…" : "开通咔咔会员"),
             systemImage: "sparkles",
             isLoading: membership.isPurchasing
         ) {
@@ -151,21 +160,65 @@ struct PaywallView: View {
                 }
             }
         }
-        .disabled(selectedProduct == nil || membership.isPurchasing)
+        .disabled(selectedProduct == nil || !membership.canPurchase)
+    }
+
+    private var quotaExhaustedCard: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "hourglass")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(Color.coral)
+            Text("本期识别额度已用完")
+                .font(.system(.headline, design: .rounded, weight: .heavy))
+                .foregroundStyle(Color.ink)
+            if let reset = membership.entitlement?.resetDate {
+                Text("额度将在 \(reset.formatted(date: .abbreviated, time: .omitted)) 重置，当前会员权益仍然有效。")
+                    .font(.system(.caption, design: .rounded, weight: .semibold))
+                    .foregroundStyle(Color.ink.opacity(0.58))
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("当前会员权益仍然有效，额度将在下个额度月自动重置。")
+                    .font(.system(.caption, design: .rounded, weight: .semibold))
+                    .foregroundStyle(Color.ink.opacity(0.58))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(Color.paperLight.opacity(0.82), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.08)) }
+    }
+
+    private var manageSubscriptionButton: some View {
+        PictureWordButton("管理订阅", systemImage: "gearshape") {
+            Task { await membership.showManageSubscriptions() }
+        }
+        .disabled(membership.isPurchasing)
     }
 
     private var footer: some View {
         VStack(spacing: 13) {
-            Button("恢复购买") {
-                Task {
-                    if await membership.restorePurchases() {
-                        onPurchaseCompleted?()
-                        dismiss()
+            if !membership.isMember {
+                Button {
+                    Task {
+                        if await membership.restorePurchases() {
+                            onPurchaseCompleted?()
+                            dismiss()
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        if membership.isRestoring {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(membership.isRestoring ? "正在恢复购买…" : "恢复购买")
                     }
                 }
+                .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                .foregroundStyle(Color.ink)
+                .disabled(membership.isPurchasing)
             }
-            .font(.system(.subheadline, design: .rounded, weight: .heavy))
-            .foregroundStyle(Color.ink)
 
             Text("付款将由 Apple 账户确认。订阅会自动续期，除非在当前周期结束前至少 24 小时关闭自动续订。额度按订阅日逐月重置，不结转。")
                 .font(.system(size: 11, weight: .medium, design: .rounded))

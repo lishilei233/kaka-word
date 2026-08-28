@@ -96,7 +96,7 @@ actor AccessCredentialStore {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/access/status"))
         request.timeoutInterval = 15
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let response: EntitlementResponse = try await send(request)
+        let response: EntitlementResponse = try await send(request, retryingTransientFailures: 2)
         return response.entitlement
     }
 
@@ -104,14 +104,17 @@ actor AccessCredentialStore {
         let token = try await authorizationToken()
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/store/sync"))
         request.httpMethod = "POST"
-        request.timeoutInterval = 20
+        // Apple online verification can take longer on a cold server. The endpoint is
+        // idempotent, so retrying the same signed transaction is safe.
+        request.timeoutInterval = 45
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Request-ID")
         request.httpBody = try JSONEncoder().encode(StoreSyncRequest(
             signedTransaction: signedTransaction,
             signedRenewalInfo: signedRenewalInfo
         ))
-        let response: EntitlementResponse = try await send(request)
+        let response: EntitlementResponse = try await send(request, retryingTransientFailures: 2)
         return response.entitlement
     }
 
@@ -175,8 +178,24 @@ actor AccessCredentialStore {
 #endif
     }
 
-    private func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {
-        let (data, response) = try await URLSession.shared.data(for: request)
+    private func send<Response: Decodable>(
+        _ request: URLRequest,
+        retryingTransientFailures retryCount: Int = 0
+    ) async throws -> Response {
+        var remainingRetries = max(0, retryCount)
+        var retryDelayNanoseconds: UInt64 = 500_000_000
+        let data: Data
+        let response: URLResponse
+        while true {
+            do {
+                (data, response) = try await URLSession.shared.data(for: request)
+                break
+            } catch let error as URLError where remainingRetries > 0 && Self.isTransient(error) {
+                remainingRetries -= 1
+                try await Task.sleep(nanoseconds: retryDelayNanoseconds)
+                retryDelayNanoseconds *= 2
+            }
+        }
         guard let http = response as? HTTPURLResponse else { throw AccessCredentialError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             let payload = try? JSONDecoder().decode(AccessServerError.self, from: data)
@@ -190,6 +209,17 @@ actor AccessCredentialStore {
         }
         return decoded
     }
+
+    private static func isTransient(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut, .networkConnectionLost, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet,
+             .resourceUnavailable:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 @MainActor
@@ -202,6 +232,8 @@ final class MembershipStore: ObservableObject {
     @Published private(set) var productLoadFailed = false
     @Published private(set) var isLoading = false
     @Published private(set) var isPurchasing = false
+    @Published private(set) var isRestoring = false
+    @Published private(set) var isRefreshingEntitlements = false
     @Published var message: String?
 
     private var transactionTask: Task<Void, Never>?
@@ -224,8 +256,11 @@ final class MembershipStore: ObservableObject {
         entitlementTask?.cancel()
     }
 
-    var canStartRecognition: Bool { entitlement?.remaining != 0 }
+    var canStartRecognition: Bool { (entitlement?.remaining ?? 0) > 0 }
     var isMember: Bool { entitlement?.isMember == true }
+    var canPurchase: Bool {
+        entitlement != nil && !isMember && !isLoading && !isRefreshingEntitlements && !isPurchasing
+    }
 
     var annualProduct: Product? { products.first { $0.id == Self.annualProductId } }
     var monthlyProduct: Product? { products.first { $0.id == Self.monthlyProductId } }
@@ -259,7 +294,11 @@ final class MembershipStore: ObservableObject {
             productLoadFailed = true
             message = error.localizedDescription
         }
-        await syncCurrentEntitlements()
+        do {
+            try await synchronizeCurrentEntitlements()
+        } catch {
+            message = "会员状态同步失败：\(error.localizedDescription)"
+        }
     }
 
     func retryProducts() async {
@@ -269,20 +308,21 @@ final class MembershipStore: ObservableObject {
 
     func refreshStatus() async {
         do {
-            setEntitlement(try await AccessCredentialStore.shared.status())
-        } catch let error as AccessCredentialError {
-            if case .server(let code) = error, code == "UNAUTHORIZED" {
-                do {
-                    setEntitlement(try await AccessCredentialStore.shared.bootstrapIfNeeded(force: true))
-                } catch {
-                    message = error.localizedDescription
-                }
-            }
-        } catch {}
+            setEntitlement(try await loadStatus())
+        } catch {
+            message = error.localizedDescription
+        }
     }
 
     func refreshCurrentEntitlements() async {
-        await syncCurrentEntitlements()
+        guard !isRefreshingEntitlements, !isPurchasing else { return }
+        isRefreshingEntitlements = true
+        defer { isRefreshingEntitlements = false }
+        do {
+            try await synchronizeCurrentEntitlements()
+        } catch {
+            message = "会员状态同步失败：\(error.localizedDescription)"
+        }
     }
 
     func purchase(_ product: Product) async -> Bool {
@@ -290,6 +330,14 @@ final class MembershipStore: ObservableObject {
         isPurchasing = true
         defer { isPurchasing = false }
         do {
+            // Re-read StoreKit and server state immediately before presenting Apple's
+            // purchase sheet. This prevents a stale free cache on a new device from
+            // initiating a plan change for an already-active subscriber.
+            try await synchronizeCurrentEntitlements()
+            guard !isMember else {
+                message = "当前已有有效会员，无需重复购买"
+                return false
+            }
             switch try await product.purchase() {
             case .success(let result):
                 guard case .verified(let transaction) = result else {
@@ -320,10 +368,14 @@ final class MembershipStore: ObservableObject {
     func restorePurchases() async -> Bool {
         guard !isPurchasing else { return false }
         isPurchasing = true
-        defer { isPurchasing = false }
+        isRestoring = true
+        defer {
+            isRestoring = false
+            isPurchasing = false
+        }
         do {
             try await AppStore.sync()
-            await syncCurrentEntitlements()
+            try await synchronizeCurrentEntitlements()
             message = isMember ? "购买记录已恢复" : "没有找到可恢复的有效会员"
             recordMetric("restore_result", outcome: isMember ? "success" : "not_found")
             return isMember
@@ -349,23 +401,33 @@ final class MembershipStore: ObservableObject {
         }
     }
 
-    private func syncCurrentEntitlements() async {
-        var delivered = false
+    private func synchronizeCurrentEntitlements() async throws {
+        var foundMembershipTransaction = false
         for await result in Transaction.currentEntitlements {
             switch result {
             case .verified(let transaction):
                 guard transaction.productID == Self.monthlyProductId || transaction.productID == Self.annualProductId else { continue }
-                do {
-                    try await deliver(transaction, signedTransaction: result.jwsRepresentation)
-                    delivered = true
-                } catch {
-                    message = "购买已找到，但同步失败：\(error.localizedDescription)"
-                }
-            case .unverified:
-                message = "发现一笔无法验证的购买，请稍后重试或联系 Apple 支持"
+                foundMembershipTransaction = true
+                try await deliver(transaction, signedTransaction: result.jwsRepresentation)
+            case .unverified(let transaction, _):
+                guard transaction.productID == Self.monthlyProductId || transaction.productID == Self.annualProductId else { continue }
+                throw AccessCredentialError.server("发现一笔无法验证的购买，请稍后重试或联系 Apple 支持")
             }
         }
-        if !delivered { await refreshStatus() }
+        if !foundMembershipTransaction {
+            setEntitlement(try await loadStatus())
+        }
+    }
+
+    private func loadStatus() async throws -> EntitlementSummary {
+        do {
+            return try await AccessCredentialStore.shared.status()
+        } catch let error as AccessCredentialError {
+            if case .server(let code) = error, code == "UNAUTHORIZED" {
+                return try await AccessCredentialStore.shared.bootstrapIfNeeded(force: true)
+            }
+            throw error
+        }
     }
 
     private func deliver(_ transaction: Transaction, signedTransaction: String) async throws {

@@ -94,13 +94,26 @@ struct SettingsView: View {
                     .font(.system(.subheadline, design: .rounded, weight: .heavy))
                     .foregroundStyle(Color.ink)
                 } else {
-                    PictureWordButton("开通会员", systemImage: "sparkles") {
+                    PictureWordButton(
+                        membership.isRestoring ? "正在恢复购买…" : "开通会员",
+                        systemImage: "sparkles",
+                        isLoading: membership.isRestoring
+                    ) {
                         paywallPresented = true
                     }
+                    .disabled(membership.isPurchasing || membership.isLoading || membership.isRefreshingEntitlements)
                 }
 
-                Button("恢复购买") {
+                Button {
                     Task { _ = await membership.restorePurchases() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if membership.isRestoring {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(membership.isRestoring ? "正在恢复购买…" : "恢复购买")
+                    }
                 }
                 .font(.system(.caption, design: .rounded, weight: .bold))
                 .foregroundStyle(Color.ink.opacity(0.62))
