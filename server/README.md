@@ -42,7 +42,7 @@ Apple Root CA 证书和 DeviceCheck 私钥必须作为部署密钥挂载，不�
 
 ## 全站用量保护
 
-`POST /v1/analyze` 接收图片、3–8 的 `maxObjects`，以及 `serious`、`funny` 或 `random` 的 `captionStyle`。成功响应通过 SSE 逐个发送物体，并在 `complete` 事件中返回完整结果、英文描述和实际采用的风格。
+`POST /v1/analyze` 接收图片、3–10 的 `maxObjects`，以及 `serious`、`funny` 或 `random` 的 `captionStyle`。客户端还可以传入 JSON 字符串形式的 `masteredWords`；服务端会规范化、去重并截取最多 100 个英文词，提示模型在准确可靠的前提下优先寻找其他新词。成功响应通过 SSE 逐个发送物体，并在 `complete` 事件中返回完整结果、英文描述和实际采用的风格。
 
 `POST /v1/vocabulary/resolve` 接收 JSON `{ "term": "窗户" }` 或 `{ "term": "window" }`，返回英文、简体中文、IPA 和初学者例句；该接口不会接收或重新上传照片。
 

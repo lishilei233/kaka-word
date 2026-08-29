@@ -14,7 +14,7 @@ final class AnalysisViewModel: ObservableObject {
         self.client = client
     }
 
-    func start(image: UIImage, maxObjects: Int, captionStyle: CaptionStyle) {
+    func start(image: UIImage, maxObjects: Int, captionStyle: CaptionStyle, masteredWords: [String]) {
         analysisTask?.cancel()
         let id = UUID()
         operationID = id
@@ -22,12 +22,18 @@ final class AnalysisViewModel: ObservableObject {
         shouldPresentPaywall = false
         phase = .preparing
         analysisTask = Task { [weak self] in
-            await self?.analyze(image: image, maxObjects: maxObjects, captionStyle: captionStyle, operationID: id)
+            await self?.analyze(
+                image: image,
+                maxObjects: maxObjects,
+                captionStyle: captionStyle,
+                masteredWords: masteredWords,
+                operationID: id
+            )
         }
     }
 
-    func retry(image: UIImage, maxObjects: Int, captionStyle: CaptionStyle) {
-        start(image: image, maxObjects: maxObjects, captionStyle: captionStyle)
+    func retry(image: UIImage, maxObjects: Int, captionStyle: CaptionStyle, masteredWords: [String]) {
+        start(image: image, maxObjects: maxObjects, captionStyle: captionStyle, masteredWords: masteredWords)
     }
 
     func cancel() {
@@ -37,9 +43,20 @@ final class AnalysisViewModel: ObservableObject {
         phase = .cancelled
     }
 
-    private func analyze(image: UIImage, maxObjects: Int, captionStyle: CaptionStyle, operationID id: UUID) async {
+    private func analyze(
+        image: UIImage,
+        maxObjects: Int,
+        captionStyle: CaptionStyle,
+        masteredWords: [String],
+        operationID id: UUID
+    ) async {
         do {
-            let result = try await client.analyze(image: image, maxObjects: maxObjects, captionStyle: captionStyle) { [weak self] progress in
+            let result = try await client.analyze(
+                image: image,
+                maxObjects: maxObjects,
+                captionStyle: captionStyle,
+                masteredWords: masteredWords
+            ) { [weak self] progress in
                 Task { @MainActor in
                     self?.receiveUploadProgress(progress, operationID: id)
                 }

@@ -89,6 +89,28 @@ test("uses the requested caption style and resolves random to an actual style", 
   assert.doesNotMatch(randomBody, /"captionStyle":"random"/);
 });
 
+test("normalizes, deduplicates, and caps mastered words before calling the provider", async () => {
+  const provider = new CountingProvider();
+  const app = makeApp(new FakeUsageLimiter(), provider);
+  const words = [" Mug ", "mug", "BOOK", "", ...Array.from({ length: 120 }, (_, index) => `word-${index}`)];
+  const response = await app.request("/v1/analyze", analyzeRequest("203.0.113.23", undefined, words));
+  await response.text();
+
+  assert.equal(response.status, 200);
+  assert.equal(provider.lastInput?.masteredWords.length, 100);
+  assert.deepEqual(provider.lastInput?.masteredWords.slice(0, 2), ["mug", "book"]);
+});
+
+test("keeps mastered words optional for older clients", async () => {
+  const provider = new CountingProvider();
+  const app = makeApp(new FakeUsageLimiter(), provider);
+  const response = await app.request("/v1/analyze", analyzeRequest("203.0.113.24"));
+  await response.text();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(provider.lastInput?.masteredWords, []);
+});
+
 test("returns the current entitlement when recognition quota is exhausted", async () => {
   const access = new FakeAccessService(freeEntitlement(3));
   access.reservation = { allowed: false, entitlement: freeEntitlement(3) };
@@ -317,7 +339,7 @@ function makeApp(
   return createApp({ config, provider, usageLimiter, accessService, logger });
 }
 
-function analyzeRequest(ip = "203.0.113.10", captionStyle?: string): RequestInit {
+function analyzeRequest(ip = "203.0.113.10", captionStyle?: string, masteredWords?: string[]): RequestInit {
   const png = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
     "base64",
@@ -325,6 +347,7 @@ function analyzeRequest(ip = "203.0.113.10", captionStyle?: string): RequestInit
   const form = new FormData();
   form.append("maxObjects", "3");
   if (captionStyle) form.append("captionStyle", captionStyle);
+  if (masteredWords) form.append("masteredWords", JSON.stringify(masteredWords));
   form.append("image", new File([png], "test.png", { type: "image/png" }));
   return {
     method: "POST",
@@ -371,9 +394,11 @@ class FakeUsageLimiter implements AnalyzeUsageLimiter {
 
 class CountingProvider implements VisionProvider {
   calls = 0;
+  lastInput?: VisionInput;
 
   async analyze(input: VisionInput): Promise<AnalyzeResult> {
     this.calls += 1;
+    this.lastInput = input;
     return {
       imageWidth: input.imageWidth,
       imageHeight: input.imageHeight,

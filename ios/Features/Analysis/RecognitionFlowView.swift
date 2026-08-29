@@ -8,6 +8,7 @@ struct RecognitionFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
+    @EnvironmentObject private var wordLearningStore: WordLearningStore
     @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
     @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
@@ -55,7 +56,8 @@ struct RecognitionFlowView: View {
             model.start(
                 image: image,
                 maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
-                captionStyle: captionStyle
+                captionStyle: captionStyle,
+                masteredWords: wordLearningStore.masteredWordsForRecognition
             )
         }
         .onChange(of: model.phase) { _, newPhase in
@@ -180,7 +182,8 @@ struct RecognitionFlowView: View {
         model.retry(
             image: image,
             maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
-            captionStyle: captionStyle
+            captionStyle: captionStyle,
+            masteredWords: wordLearningStore.masteredWordsForRecognition
         )
     }
 

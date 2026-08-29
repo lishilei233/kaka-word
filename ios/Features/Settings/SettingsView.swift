@@ -184,7 +184,7 @@ struct SettingsView: View {
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.ink.opacity(0.62))
                 }
-                Stepper("", value: $maxObjects, in: 3...8)
+                Stepper("", value: $maxObjects, in: 3...10)
                     .labelsHidden()
                     .tint(Color.ink)
                     .frame(maxWidth: .infinity, alignment: .trailing)

@@ -97,6 +97,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
 
       const body = await c.req.parseBody();
       const image = body.image;
+      const masteredWords = parseMasteredWords(body.masteredWords);
       const requestedMaxObjects = Number(body.maxObjects);
       const requestedCaptionStyle = requestedCaptionStyleSchema.safeParse(body.captionStyle).success
         ? requestedCaptionStyleSchema.parse(body.captionStyle)
@@ -105,8 +106,8 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         ? (Math.random() < 0.5 ? "serious" : "funny")
         : requestedCaptionStyle;
       const maxObjects = Number.isInteger(requestedMaxObjects)
-        ? Math.min(Math.max(requestedMaxObjects, 3), 8)
-        : 8;
+        ? Math.min(Math.max(requestedMaxObjects, 3), 10)
+        : 10;
       if (!(image instanceof File)) {
         logger.warn("analyze.rejected", { requestId, reason: "IMAGE_REQUIRED" });
         return c.json({ error: "IMAGE_REQUIRED" }, 400);
@@ -225,6 +226,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         language: "zh-CN" as const,
         maxObjects,
         captionStyle,
+        masteredWords,
         signal: abortController.signal,
       };
 
@@ -322,6 +324,27 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
       return c.json({ error: "ANALYZE_FAILED", message: error instanceof Error ? error.message : "Unknown error" }, 502);
     }
   });
+}
+
+export function parseMasteredWords(value: unknown): string[] {
+  if (typeof value !== "string" || value.length > 16_000) return [];
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(value);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(decoded)) return [];
+
+  const unique = new Set<string>();
+  for (const candidate of decoded) {
+    if (typeof candidate !== "string") continue;
+    const normalized = candidate.trim().toLocaleLowerCase("en-US");
+    if (normalized.length < 1 || normalized.length > 60) continue;
+    unique.add(normalized);
+    if (unique.size === 100) break;
+  }
+  return [...unique];
 }
 
 async function recordMetricSafely(

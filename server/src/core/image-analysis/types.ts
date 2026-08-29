@@ -39,7 +39,7 @@ export const vocabularyDetailsSchema = z.object({
 export const analyzeResultSchema = z.object({
   imageWidth: z.number().int().positive(),
   imageHeight: z.number().int().positive(),
-  objects: z.array(learningObjectSchema).max(8),
+  objects: z.array(learningObjectSchema).max(10),
   caption: z.string().min(1).max(220),
   captionChinese: z.string().min(1).max(220),
   captionStyle: captionStyleSchema,
@@ -60,6 +60,7 @@ export type VisionInput = {
   language: "zh-CN";
   maxObjects: number;
   captionStyle: CaptionStyle;
+  masteredWords: string[];
   signal?: AbortSignal;
 };
 

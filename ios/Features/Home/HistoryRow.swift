@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-struct HistoryRow: View {
+struct DiscoveryCardRow: View {
     let record: HistoryRecord
     let thumbnail: UIImage?
     let onOpen: () -> Void
@@ -44,6 +44,7 @@ struct HistoryRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("发现卡，包含 \(record.result.objects.count) 个单词，\(record.createdAt.formatted(date: .abbreviated, time: .omitted))")
         }
         .padding(10)
         .background(Color.paperLight.opacity(0.9), in: RoundedRectangle(cornerRadius: 22, style: .continuous))

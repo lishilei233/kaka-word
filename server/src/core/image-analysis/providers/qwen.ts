@@ -25,7 +25,7 @@ const qwenResultSchema = z.object({
     anchor: z.tuple([z.number(), z.number()]).optional(),
     example: z.string().min(1).max(180),
     exampleChinese: z.string().min(1).max(180).optional(),
-  })).max(8),
+  })).max(10),
   caption: z.string().min(1).max(220),
   captionChinese: z.string().min(1).max(220),
 });
@@ -63,7 +63,7 @@ export class QwenVisionProvider implements VisionProvider {
         messages: [{
           role: "user",
           content: [
-            { type: "text", text: qwenLearningObjectPrompt(input.maxObjects, input.captionStyle) },
+            { type: "text", text: qwenLearningObjectPrompt(input.maxObjects, input.captionStyle, input.masteredWords) },
             { type: "image_url", image_url: { url: `data:${input.mimeType};base64,${data}` } },
           ],
         }],

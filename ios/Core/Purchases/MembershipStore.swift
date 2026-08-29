@@ -380,7 +380,7 @@ final class MembershipStore: ObservableObject {
             recordMetric("restore_result", outcome: isMember ? "success" : "not_found")
             return isMember
         } catch {
-            message = error.localizedDescription
+            message = restoreErrorMessage(error)
             recordMetric("restore_result", outcome: "failed")
             return false
         }
@@ -428,6 +428,28 @@ final class MembershipStore: ObservableObject {
             }
             throw error
         }
+    }
+
+    private func restoreErrorMessage(_ error: Error) -> String {
+        if let storeKitError = error as? StoreKitError,
+           case .userCancelled = storeKitError {
+            return "已取消恢复购买，没有产生任何更改"
+        }
+
+        let nsError = error as NSError
+        if (nsError.domain == SKErrorDomain && nsError.code == SKError.paymentCancelled.rawValue)
+            || (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled) {
+            return "已取消恢复购买，没有产生任何更改"
+        }
+
+        let description = error.localizedDescription.lowercased()
+        if description.contains("request canceled")
+            || description.contains("request cancelled")
+            || description.contains("user canceled")
+            || description.contains("user cancelled") {
+            return "已取消恢复购买，没有产生任何更改"
+        }
+        return error.localizedDescription
     }
 
     private func deliver(_ transaction: Transaction, signedTransaction: String) async throws {

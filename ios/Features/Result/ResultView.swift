@@ -23,6 +23,7 @@ struct ResultView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
+    @EnvironmentObject private var wordLearningStore: WordLearningStore
     @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
     @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
@@ -152,7 +153,8 @@ struct ResultView: View {
         analysisModel.retry(
             image: image,
             maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
-            captionStyle: captionStyle
+            captionStyle: captionStyle,
+            masteredWords: wordLearningStore.masteredWordsForRecognition
         )
     }
 
@@ -262,6 +264,7 @@ struct PhotoWordCardDetailView: View {
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @EnvironmentObject private var membership: MembershipStore
+    @EnvironmentObject private var wordLearningStore: WordLearningStore
 
     var body: some View {
         GeometryReader { proxy in
@@ -409,6 +412,8 @@ struct PhotoWordCardDetailView: View {
         switch status {
         case .complete:
             VStack(spacing: 0) {
+                masterySummary
+
                 if let missionUpdate {
                     Text(missionUpdate.completedNow
                          ? "今天的寻宝完成啦 · 贴纸已收入"
@@ -507,9 +512,10 @@ struct PhotoWordCardDetailView: View {
 
         return AnnotatedPhotoCard(
             image: image,
-            objects: result.objects,
+            objects: displayedObjects,
             revealsAnnotations: revealsAnnotations,
             isEditable: status.isComplete && onResultChange != nil,
+            masteredObjectIDs: masteredObjectIDs,
             editingObjectID: annotationEditingBinding,
             showsShadow: false
         ) { object in
@@ -523,6 +529,63 @@ struct PhotoWordCardDetailView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, DecoratedPhotoLayout.horizontalPadding)
         .padding(.vertical, DecoratedPhotoLayout.verticalPadding)
+    }
+
+    private var learningObjects: [LearningObject] {
+        result.objects.filter { wordLearningStore.state(for: $0.english) == .learning }
+    }
+
+    private var masteredObjects: [LearningObject] {
+        result.objects.filter { wordLearningStore.state(for: $0.english) == .mastered }
+    }
+
+    private var displayedObjects: [LearningObject] {
+        result.objects
+    }
+
+    private var masteredObjectIDs: Set<String> {
+        Set(masteredObjects.map(\.id))
+    }
+
+    @ViewBuilder
+    private var masterySummary: some View {
+        if !masteredObjects.isEmpty {
+            VStack(spacing: 12) {
+                if learningObjects.isEmpty {
+                    HStack(spacing: 10) {
+                        StickerSeal(symbol: "checkmark", color: .mint, showsShadow: false)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("这张照片里的单词你都会了")
+                                .font(.system(.headline, design: .rounded, weight: .heavy))
+                            Text("很棒，再去生活里发现一点新的吧。")
+                                .font(.system(.caption, design: .rounded, weight: .medium))
+                                .foregroundStyle(Color.ink.opacity(0.58))
+                        }
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    Text("发现 \(learningObjects.count) 个学习中单词 · 还有 \(masteredObjects.count) 个已会")
+                        .font(.system(.caption, design: .rounded, weight: .bold))
+                        .foregroundStyle(Color.ink.opacity(0.62))
+                }
+
+                if learningObjects.isEmpty {
+                    PictureWordButton(
+                        "返回再拍",
+                        systemImage: "camera.fill",
+                        size: .compact,
+                        action: onClose
+                    )
+                }
+            }
+            .padding(16)
+            .background(Color.mint.opacity(0.34), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.ink.opacity(0.08))
+            }
+            .padding(.bottom, 18)
+        }
     }
 
     private func updateObject(_ object: LearningObject) -> String? {
@@ -916,6 +979,8 @@ struct ResultAmbientBackground: View {
         recordID: UUID()
     )
     .environmentObject(HistoryStore())
+    .environmentObject(WordLearningStore())
+    .environmentObject(MembershipStore())
 }
 
 private enum ResultViewPreviewData {

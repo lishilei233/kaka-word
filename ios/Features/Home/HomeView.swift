@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 
 private enum HomeTab: String {
-    case today
-    case album
+    case home
+    case words
 }
 
 struct HomeView: View {
@@ -12,7 +12,8 @@ struct HomeView: View {
     @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
 
-    @State private var selectedTab: HomeTab = .today
+    @State private var selectedTab: HomeTab = .home
+    @State private var discoveryAlbumPresented = false
     @State private var cameraPresented = false
     @State private var capturedImage: UIImage?
     @State private var recognitionImage: PresentedImage?
@@ -32,16 +33,17 @@ struct HomeView: View {
 
                 Group {
                     switch selectedTab {
-                    case .today:
-                        TodayDashboard(
+                    case .home:
+                        HomeDashboard(
                             mode: mode,
                             onModeChange: { modeRawValue = $0.rawValue },
                             onCamera: requestCamera,
                             onSwitchMission: switchMission,
-                            onOpenHistory: openHistory
+                            onOpenHistory: openHistory,
+                            onOpenAlbum: { discoveryAlbumPresented = true }
                         )
-                    case .album:
-                        WordAlbumDashboard(onOpen: openHistory)
+                    case .words:
+                        MyWordsDashboard()
                     }
                 }
             }
@@ -50,6 +52,9 @@ struct HomeView: View {
                 ScrapbookTabBar(selectedTab: $selectedTab) {
                     requestCamera()
                 }
+            }
+            .navigationDestination(isPresented: $discoveryAlbumPresented) {
+                DiscoveryAlbumView(onOpen: openHistory)
             }
         }
         .fullScreenCover(isPresented: $cameraPresented, onDismiss: presentCapturedImage) {
@@ -86,7 +91,7 @@ struct HomeView: View {
         } message: {
             Text("今天已经找到的单词会清空，获得过的贴纸不会删除。")
         }
-        .alert("单词册", isPresented: Binding(
+        .alert("发现相册", isPresented: Binding(
             get: { historyMessage != nil },
             set: { if !$0 { historyMessage = nil } }
         )) {
@@ -127,15 +132,18 @@ struct HomeView: View {
     }
 }
 
-private struct TodayDashboard: View {
+private struct HomeDashboard: View {
     let mode: LearningMode
     let onModeChange: (LearningMode) -> Void
     let onCamera: () -> Void
     let onSwitchMission: () -> Void
     let onOpenHistory: (HistoryRecord) -> Void
+    let onOpenAlbum: () -> Void
 
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
+    @EnvironmentObject private var wordLearningStore: WordLearningStore
+    @State private var practicePresented = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -144,10 +152,12 @@ private struct TodayDashboard: View {
 
                 if mode == .parentChild {
                     missionHero
+                    stickerShelf
                 } else {
                     exploreHero
                 }
 
+                reviewCard
                 recentSection
             }
             .padding(.horizontal, 20)
@@ -155,6 +165,51 @@ private struct TodayDashboard: View {
             .padding(.bottom, 118)
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
+        .fullScreenCover(isPresented: $practicePresented) {
+            ListeningPracticeView()
+        }
+    }
+
+    private var reviewCard: some View {
+        Button {
+            practicePresented = true
+        } label: {
+            HStack(spacing: 16) {
+                StickerSeal(
+                    symbol: wordLearningStore.learningEntries.isEmpty ? "checkmark" : "ear.fill",
+                    color: wordLearningStore.learningEntries.isEmpty ? .mint : .sun,
+                    showsShadow: false
+                )
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("LISTEN & FIND")
+                        .font(.system(.caption2, design: .rounded, weight: .black))
+                        .tracking(1.5)
+                        .foregroundStyle(Color.coral)
+                    Text("听音找词")
+                        .font(.system(.headline, design: .rounded, weight: .heavy))
+                    Text(wordLearningStore.learningEntries.isEmpty
+                         ? "学习中的单词都会了，去发现新的吧。"
+                         : "还有 \(wordLearningStore.learningEntries.count) 个学习中的词")
+                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .foregroundStyle(Color.ink.opacity(0.56))
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 14, weight: .black))
+            }
+            .foregroundStyle(Color.ink)
+            .padding(18)
+            .background(Color.paperLight.opacity(0.88), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.ink.opacity(0.08))
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(wordLearningStore.learningEntries.isEmpty)
+        .opacity(wordLearningStore.learningEntries.isEmpty ? 0.62 : 1)
+        .padding(.top, 24)
     }
 
     private var header: some View {
@@ -296,162 +351,17 @@ private struct TodayDashboard: View {
         .padding(.top, 28)
     }
 
-    @ViewBuilder
-    private var recentSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("RECENT PAGES")
-                        .font(.system(.caption2, design: .rounded, weight: .black))
-                        .tracking(1.8)
-                        .foregroundStyle(Color.coral)
-                    Text("最近的单词")
-                        .font(.scrapbookTitle)
-                }
-                Spacer()
-                Text(historyStore.records.isEmpty ? "从一张照片开始" : "共 \(historyStore.records.count) 页")
-                    .font(.scrapbookCaption)
-                    .foregroundStyle(Color.ink.opacity(0.48))
-            }
-
-            if historyStore.records.isEmpty {
-                HStack(spacing: 14) {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 24, weight: .bold))
-                    Text("还没有照片单词卡。\n今天，从一个单词开始。")
-                        .font(.scrapbookBody)
-                        .lineSpacing(3)
-                }
-                .foregroundStyle(Color.ink.opacity(0.62))
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.paperLight.opacity(0.72), in: RoundedRectangle(cornerRadius: 22))
-                .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.08)) }
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 14) {
-                        ForEach(historyStore.records.prefix(6)) { record in
-                            RecentPhotoCard(
-                                record: record,
-                                thumbnail: historyStore.thumbnail(for: record),
-                                onOpen: { onOpenHistory(record) }
-                            )
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .contentMargins(.horizontal, 2, for: .scrollContent)
-            }
-        }
-        .padding(.top, 30)
-    }
-}
-
-private struct WordAlbumDashboard: View {
-    let onOpen: (HistoryRecord) -> Void
-
-    @EnvironmentObject private var historyStore: HistoryStore
-    @EnvironmentObject private var journeyStore: LearningJourneyStore
-
-    var body: some View {
-        List {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("MY WORD ALBUM")
-                        .font(.system(.caption2, design: .rounded, weight: .black))
-                        .tracking(2)
-                        .foregroundStyle(Color.coral)
-                    Text("我的单词册")
-                        .font(.scrapbookHero)
-                }
-                Spacer()
-                // NavigationLink {
-                //     SettingsView()
-                // } label: {
-                //     Image(systemName: "slider.horizontal.3")
-                //         .font(.system(size: 16, weight: .bold))
-                //         .foregroundStyle(Color.ink)
-                //         .frame(width: 44, height: 44)
-                //         .background(Color.sun, in: Circle())
-                // }
-            }
-            .listRowInsets(EdgeInsets(top: 18, leading: 20, bottom: 0, trailing: 20))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden, edges: .all)
-
-            stickerShelf
-                .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 14, trailing: 20))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden, edges: .all)
-
-            HStack {
-                Text("照片单词卡")
-                    .font(.scrapbookTitle)
-                Spacer()
-                Text("\(historyStore.records.count) 页")
-                    .font(.scrapbookCaption)
-                    .foregroundStyle(Color.ink.opacity(0.48))
-            }
-            .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 0, trailing: 20))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden, edges: .all)
-
-            if historyStore.records.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 34, weight: .bold))
-                    Text("还没有收藏的生活单词")
-                        .font(.scrapbookBody)
-                }
-                .foregroundStyle(Color.ink.opacity(0.48))
-                .frame(maxWidth: .infinity, minHeight: 170)
-                .background(Color.paperLight.opacity(0.66), in: RoundedRectangle(cornerRadius: 24))
-                .overlay { RoundedRectangle(cornerRadius: 24).stroke(Color.ink.opacity(0.08)) }
-                .listRowInsets(EdgeInsets(top: 11, leading: 20, bottom: 11, trailing: 20))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden, edges: .all)
-            } else {
-                ForEach(historyStore.records) { record in
-                    HistoryRow(
-                        record: record,
-                        thumbnail: historyStore.thumbnail(for: record),
-                        onOpen: { onOpen(record) }
-                    )
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            historyStore.delete(record)
-                        } label: {
-                            Label("删除", systemImage: "trash")
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden, edges: .all)
-                }
-            }
-
-            Color.clear
-                .frame(height: 118)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden, edges: .all)
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .scrollIndicators(.hidden)
-        .background {
-            NotebookBackground()
-        }
-        .listRowSeparator(.hidden, edges: .all)
-        .listRowBackground(Color.clear)
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-    }
-
     private var stickerShelf: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
-                Text("寻宝贴纸")
-                    .font(.scrapbookTitle)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("TREASURE STICKERS")
+                        .font(.system(.caption2, design: .rounded, weight: .black))
+                        .tracking(1.6)
+                        .foregroundStyle(Color.coral)
+                    Text("寻宝贴纸")
+                        .font(.scrapbookTitle)
+                }
                 Spacer()
                 Text("\(journeyStore.stickers.count) 枚")
                     .font(.scrapbookCaption)
@@ -482,8 +392,337 @@ private struct WordAlbumDashboard: View {
                 }
             }
         }
+        .padding(.top, 26)
     }
 
+    @ViewBuilder
+    private var recentSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("RECENT FINDS")
+                        .font(.system(.caption2, design: .rounded, weight: .black))
+                        .tracking(1.8)
+                        .foregroundStyle(Color.coral)
+                    Text("最近发现")
+                        .font(.scrapbookTitle)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 5) {
+                    // Text(historyStore.records.isEmpty ? "从一张照片开始" : "共 \(historyStore.records.count) 张")
+                    //     .font(.scrapbookCaption)
+                    //     .foregroundStyle(Color.ink.opacity(0.48))
+                    Button("查看全部", action: onOpenAlbum)
+                        .font(.system(.caption, design: .rounded, weight: .black))
+                        .foregroundStyle(Color.coral)
+                        .buttonStyle(.plain)
+                        .frame(minHeight: 44)
+                        .accessibilityHint("打开发现相册")
+                }
+            }
+
+            if historyStore.records.isEmpty {
+                HStack(spacing: 14) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 24, weight: .bold))
+                    Text("还没有发现卡。\n从一张照片开始探索。")
+                        .font(.scrapbookBody)
+                        .lineSpacing(3)
+                }
+                .foregroundStyle(Color.ink.opacity(0.62))
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.paperLight.opacity(0.72), in: RoundedRectangle(cornerRadius: 22))
+                .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.08)) }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 14) {
+                        ForEach(historyStore.records.prefix(6)) { record in
+                            DiscoveryCardCompact(
+                                record: record,
+                                thumbnail: historyStore.thumbnail(for: record),
+                                onOpen: { onOpenHistory(record) }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .contentMargins(.horizontal, 2, for: .scrollContent)
+            }
+        }
+        .padding(.top, 30)
+    }
+}
+
+private struct MyWordsDashboard: View {
+    @EnvironmentObject private var historyStore: HistoryStore
+    @EnvironmentObject private var wordLearningStore: WordLearningStore
+    @State private var selectedState: WordLearningState = .learning
+    @State private var searchText = ""
+    @State private var selectedWord: WordEntry?
+
+    var body: some View {
+        List {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("MY WORDS")
+                        .font(.system(.caption2, design: .rounded, weight: .black))
+                        .tracking(2)
+                        .foregroundStyle(Color.coral)
+                    Text("我的单词")
+                        .font(.scrapbookHero)
+                }
+                Spacer()
+                // NavigationLink {
+                //     SettingsView()
+                // } label: {
+                //     Image(systemName: "slider.horizontal.3")
+                //         .font(.system(size: 16, weight: .bold))
+                //         .foregroundStyle(Color.ink)
+                //         .frame(width: 44, height: 44)
+                //         .background(Color.sun, in: Circle())
+                // }
+            }
+            .listRowInsets(EdgeInsets(top: 18, leading: 20, bottom: 0, trailing: 20))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden, edges: .all)
+
+            wordSummary
+                .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 10, trailing: 20))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden, edges: .all)
+
+            wordControls
+                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 10, trailing: 20))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden, edges: .all)
+
+            if filteredWords.isEmpty {
+                wordEmptyState
+                    .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 12, trailing: 20))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden, edges: .all)
+            } else {
+                ForEach(filteredWords) { entry in
+                    WordLearningRow(
+                        entry: entry,
+                        state: selectedState,
+                        image: wordImage(for: entry),
+                        onOpen: { selectedWord = entry }
+                    )
+                    .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden, edges: .all)
+                }
+            }
+
+            Color.clear
+                .frame(height: 118)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden, edges: .all)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
+        .background {
+            NotebookBackground()
+        }
+        .listRowSeparator(.hidden, edges: .all)
+        .listRowBackground(Color.clear)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .sheet(item: $selectedWord) { entry in
+            WordDetailSheet(object: entry.object)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color.paper)
+        }
+    }
+
+    private var sourceWords: [WordEntry] {
+        selectedState == .learning ? wordLearningStore.learningEntries : wordLearningStore.masteredEntries
+    }
+
+    private var filteredWords: [WordEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return sourceWords }
+        return sourceWords.filter {
+            $0.object.english.lowercased().contains(query) || $0.object.chinese.contains(query)
+        }
+    }
+
+    private var wordSummary: some View {
+        HStack(spacing: 12) {
+            WordCountNote(
+                count: wordLearningStore.learningEntries.count,
+                title: "学习中",
+                symbol: "pencil",
+                color: .sun
+            )
+            WordCountNote(
+                count: wordLearningStore.masteredEntries.count,
+                title: "已会",
+                symbol: "checkmark",
+                color: .mint
+            )
+        }
+    }
+
+    private var wordControls: some View {
+        VStack(spacing: 12) {
+            Picker("单词状态", selection: $selectedState) {
+                ForEach(WordLearningState.allCases) { state in
+                    Text(state.title).tag(state)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color.ink.opacity(0.42))
+                TextField("搜索英文或中文", text: $searchText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 46)
+            .background(Color.paperLight.opacity(0.9), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .stroke(Color.ink.opacity(0.08))
+            }
+        }
+    }
+
+    private var wordEmptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: selectedState == .learning ? "sparkles" : "checkmark.seal")
+                .font(.system(size: 28, weight: .bold))
+            Text(searchText.isEmpty
+                 ? (selectedState == .learning ? "拍照后，新单词会自动来到这里。" : "学会的单词会在这里留下成长印记。")
+                 : "没有找到匹配的单词")
+                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(Color.ink.opacity(0.5))
+        .frame(maxWidth: .infinity, minHeight: 116)
+        .background(Color.paperLight.opacity(0.58), in: RoundedRectangle(cornerRadius: 22))
+    }
+
+    private func wordImage(for entry: WordEntry) -> UIImage? {
+        WordImageCropper.image(for: entry, historyStore: historyStore)
+    }
+
+}
+
+private struct DiscoveryAlbumView: View {
+    let onOpen: (HistoryRecord) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var historyStore: HistoryStore
+
+    var body: some View {
+        ZStack {
+            NotebookBackground()
+
+            List {
+                if historyStore.records.isEmpty {
+                    emptyState
+                        .listRowInsets(EdgeInsets(top: 24, leading: 20, bottom: 12, trailing: 20))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden, edges: .all)
+                } else {
+                    ForEach(historyStore.records) { record in
+                        DiscoveryCardRow(
+                            record: record,
+                            thumbnail: historyStore.thumbnail(for: record),
+                            onOpen: { onOpen(record) }
+                        )
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                historyStore.delete(record)
+                            } label: {
+                                Label("删除发现卡", systemImage: "trash")
+                            }
+                        }
+                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden, edges: .all)
+                    }
+                }
+
+                Color.clear
+                    .frame(height: 24)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden, edges: .all)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            header
+        }
+        .navigationBarBackButtonHidden()
+        .toolbar(.hidden, for: .navigationBar)
+        .background(InteractivePopGestureEnabler())
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    private var header: some View {
+        PictureWordPageHeader(
+            eyebrow: "DISCOVERY ALBUM",
+            title: "发现相册",
+            foreground: .ink,
+            eyebrowColor: .coral,
+            tint: Color.paperLight.opacity(0.52)
+        ) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(Color.ink)
+                    .frame(width: 50, height: 50)
+                    .contentShape(Capsule())
+                    .pictureWordGlass(
+                        tint: Color.paperLight.opacity(0.52),
+                        interactive: true,
+                        in: Capsule()
+                    )
+            }
+            .accessibilityLabel("返回")
+            .buttonStyle(.plain)
+        } trailing: {
+            PictureWordHeaderCapsule(
+                tint: Color.sun,
+                foreground: Color.ink
+            ) {
+                Text("\(historyStore.records.count) 张")
+                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                    .frame(width: 50, height: 50)
+            }
+            .accessibilityLabel("共 \(historyStore.records.count) 张发现卡")
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 36, weight: .bold))
+            Text("还没有发现卡")
+                .font(.scrapbookTitle)
+            Text("拍下一张照片后，它会作为完整的发现卡保存在这里。")
+                .font(.system(.subheadline, design: .rounded, weight: .medium))
+                .foregroundStyle(Color.ink.opacity(0.54))
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(Color.ink.opacity(0.58))
+        .padding(26)
+        .frame(maxWidth: .infinity, minHeight: 220)
+        .background(Color.paperLight.opacity(0.72), in: RoundedRectangle(cornerRadius: 26))
+        .overlay { RoundedRectangle(cornerRadius: 26).stroke(Color.ink.opacity(0.08)) }
+    }
 }
 
 private struct ScrapbookTabBar: View {
@@ -508,9 +747,9 @@ private struct ScrapbookTabBar: View {
                 .onTapGesture {}
 
             HStack(spacing: 0) {
-                tabButton(.today, title: "今日", icon: "sun.max.fill")
+                tabButton(.home, title: "首页", icon: "house.fill")
                 Spacer(minLength: 82)
-                tabButton(.album, title: "单词册", icon: "book.closed.fill")
+                tabButton(.words, title: "单词", icon: "book.closed.fill")
             }
             .padding(.horizontal, 18)
             .frame(height: 64)
@@ -614,7 +853,7 @@ private struct MissionProgressDots: View {
     }
 }
 
-private struct RecentPhotoCard: View {
+private struct DiscoveryCardCompact: View {
     let record: HistoryRecord
     let thumbnail: UIImage?
     let onOpen: () -> Void
@@ -649,7 +888,7 @@ private struct RecentPhotoCard: View {
         }
         .buttonStyle(.plain)
         .rotationEffect(.degrees(record.id.uuidString.hashValue.isMultiple(of: 2) ? -1 : 1))
-        .accessibilityLabel("打开照片单词卡")
+        .accessibilityLabel("打开包含 \(record.result.objects.count) 个单词的发现卡")
     }
 }
 
@@ -669,5 +908,7 @@ struct HomeView_Previews: PreviewProvider {
         HomeView()
             .environmentObject(HistoryStore())
             .environmentObject(LearningJourneyStore())
+            .environmentObject(WordLearningStore())
+            .environmentObject(MembershipStore())
     }
 }

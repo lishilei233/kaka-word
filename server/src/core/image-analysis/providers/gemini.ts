@@ -24,7 +24,7 @@ export class GeminiVisionProvider extends HttpVisionProvider {
       body: JSON.stringify({
         contents: [{ parts: [
           { inline_data: { mime_type: input.mimeType, data } },
-          { text: learningObjectPrompt(input.maxObjects, input.captionStyle) },
+          { text: learningObjectPrompt(input.maxObjects, input.captionStyle, input.masteredWords) },
         ] }],
         generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
       }),

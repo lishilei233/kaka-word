@@ -31,6 +31,7 @@ protocol AnalysisProviding {
         image: UIImage,
         maxObjects: Int,
         captionStyle: CaptionStyle,
+        masteredWords: [String],
         onUploadProgress: @escaping @Sendable (Double) -> Void,
         onObject: @escaping @Sendable (LearningObject) -> Void
     ) async throws -> AnalyzeResult
@@ -55,6 +56,7 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
         image: UIImage,
         maxObjects: Int,
         captionStyle: CaptionStyle,
+        masteredWords: [String],
         onUploadProgress: @escaping @Sendable (Double) -> Void,
         onObject: @escaping @Sendable (LearningObject) -> Void
     ) async throws -> AnalyzeResult {
@@ -78,6 +80,7 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
         let body = MultipartBuilder(boundary: boundary)
             .addField(name: "maxObjects", value: String(AppSettings.normalizedMaxObjects(maxObjects)))
             .addField(name: "captionStyle", value: captionStyle.rawValue)
+            .addField(name: "masteredWords", value: Self.encodedMasteredWords(masteredWords))
             .addFile(name: "image", filename: "photo.jpg", mimeType: "image/jpeg", data: imageData)
             .build()
 
@@ -201,6 +204,16 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
     private static func publishEntitlement(_ entitlement: EntitlementSummary?) {
         guard let entitlement else { return }
         NotificationCenter.default.post(name: MembershipNotification.entitlementDidChange, object: entitlement)
+    }
+
+    private static func encodedMasteredWords(_ words: [String]) -> String {
+        let normalized = words.prefix(100).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(with: Locale(identifier: "en_US_POSIX"))
+        }
+        guard let data = try? JSONEncoder().encode(normalized),
+              let value = String(data: data, encoding: .utf8) else { return "[]" }
+        return value
     }
 }
 

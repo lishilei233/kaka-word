@@ -33,7 +33,7 @@ export class VolcengineVisionProvider extends HttpVisionProvider {
           role: "user",
           content: [
             { type: "image_url", image_url: { url: `data:${input.mimeType};base64,${data}` } },
-            { type: "text", text: learningObjectPrompt(input.maxObjects, input.captionStyle) },
+            { type: "text", text: learningObjectPrompt(input.maxObjects, input.captionStyle, input.masteredWords) },
           ],
         }],
       }),

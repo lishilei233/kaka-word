@@ -8,6 +8,7 @@ struct WordDetailSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var membership: MembershipStore
+    @EnvironmentObject private var wordLearningStore: WordLearningStore
     @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
@@ -79,15 +80,29 @@ struct WordDetailSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !isEditing, onDelete != nil {
-                PictureWordButton(
-                    "删除单词",
-                    systemImage: "trash",
-                    style: .destructive,
-                    isLoading: isResolving,
-                    action: { showDeleteConfirmation = true }
-                )
-                .disabled(isResolving)
+            if !isEditing {
+                VStack(spacing: 12) {
+                    PictureWordButton(
+                        learningState == .learning ? "我会了" : "放回学习中",
+                        systemImage: learningState == .learning ? "checkmark.circle.fill" : "arrow.uturn.backward.circle",
+                        style: learningState == .learning ? .primary : .secondary,
+                        isLoading: isResolving,
+                        action: toggleLearningState
+                    )
+                    .disabled(isResolving)
+
+                    if onDelete != nil {
+                        PictureWordButton(
+                            "删除单词",
+                            systemImage: "trash",
+                            style: .destructive,
+                            size: .compact,
+                            isLoading: isResolving,
+                            action: { showDeleteConfirmation = true }
+                        )
+                        .disabled(isResolving)
+                    }
+                }
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
                 .padding(.bottom, 24)
@@ -207,6 +222,17 @@ struct WordDetailSheet: View {
 
     private var submittedTerm: String {
         editingTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var learningState: WordLearningState {
+        wordLearningStore.state(for: displayedObject.english)
+    }
+
+    private func toggleLearningState() {
+        wordLearningStore.setState(
+            learningState == .learning ? .mastered : .learning,
+            for: displayedObject.english
+        )
     }
 
     private func startEditing() {

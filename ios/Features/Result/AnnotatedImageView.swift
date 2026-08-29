@@ -16,6 +16,7 @@ struct AnnotatedImageView: View {
     let objects: [LearningObject]
     var revealsAnnotations = true
     var isEditable = false
+    var masteredObjectIDs: Set<String> = []
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
     var editingObjectID: Binding<String?> = .constant(nil)
@@ -48,7 +49,11 @@ struct AnnotatedImageView: View {
 
                 Canvas { context, _ in
                     for route in layout.routes {
-                        drawLeaderLine(route, in: &context)
+                        drawLeaderLine(
+                            route,
+                            isMastered: masteredObjectIDs.contains(route.id),
+                            in: &context
+                        )
                     }
                 }
                 .allowsHitTesting(false)
@@ -104,6 +109,8 @@ struct AnnotatedImageView: View {
                 ? sin(elapsed * (2 * .pi / Interaction.jiggleInterval)) * Interaction.jiggleAmplitude
                 : 0
 
+            let isMastered = masteredObjectIDs.contains(placement.id)
+
             Text(placement.object.english)
                 .font(.system(size: 14, weight: .black, design: .rounded))
                 .foregroundStyle(Color.ink)
@@ -112,9 +119,19 @@ struct AnnotatedImageView: View {
                 .allowsTightening(true)
                 .padding(.horizontal, 10)
                 .frame(width: placement.labelWidth, height: placement.labelHeight)
-                .background(Color.sun, in: Capsule())
+                .background(isMastered ? Color.mint.opacity(0.9) : Color.sun, in: Capsule())
                 .overlay {
                     Capsule().stroke(Color.ink.opacity(0.18), lineWidth: 1)
+                }
+                .overlay(alignment: .topTrailing) {
+                    if isMastered {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .black))
+                            .foregroundStyle(Color.paperLight)
+                            .frame(width: 17, height: 17)
+                            .background(Color.ink, in: Circle())
+                            .offset(x: 4, y: -5)
+                    }
                 }
                 .contentShape(Capsule())
                 .position(placement.labelCenter)
@@ -237,13 +254,17 @@ struct AnnotatedImageView: View {
         return normalizedPoint(clamped, in: frame)
     }
 
-    private func drawLeaderLine(_ route: AnnotationRoute, in context: inout GraphicsContext) {
+    private func drawLeaderLine(
+        _ route: AnnotationRoute,
+        isMastered: Bool,
+        in context: inout GraphicsContext
+    ) {
         var path = Path()
         path.move(to: route.start)
         path.addQuadCurve(to: route.target, control: route.control)
         context.stroke(
             path,
-            with: .color(Color.ink.opacity(0.78)),
+            with: .color(Color.ink.opacity(isMastered ? 0.38 : 0.78)),
             style: StrokeStyle(
                 lineWidth: 5,
                 lineCap: .round,
@@ -254,7 +275,7 @@ struct AnnotatedImageView: View {
         )
         context.stroke(
             path,
-            with: .color(Color.sun),
+            with: .color(isMastered ? Color.mint : Color.sun),
             style: StrokeStyle(
                 lineWidth: 2,
                 lineCap: .round,
@@ -267,7 +288,7 @@ struct AnnotatedImageView: View {
         let outerDot = CGRect(x: route.target.x - 5, y: route.target.y - 5, width: 10, height: 10)
         let innerDot = CGRect(x: route.target.x - 3, y: route.target.y - 3, width: 6, height: 6)
         context.fill(Path(ellipseIn: outerDot), with: .color(Color.ink.opacity(0.82)))
-        context.fill(Path(ellipseIn: innerDot), with: .color(Color.sun))
+        context.fill(Path(ellipseIn: innerDot), with: .color(isMastered ? Color.mint : Color.sun))
     }
 
     private func fittedImageFrame(in container: CGSize) -> CGRect {
@@ -304,6 +325,7 @@ struct AnnotatedPhotoCard: View {
     let objects: [LearningObject]
     var revealsAnnotations = true
     var isEditable = false
+    var masteredObjectIDs: Set<String> = []
     var editingObjectID: Binding<String?> = .constant(nil)
     var showsShadow = true
     var usesOriginalAspectRatio = false
@@ -320,6 +342,7 @@ struct AnnotatedPhotoCard: View {
                     objects: objects,
                     revealsAnnotations: revealsAnnotations,
                     isEditable: isEditable,
+                    masteredObjectIDs: masteredObjectIDs,
                     onSelect: onSelect,
                     onUpdate: onUpdate,
                     editingObjectID: editingObjectID
