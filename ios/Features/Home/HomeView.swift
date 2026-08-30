@@ -469,9 +469,6 @@ private struct MyWordsDashboard: View {
                 wordControls
                     .padding(.top, 12)
 
-                wordListHeader
-                    .padding(.top, 8)
-
                 if filteredWords.isEmpty {
                     wordEmptyState
                 } else {
@@ -551,28 +548,6 @@ private struct MyWordsDashboard: View {
             ScrapbookWordStateTabs(selection: $selectedState, counts: wordCounts)
             ScrapbookSearchField(text: $searchText)
         }
-    }
-
-    private var wordListHeader: some View {
-        HStack(spacing: 8) {
-            Capsule()
-                .fill(selectedState == .learning ? Color.sun : Color.mint)
-                .frame(width: 24, height: 6)
-
-            Text(selectedState == .learning ? "正在熟悉" : "成长印记")
-                .font(.system(.caption, design: .rounded, weight: .black))
-                .tracking(0.8)
-                .foregroundStyle(Color.ink.opacity(0.62))
-
-            Spacer(minLength: 0)
-
-            Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                 ? "\(sourceWords.count) 个单词"
-                 : "找到 \(filteredWords.count) 个")
-                .font(.system(.caption2, design: .monospaced, weight: .bold))
-                .foregroundStyle(Color.ink.opacity(0.42))
-        }
-        .padding(.horizontal, 4)
     }
 
     private var wordEmptyState: some View {
