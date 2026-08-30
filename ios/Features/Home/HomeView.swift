@@ -10,6 +10,7 @@ struct HomeView: View {
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
     @EnvironmentObject private var membership: MembershipStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
 
     @State private var selectedTab: HomeTab = .home
@@ -21,6 +22,7 @@ struct HomeView: View {
     @State private var historyMessage: String?
     @State private var confirmMissionSwitch = false
     @State private var paywallPresented = false
+    @State private var wordsSearchFocused = false
 
     private var mode: LearningMode {
         LearningMode(rawValue: modeRawValue) ?? .selfExplore
@@ -43,16 +45,22 @@ struct HomeView: View {
                             onOpenAlbum: { discoveryAlbumPresented = true }
                         )
                     case .words:
-                        MyWordsDashboard()
+                        MyWordsDashboard { focused in
+                            wordsSearchFocused = focused
+                        }
                     }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
             .overlay(alignment: .bottom) {
-                ScrapbookTabBar(selectedTab: $selectedTab) {
-                    requestCamera()
+                if !(selectedTab == .words && wordsSearchFocused) {
+                    ScrapbookTabBar(selectedTab: $selectedTab) {
+                        requestCamera()
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: wordsSearchFocused)
             .navigationDestination(isPresented: $discoveryAlbumPresented) {
                 DiscoveryAlbumView(onOpen: openHistory)
             }
@@ -455,16 +463,24 @@ private struct HomeDashboard: View {
 }
 
 private struct MyWordsDashboard: View {
+    let onSearchFocusChange: (Bool) -> Void
+
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var wordLearningStore: WordLearningStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedState: WordLearningState = .learning
     @State private var searchText = ""
     @State private var selectedWord: WordEntry?
+    @State private var searchFocused = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(alignment: .leading, spacing: 12) {
                 pageHeader
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissSearch()
+                    }
 
                 wordControls
                     .padding(.top, 12)
@@ -477,7 +493,10 @@ private struct MyWordsDashboard: View {
                             entry: entry,
                             state: selectedState,
                             image: wordImage(for: entry),
-                            onOpen: { selectedWord = entry }
+                            onOpen: {
+                                dismissSearch()
+                                selectedWord = entry
+                            }
                         )
                     }
                 }
@@ -488,6 +507,14 @@ private struct MyWordsDashboard: View {
         }
         .background { NotebookBackground() }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(wordStateSwipeGesture)
+        .onChange(of: selectedState) { _, _ in
+            dismissSearch()
+        }
+        .onDisappear {
+            dismissSearch()
+        }
         .sheet(item: $selectedWord) { entry in
             WordDetailSheet(object: entry.object)
                 .presentationDetents([.medium, .large])
@@ -546,8 +573,30 @@ private struct MyWordsDashboard: View {
     private var wordControls: some View {
         VStack(spacing: 12) {
             ScrapbookWordStateTabs(selection: $selectedState, counts: wordCounts)
-            ScrapbookSearchField(text: $searchText)
+            ScrapbookSearchField(text: $searchText, isFocused: $searchFocused) { focused in
+                onSearchFocusChange(focused)
+            }
         }
+    }
+
+    private var wordStateSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                guard !searchFocused else { return }
+
+                let horizontal = value.translation.width
+                let vertical = abs(value.translation.height)
+                guard abs(horizontal) >= 72,
+                      abs(horizontal) > vertical * 1.35 else { return }
+
+                let nextState: WordLearningState = horizontal < 0 ? .mastered : .learning
+                guard nextState != selectedState else { return }
+
+                UISelectionFeedbackGenerator().selectionChanged()
+                withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.84)) {
+                    selectedState = nextState
+                }
+            }
     }
 
     private var wordEmptyState: some View {
@@ -574,6 +623,7 @@ private struct MyWordsDashboard: View {
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
+                    dismissSearch()
                 } label: {
                     Label("清除搜索", systemImage: "xmark")
                         .font(.system(.caption, design: .rounded, weight: .black))
@@ -603,6 +653,12 @@ private struct MyWordsDashboard: View {
 
     private func wordImage(for entry: WordEntry) -> UIImage? {
         WordImageCropper.image(for: entry, historyStore: historyStore)
+    }
+
+    private func dismissSearch() {
+        guard searchFocused else { return }
+        searchFocused = false
+        onSearchFocusChange(false)
     }
 
 }
@@ -886,11 +942,14 @@ private struct DiscoveryCardCompact: View {
                     .font(.system(.subheadline, design: .serif, weight: .bold))
                     .foregroundStyle(Color.ink)
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(record.result.objects.count) WORDS")
                     .font(.system(.caption2, design: .rounded, weight: .black))
                     .tracking(1)
                     .foregroundStyle(Color.coral)
             }
+            .frame(width: 150, alignment: .leading)
             .padding(10)
             .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 20))
             .shadow(color: Color.ink.opacity(0.11), radius: 0, x: 2, y: 3)

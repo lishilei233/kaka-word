@@ -5,12 +5,15 @@ struct ScrapbookWordStateTabs: View {
     @Binding var selection: WordLearningState
     let counts: [WordLearningState: Int]
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var selectionHighlight
+
     var body: some View {
         HStack(spacing: 6) {
             ForEach(WordLearningState.allCases) { state in
                 Button {
                     guard selection != state else { return }
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.82)) {
                         selection = state
                     }
                 } label: {
@@ -33,10 +36,16 @@ struct ScrapbookWordStateTabs: View {
                     }
                     .foregroundStyle(isSelected(state) ? Color.ink : Color.ink.opacity(0.48))
                     .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(
-                        isSelected(state) ? accent(for: state).opacity(0.82) : Color.clear,
-                        in: Capsule()
-                    )
+                    .background {
+                        if isSelected(state) {
+                            Capsule()
+                                .fill(accent(for: state).opacity(0.82))
+                                .matchedGeometryEffect(
+                                    id: "word-state-selection",
+                                    in: selectionHighlight
+                                )
+                        }
+                    }
                     .overlay {
                         Capsule()
                             .stroke(
@@ -81,7 +90,22 @@ struct ScrapbookWordStateTabs: View {
 /// Paper-like search field shared by vocabulary screens.
 struct ScrapbookSearchField: View {
     @Binding var text: String
-    var placeholder = "搜索英文或中文"
+    @Binding private var externallyFocused: Bool
+    let placeholder: String
+    let onFocusChange: (Bool) -> Void
+    @FocusState private var fieldFocused: Bool
+
+    init(
+        text: Binding<String>,
+        placeholder: String = "搜索英文或中文",
+        isFocused: Binding<Bool> = .constant(false),
+        onFocusChange: @escaping (Bool) -> Void = { _ in }
+    ) {
+        _text = text
+        _externallyFocused = isFocused
+        self.placeholder = placeholder
+        self.onFocusChange = onFocusChange
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -95,6 +119,10 @@ struct ScrapbookSearchField: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                .focused($fieldFocused)
+                .onSubmit {
+                    fieldFocused = false
+                }
 
             if !text.isEmpty {
                 Button {
@@ -119,5 +147,23 @@ struct ScrapbookSearchField: View {
         }
         .shadow(color: Color.ink.opacity(0.06), radius: 0, x: 2, y: 2)
         .accessibilityElement(children: .contain)
+        .onChange(of: fieldFocused) { _, focused in
+            if externallyFocused != focused {
+                externallyFocused = focused
+            }
+            onFocusChange(focused)
+        }
+        .onChange(of: externallyFocused) { _, focused in
+            if fieldFocused != focused {
+                fieldFocused = focused
+            }
+        }
+        .onDisappear {
+            if fieldFocused || externallyFocused {
+                fieldFocused = false
+                externallyFocused = false
+                onFocusChange(false)
+            }
+        }
     }
 }

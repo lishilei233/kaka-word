@@ -424,30 +424,12 @@ struct PhotoWordCardDetailView: View {
                 }
 
                 if let caption = result.caption, !caption.isEmpty {
-                    VStack(spacing: 10) {
-                        Button {
-                            speech.speak(caption, rate: speechRate)
-                        } label: {
-                            Text(caption)
-                                .font(.system(size: 16, weight: .bold, design: .serif))
-                                .foregroundStyle(Color.ink.opacity(0.82))
-                                .multilineTextAlignment(.center)
-                                .lineLimit(3)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!speechEnabled)
-                        .accessibilityLabel("朗读图片描述")
-                        .accessibilityHint(speechEnabled ? "点击播放英文句子" : "请先在设置中开启英文发音")
-                        if let captionChinese = result.captionChinese, !captionChinese.isEmpty {
-                            Text(captionChinese)
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundStyle(Color.ink.opacity(0.56))
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                        }
-                    }
-
+                    PhotoCaptionCard(
+                        caption: caption,
+                        captionChinese: result.captionChinese,
+                        speechEnabled: speechEnabled,
+                        onSpeak: { speech.speak(caption, rate: speechRate) }
+                    )
                 }
 
                 // 暂时隐藏分享、反馈入口，后续恢复时取消下面两段注释。
@@ -673,6 +655,83 @@ struct PhotoWordCardDetailView: View {
     }
 }
 
+private struct PhotoCaptionCard: View {
+    let caption: String
+    let captionChinese: String?
+    let speechEnabled: Bool
+    let onSpeak: () -> Void
+
+    private var visibleChineseCaption: String? {
+        guard let captionChinese else { return nil }
+        let trimmed = captionChinese.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var body: some View {
+        Button(action: onSpeak) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Label("PHOTO NOTE", systemImage: "quote.opening")
+                        .font(.system(.caption2, design: .monospaced, weight: .black))
+                        .tracking(1.6)
+                        .foregroundStyle(Color.coral)
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: speechEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.ink.opacity(speechEnabled ? 0.72 : 0.34))
+                        .frame(width: 32, height: 32)
+                        .background(Color.sky.opacity(0.38), in: Circle())
+                }
+
+                Text(caption)
+                    .font(.system(.body, design: .serif, weight: .bold))
+                    .foregroundStyle(Color.ink.opacity(0.86))
+                    .multilineTextAlignment(.leading)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let visibleChineseCaption {
+                    Text(visibleChineseCaption)
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .foregroundStyle(Color.ink.opacity(0.56))
+                        .multilineTextAlignment(.leading)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(17)
+            .background(Color.paperLight.opacity(0.9), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(alignment: .top) {
+                WashiTape(color: .sky, showsShadow: false)
+                    .scaleEffect(0.62)
+                    .offset(y: -11)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.ink.opacity(0.08), lineWidth: 1)
+            }
+            .shadow(color: Color.ink.opacity(0.1), radius: 0, x: 2, y: 3)
+        }
+        .buttonStyle(.plain)
+        .disabled(!speechEnabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityHint(speechEnabled ? "点击播放英文句子" : "请先在设置中开启英文发音")
+        .padding(.top, 8)
+    }
+
+    private var accessibilityDescription: String {
+        if let visibleChineseCaption {
+            return "图片描述，\(caption)，\(visibleChineseCaption)"
+        }
+        return "图片描述，\(caption)"
+    }
+}
+
 private struct ManualVocabularySheet: View {
     let onAdd: (LearningObject) -> String?
 
@@ -680,7 +739,6 @@ private struct ManualVocabularySheet: View {
     @State private var term = ""
     @State private var isResolving = false
     @State private var errorMessage: String?
-    @FocusState private var termIsFocused: Bool
 
     var body: some View {
         PictureWordSheet {
@@ -694,19 +752,14 @@ private struct ManualVocabularySheet: View {
                     Text("输入中文或英文物体名称")
                         .font(.system(.caption, design: .rounded, weight: .bold))
                         .foregroundStyle(Color.ink.opacity(0.62))
-                    TextField("例如：窗户 / window", text: $term)
-                        .focused($termIsFocused)
-                        .submitLabel(.done)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .padding(16)
-                        .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.ink.opacity(0.1), lineWidth: 1)
-                        }
-                        .onSubmit(resolveVocabulary)
+                    PictureWordTextField(
+                        "例如：窗户 / window",
+                        text: $term,
+                        autoFocus: true,
+                        isLoading: isResolving,
+                        onSubmit: resolveVocabulary
+                    )
+                    .disabled(isResolving)
                 }
 
                 if let errorMessage {
@@ -725,10 +778,6 @@ private struct ManualVocabularySheet: View {
 
                 Spacer(minLength: 0)
             }
-        }
-        .task {
-            try? await Task.sleep(for: .milliseconds(180))
-            termIsFocused = true
         }
     }
 

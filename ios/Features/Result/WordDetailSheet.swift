@@ -19,7 +19,6 @@ struct WordDetailSheet: View {
     @State private var errorMessage: String?
     @State private var showDeleteConfirmation = false
     @State private var showPaywall = false
-    @FocusState private var termIsFocused: Bool
 
     init(
         object: LearningObject,
@@ -81,7 +80,7 @@ struct WordDetailSheet: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !isEditing {
-                VStack(spacing: 12) {
+                HStack(spacing: 12) {
                     PictureWordButton(
                         learningState == .learning ? "我会了" : "放回学习中",
                         systemImage: learningState == .learning ? "checkmark.circle.fill" : "arrow.uturn.backward.circle",
@@ -90,13 +89,14 @@ struct WordDetailSheet: View {
                         action: toggleLearningState
                     )
                     .disabled(isResolving)
+                    .frame(maxWidth: .infinity)
 
                     if onDelete != nil {
                         PictureWordButton(
-                            "删除单词",
                             systemImage: "trash",
+                            accessibilityLabel: "删除单词",
                             style: .destructive,
-                            size: .compact,
+                            size: .large,
                             isLoading: isResolving,
                             action: { showDeleteConfirmation = true }
                         )
@@ -119,16 +119,6 @@ struct WordDetailSheet: View {
             PaywallView(onPurchaseCompleted: startEditing)
                 .environmentObject(membership)
         }
-        .task(id: isEditing) {
-            guard isEditing else { return }
-            do {
-                try await Task.sleep(for: .milliseconds(260))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, isEditing else { return }
-            termIsFocused = true
-        }
         .onChange(of: object) { _, updatedObject in
             displayedObject = updatedObject
             if !isEditing { editingTerm = updatedObject.english }
@@ -139,51 +129,23 @@ struct WordDetailSheet: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             if isEditing {
-                TextField("中文或英文单词", text: $editingTerm)
-                    .focused($termIsFocused)
-                    .submitLabel(.done)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.system(size: 24, weight: .black, design: .rounded))
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 52)
-                    .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 15, style: .continuous)
-                            .stroke(Color.ink.opacity(0.1), lineWidth: 1)
-                    }
-                    .onSubmit(resolveVocabulary)
+                PictureWordTextField(
+                    "中文或英文单词",
+                    text: $editingTerm,
+                    autoFocus: true,
+                    isLoading: isResolving,
+                    onSubmit: resolveVocabulary
+                )
+                .disabled(isResolving)
 
-                HStack(spacing: 8) {
-                    Button(action: cancelEditing) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(Color.ink.opacity(0.7))
-                            .frame(width: 34, height: 34)
-                            .background(Color.ink.opacity(0.08), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isResolving)
-                    .accessibilityLabel("取消修改")
-
-                    Button(action: resolveVocabulary) {
-                        Group {
-                            if isResolving {
-                                ProgressView()
-                                    .tint(Color.ink)
-                            } else {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 13, weight: .black))
-                            }
-                        }
-                        .foregroundStyle(Color.ink)
-                        .frame(width: 34, height: 34)
-                        .background(Color.sun, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isResolving || submittedTerm.isEmpty || submittedTerm.count > 60)
-                    .accessibilityLabel("保存修改")
-                }
+                PictureWordButton(
+                    systemImage: "xmark",
+                    accessibilityLabel: "取消修改",
+                    style: .secondary,
+                    size: .large,
+                    action: cancelEditing
+                )
+                .disabled(isResolving)
             } else {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 9) {
@@ -207,14 +169,12 @@ struct WordDetailSheet: View {
                 Spacer()
 
                 if onUpdate != nil {
-                    Button(action: startEditing) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(Color.ink)
-                            .frame(width: 52, height: 52)
-                            .background(speechEnabled ? Color.sun : Color.ink.opacity(0.12), in: Circle())
-                    }
-                    .accessibilityLabel("修改 \(displayedObject.english)")
+                    PictureWordButton(
+                        systemImage: "pencil",
+                        accessibilityLabel: "修改 \(displayedObject.english)",
+                        size: .large,
+                        action: startEditing
+                    )
                 }
             }
         }
@@ -248,7 +208,6 @@ struct WordDetailSheet: View {
 
     private func cancelEditing() {
         guard !isResolving else { return }
-        termIsFocused = false
         editingTerm = displayedObject.english
         errorMessage = nil
         isEditing = false
@@ -267,7 +226,6 @@ struct WordDetailSheet: View {
                     errorMessage = persistenceError
                 } else {
                     displayedObject = updated
-                    termIsFocused = false
                     isEditing = false
                     onEditingChanged?(false)
                 }

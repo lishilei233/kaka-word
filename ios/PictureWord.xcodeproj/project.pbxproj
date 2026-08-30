@@ -42,6 +42,7 @@
 		111111111111111111111121 /* WordLearningStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222229 /* WordLearningStore.swift */; };
 		111111111111111111111122 /* WordLearningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222A /* WordLearningViews.swift */; };
 		111111111111111111111123 /* WordFilterControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222B /* WordFilterControls.swift */; };
+		111111111111111111111124 /* PictureWordTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222C /* PictureWordTextField.swift */; };
 		D00000000000000000000001 /* WordLearningStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* WordLearningStoreTests.swift */; };
 		D00000000000000000000003 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D00000000000000000000004 /* XCTest.framework */; };
 		A931C8C030407ED6002F4806 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A931C8BF30407ED6002F4806 /* StoreKit.framework */; };
@@ -86,6 +87,7 @@
 		222222222222222222222229 /* WordLearningStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordLearningStore.swift; sourceTree = "<group>"; };
 		22222222222222222222222A /* WordLearningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordLearningViews.swift; sourceTree = "<group>"; };
 		22222222222222222222222B /* WordFilterControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordFilterControls.swift; sourceTree = "<group>"; };
+		22222222222222222222222C /* PictureWordTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordTextField.swift; sourceTree = "<group>"; };
 		D00000000000000000000002 /* WordLearningStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordLearningStoreTests.swift; sourceTree = "<group>"; };
 		D00000000000000000000004 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 		D00000000000000000000005 /* PictureWordTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PictureWordTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -173,6 +175,7 @@
 				22222222222222222222221B /* AppSettings.swift */,
 				222222222222222222222223 /* PageHeader.swift */,
 				222222222222222222222224 /* PictureWordButton.swift */,
+				22222222222222222222222C /* PictureWordTextField.swift */,
 				222222222222222222222225 /* PictureWordSheet.swift */,
 			);
 			path = App;
@@ -448,6 +451,7 @@
 				111111111111111111111121 /* WordLearningStore.swift in Sources */,
 				111111111111111111111122 /* WordLearningViews.swift in Sources */,
 				111111111111111111111123 /* WordFilterControls.swift in Sources */,
+				111111111111111111111124 /* PictureWordTextField.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
