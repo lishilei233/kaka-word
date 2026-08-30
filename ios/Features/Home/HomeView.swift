@@ -462,80 +462,68 @@ private struct MyWordsDashboard: View {
     @State private var selectedWord: WordEntry?
 
     var body: some View {
-        List {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("MY WORDS")
-                        .font(.system(.caption2, design: .rounded, weight: .black))
-                        .tracking(2)
-                        .foregroundStyle(Color.coral)
-                    Text("我的单词")
-                        .font(.scrapbookHero)
-                }
-                Spacer()
-                // NavigationLink {
-                //     SettingsView()
-                // } label: {
-                //     Image(systemName: "slider.horizontal.3")
-                //         .font(.system(size: 16, weight: .bold))
-                //         .foregroundStyle(Color.ink)
-                //         .frame(width: 44, height: 44)
-                //         .background(Color.sun, in: Circle())
-                // }
-            }
-            .listRowInsets(EdgeInsets(top: 18, leading: 20, bottom: 0, trailing: 20))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden, edges: .all)
+        ScrollView(showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                pageHeader
 
-            wordSummary
-                .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 10, trailing: 20))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden, edges: .all)
+                wordControls
+                    .padding(.top, 12)
 
-            wordControls
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 10, trailing: 20))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden, edges: .all)
+                wordListHeader
+                    .padding(.top, 8)
 
-            if filteredWords.isEmpty {
-                wordEmptyState
-                    .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 12, trailing: 20))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden, edges: .all)
-            } else {
-                ForEach(filteredWords) { entry in
-                    WordLearningRow(
-                        entry: entry,
-                        state: selectedState,
-                        image: wordImage(for: entry),
-                        onOpen: { selectedWord = entry }
-                    )
-                    .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden, edges: .all)
+                if filteredWords.isEmpty {
+                    wordEmptyState
+                } else {
+                    ForEach(filteredWords) { entry in
+                        WordLearningRow(
+                            entry: entry,
+                            state: selectedState,
+                            image: wordImage(for: entry),
+                            onOpen: { selectedWord = entry }
+                        )
+                    }
                 }
             }
-
-            Color.clear
-                .frame(height: 118)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden, edges: .all)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 124)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .scrollIndicators(.hidden)
-        .background {
-            NotebookBackground()
-        }
-        .listRowSeparator(.hidden, edges: .all)
-        .listRowBackground(Color.clear)
+        .background { NotebookBackground() }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .sheet(item: $selectedWord) { entry in
             WordDetailSheet(object: entry.object)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color.paper)
+        }
+    }
+
+    private var pageHeader: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("MY WORDS")
+                    .font(.system(.caption2, design: .rounded, weight: .black))
+                    .tracking(2)
+                    .foregroundStyle(Color.coral)
+                Text("我的单词")
+                    .font(.scrapbookHero)
+                Text("把生活里遇见的单词，一张张收进学习手账。")
+                    .font(.system(.subheadline, design: .rounded, weight: .medium))
+                    .foregroundStyle(Color.ink.opacity(0.54))
+                    .lineSpacing(3)
+            }
+
+            Spacer(minLength: 0)
+
+            StickerSeal(
+                symbol: selectedState == .learning ? "pencil.and.scribble" : "checkmark",
+                color: selectedState == .learning ? .sun : .mint,
+                showsShadow: false
+            )
+            .rotationEffect(.degrees(selectedState == .learning ? 4 : -4))
+            .padding(.top, 2)
+            .accessibilityHidden(true)
         }
     }
 
@@ -551,63 +539,91 @@ private struct MyWordsDashboard: View {
         }
     }
 
-    private var wordSummary: some View {
-        HStack(spacing: 12) {
-            WordCountNote(
-                count: wordLearningStore.learningEntries.count,
-                title: "学习中",
-                symbol: "pencil",
-                color: .sun
-            )
-            WordCountNote(
-                count: wordLearningStore.masteredEntries.count,
-                title: "已会",
-                symbol: "checkmark",
-                color: .mint
-            )
-        }
+    private var wordCounts: [WordLearningState: Int] {
+        [
+            .learning: wordLearningStore.learningEntries.count,
+            .mastered: wordLearningStore.masteredEntries.count
+        ]
     }
 
     private var wordControls: some View {
         VStack(spacing: 12) {
-            Picker("单词状态", selection: $selectedState) {
-                ForEach(WordLearningState.allCases) { state in
-                    Text(state.title).tag(state)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Color.ink.opacity(0.42))
-                TextField("搜索英文或中文", text: $searchText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
-            }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 46)
-            .background(Color.paperLight.opacity(0.9), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .stroke(Color.ink.opacity(0.08))
-            }
+            ScrapbookWordStateTabs(selection: $selectedState, counts: wordCounts)
+            ScrapbookSearchField(text: $searchText)
         }
     }
 
+    private var wordListHeader: some View {
+        HStack(spacing: 8) {
+            Capsule()
+                .fill(selectedState == .learning ? Color.sun : Color.mint)
+                .frame(width: 24, height: 6)
+
+            Text(selectedState == .learning ? "正在熟悉" : "成长印记")
+                .font(.system(.caption, design: .rounded, weight: .black))
+                .tracking(0.8)
+                .foregroundStyle(Color.ink.opacity(0.62))
+
+            Spacer(minLength: 0)
+
+            Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                 ? "\(sourceWords.count) 个单词"
+                 : "找到 \(filteredWords.count) 个")
+                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                .foregroundStyle(Color.ink.opacity(0.42))
+        }
+        .padding(.horizontal, 4)
+    }
+
     private var wordEmptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: selectedState == .learning ? "sparkles" : "checkmark.seal")
-                .font(.system(size: 28, weight: .bold))
+        VStack(spacing: 12) {
+            StickerSeal(
+                symbol: searchText.isEmpty
+                    ? (selectedState == .learning ? "sparkles" : "checkmark")
+                    : "magnifyingglass",
+                color: selectedState == .learning ? .sun : .mint,
+                showsShadow: false
+            )
+
             Text(searchText.isEmpty
-                 ? (selectedState == .learning ? "拍照后，新单词会自动来到这里。" : "学会的单词会在这里留下成长印记。")
+                 ? (selectedState == .learning ? "等待新的发现" : "还没有成长印记")
                  : "没有找到匹配的单词")
+                .font(.scrapbookTitle)
+
+            Text(searchText.isEmpty
+                 ? (selectedState == .learning ? "拍照后，新单词会自动来到这里。" : "把学会的单词标记为“已会”，它会留在这里。")
+                 : "换一个英文或中文关键词试试看。")
                 .font(.system(.subheadline, design: .rounded, weight: .semibold))
                 .multilineTextAlignment(.center)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Label("清除搜索", systemImage: "xmark")
+                        .font(.system(.caption, design: .rounded, weight: .black))
+                        .foregroundStyle(Color.ink)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 40)
+                        .background(Color.sun.opacity(0.82), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .foregroundStyle(Color.ink.opacity(0.5))
-        .frame(maxWidth: .infinity, minHeight: 116)
-        .background(Color.paperLight.opacity(0.58), in: RoundedRectangle(cornerRadius: 22))
+        .foregroundStyle(Color.ink.opacity(0.58))
+        .padding(24)
+        .frame(maxWidth: .infinity, minHeight: 210)
+        .background(Color.paperLight.opacity(0.76), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(alignment: .top) {
+            WashiTape(color: selectedState == .learning ? .sun : .mint, showsShadow: false)
+                .scaleEffect(0.72)
+                .offset(y: -9)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(Color.ink.opacity(0.07), lineWidth: 1)
+        }
+        .shadow(color: Color.ink.opacity(0.08), radius: 0, x: 2, y: 3)
     }
 
     private func wordImage(for entry: WordEntry) -> UIImage? {
@@ -636,7 +652,7 @@ private struct DiscoveryAlbumView: View {
                     ForEach(historyStore.records) { record in
                         DiscoveryCardRow(
                             record: record,
-                            thumbnail: historyStore.thumbnail(for: record),
+                            image: historyStore.image(for: record),
                             onOpen: { onOpen(record) }
                         )
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -646,7 +662,7 @@ private struct DiscoveryAlbumView: View {
                                 Label("删除发现卡", systemImage: "trash")
                             }
                         }
-                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden, edges: .all)
                     }
@@ -728,6 +744,7 @@ private struct DiscoveryAlbumView: View {
 private struct ScrapbookTabBar: View {
     @Binding var selectedTab: HomeTab
     let onCamera: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var cameraTapLocked = false
 
     var body: some View {
@@ -738,21 +755,21 @@ private struct ScrapbookTabBar: View {
                 .onTapGesture {}
 
             Color.clear
-                .frame(height: 64)
+                .frame(height: 66)
                 .pictureWordGlass(
-                    tint: Color.paperLight.opacity(0.18),
-                    in: RoundedRectangle(cornerRadius: 32, style: .continuous)
+                    tint: Color.paperLight.opacity(0.3),
+                    in: RoundedRectangle(cornerRadius: 33, style: .continuous)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 33, style: .continuous))
                 .onTapGesture {}
 
             HStack(spacing: 0) {
-                tabButton(.home, title: "首页", icon: "house.fill")
-                Spacer(minLength: 82)
-                tabButton(.words, title: "单词", icon: "book.closed.fill")
+                tabButton(.home, title: "Home", icon: "house.fill")
+                Spacer(minLength: 78)
+                tabButton(.words, title: "Learn", icon: "book.closed.fill")
             }
-            .padding(.horizontal, 18)
-            .frame(height: 64)
+            .padding(.horizontal, 9)
+            .frame(height: 66)
 
             Button(action: openCamera) {
                 ZStack {
@@ -784,28 +801,45 @@ private struct ScrapbookTabBar: View {
             .accessibilityLabel("拍照识别")
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 18)
-        .padding(.bottom, 8)
-        .frame(height: 88)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+        .frame(height: 92)
         .dynamicTypeSize(.large)
     }
 
     private func tabButton(_ tab: HomeTab, title: String, icon: String) -> some View {
         Button {
             guard selectedTab != tab else { return }
-            selectedTab = tab
+            withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82)) {
+                selectedTab = tab
+            }
         } label: {
             VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 17, weight: .bold))
+                Image(systemName: selectedTab == tab ? icon : inactiveIcon(for: tab))
+                    .font(.system(size: 17, weight: .black))
                 Text(title)
-                    .font(.system(.caption2, design: .rounded, weight: .bold))
+                    .font(.system(.caption2, design: .rounded, weight: .black))
             }
             .foregroundStyle(selectedTab == tab ? Color.ink : Color.ink.opacity(0.38))
-            .frame(width: 96, height: 54)
-            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(selectedTab == tab ? selectedTint(for: tab).opacity(0.76) : Color.clear, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(selectedTab == tab ? Color.ink.opacity(0.07) : Color.clear, lineWidth: 1)
+            }
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+        .accessibilityLabel(title)
+    }
+
+    private func selectedTint(for tab: HomeTab) -> Color {
+        tab == .home ? .sky : .sun
+    }
+
+    private func inactiveIcon(for tab: HomeTab) -> String {
+        tab == .home ? "house" : "book.closed"
     }
 
     private func openCamera() {

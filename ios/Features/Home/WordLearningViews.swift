@@ -1,39 +1,6 @@
 import SwiftUI
 import UIKit
 
-struct WordCountNote: View {
-    let count: Int
-    let title: String
-    let symbol: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .black))
-                .frame(width: 36, height: 36)
-                .background(Color.paperLight.opacity(0.78), in: Circle())
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(count)")
-                    .font(.system(.title2, design: .serif, weight: .bold))
-                Text(title)
-                    .font(.system(.caption2, design: .rounded, weight: .black))
-                    .tracking(0.8)
-            }
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(Color.ink)
-        .padding(14)
-        .frame(maxWidth: .infinity)
-        .background(color.opacity(0.72), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(alignment: .top) {
-            WashiTape(color: color, showsShadow: false)
-                .scaleEffect(0.55)
-                .offset(y: -10)
-        }
-    }
-}
-
 struct WordLearningRow: View {
     let entry: WordEntry
     let state: WordLearningState
@@ -42,7 +9,7 @@ struct WordLearningRow: View {
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: 13) {
+            HStack(spacing: 14) {
                 Group {
                     if let image {
                         Image(uiImage: image)
@@ -55,41 +22,80 @@ struct WordLearningRow: View {
                         }
                     }
                 }
-                .frame(width: 68, height: 68)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .frame(width: 78, height: 78)
+                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 17, style: .continuous)
+                        .stroke(Color.ink.opacity(0.08), lineWidth: 1)
+                }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(entry.object.english)
-                            .font(.system(.headline, design: .serif, weight: .bold))
-                        if state == .mastered {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Color.mint)
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(entry.object.english)
+                        .font(.system(.title3, design: .serif, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
                     Text("\(entry.object.chinese) · \(entry.object.ipa)")
                         .font(.system(.subheadline, design: .rounded, weight: .semibold))
                         .foregroundStyle(Color.ink.opacity(0.58))
                         .lineLimit(1)
-                    Text("遇见 \(entry.encounterCount) 次 · \(entry.lastSeenAt.formatted(.relative(presentation: .named)))")
+
+                    HStack(spacing: 5) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 9, weight: .black))
+                        Text("遇见 \(entry.encounterCount) 次")
+                        Text("·")
+                        Text(entry.lastSeenAt.formatted(.relative(presentation: .named)))
+                            .lineLimit(1)
+                    }
                         .font(.system(.caption2, design: .rounded, weight: .bold))
-                        .foregroundStyle(Color.coral)
+                        .foregroundStyle(accentColor)
                 }
+
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color.ink.opacity(0.28))
+
+                VStack(spacing: 12) {
+                    Image(systemName: state == .learning ? "pencil" : "checkmark")
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundStyle(Color.ink)
+                        .frame(width: 30, height: 30)
+                        .background(accentColor.opacity(0.82), in: Circle())
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundStyle(Color.ink.opacity(0.28))
+                }
             }
             .foregroundStyle(Color.ink)
-            .padding(10)
-            .background(Color.paperLight.opacity(0.9), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(12)
+            .background(Color.paperLight.opacity(0.94), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .stroke(Color.ink.opacity(0.07))
             }
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(accentColor.opacity(0.9))
+                    .frame(width: 4, height: 44)
+                    .offset(x: -2)
+                    .accessibilityHidden(true)
+            }
+            .overlay(alignment: .topTrailing) {
+                WashiTape(color: accentColor, showsShadow: false)
+                    .scaleEffect(0.42)
+                    .offset(x: -24, y: -9)
+                    .accessibilityHidden(true)
+            }
+            .shadow(color: Color.ink.opacity(0.09), radius: 0, x: 2, y: 3)
         }
         .buttonStyle(.plain)
+        .rotationEffect(.degrees(entry.id.hashValue.isMultiple(of: 2) ? -0.22 : 0.22))
         .accessibilityLabel("\(entry.object.english)，\(entry.object.chinese)，\(state.title)")
+        .accessibilityHint("打开单词详情")
+    }
+
+    private var accentColor: Color {
+        state == .learning ? .sun : .mint
     }
 }
 
