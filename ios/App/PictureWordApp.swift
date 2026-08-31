@@ -36,7 +36,7 @@ struct PictureWordApp: App {
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
-                Task { await membershipStore.refreshCurrentEntitlements() }
+                Task { await membershipStore.refreshAfterForegroundActivation() }
             }
             // Picture Word uses a paper-first visual system; keep system UI in light appearance.
             .preferredColorScheme(.light)

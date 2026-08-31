@@ -4,9 +4,19 @@ import Foundation
 struct AppEnvironment {
     let apiBaseURL: URL
 
-    static let current = AppEnvironment(
-        // 真机无法通过 localhost 访问 Mac；提交 TestFlight 前应替换为生产 HTTPS 地址。
-//        apiBaseURL: URL(string: "https://api.kakaword.com")!
-        apiBaseURL: URL(string: "http://192.168.0.108:8787")!
-    )
+    static let current: AppEnvironment = {
+        let configured = Bundle.main.object(forInfoDictionaryKey: "PictureWordAPIBaseURL") as? String
+        guard let value = configured?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              let url = URL(string: value),
+              url.host != nil else {
+            fatalError("PictureWordAPIBaseURL is missing or invalid")
+        }
+#if !DEBUG
+        guard url.scheme == "https" else {
+            fatalError("Release builds require an HTTPS PictureWordAPIBaseURL")
+        }
+#endif
+        return AppEnvironment(apiBaseURL: url)
+    }()
 }

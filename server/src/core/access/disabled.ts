@@ -7,6 +7,7 @@ import {
   type BootstrapResult,
   type EntitlementSummary,
   type QuotaReservation,
+  type StoreSyncResult,
 } from "./types.js";
 
 export class DisabledAccessService implements AccessService {
@@ -27,8 +28,11 @@ export class DisabledAccessService implements AccessService {
     return disabledEntitlement();
   }
 
-  async syncSubscription(): Promise<EntitlementSummary> {
-    return disabledEntitlement();
+  async syncSubscription(): Promise<StoreSyncResult> {
+    return {
+      entitlement: disabledEntitlement(),
+      syncedTransactionState: "active",
+    };
   }
 
   async processStoreNotification(): Promise<void> {}

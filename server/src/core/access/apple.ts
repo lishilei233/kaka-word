@@ -3,6 +3,8 @@ import {
   Environment,
   InAppOwnershipType,
   SignedDataVerifier,
+  VerificationException,
+  VerificationStatus,
   type JWSRenewalInfoDecodedPayload,
   type JWSTransactionDecodedPayload,
 } from "@apple/app-store-server-library";
@@ -13,6 +15,7 @@ import type {
   StoreSignedDataVerifying,
   SubscriptionTransaction,
 } from "./types.js";
+import { StoreSyncUnavailableError, StoreTransactionInvalidError } from "./types.js";
 
 export async function createAppleSignedDataVerifier(config: AccessConfig): Promise<AppleSignedDataVerifier> {
   const roots = await Promise.all(config.appleRootCertificatePaths.map((path) => readFile(path)));
@@ -42,39 +45,47 @@ export class AppleSignedDataVerifier implements StoreSignedDataVerifying {
   }
 
   async verifyTransaction(signedTransaction: string, signedRenewalInfo?: string): Promise<SubscriptionTransaction> {
-    const { transaction, verifier } = await this.verifyInEitherEnvironment(
-      (candidate) => candidate.verifyAndDecodeTransaction(signedTransaction),
-    );
-    const renewal = signedRenewalInfo
-      ? await verifier.verifyAndDecodeRenewalInfo(signedRenewalInfo)
-      : undefined;
-    return this.normalizeTransaction(transaction, renewal);
+    try {
+      const { transaction, verifier } = await this.verifyInEitherEnvironment(
+        (candidate) => candidate.verifyAndDecodeTransaction(signedTransaction),
+      );
+      const renewal = signedRenewalInfo
+        ? await verifier.verifyAndDecodeRenewalInfo(signedRenewalInfo)
+        : undefined;
+      return this.normalizeTransaction(transaction, renewal);
+    } catch (error) {
+      throw normalizeStoreVerificationError(error);
+    }
   }
 
   async verifyNotification(signedPayload: string): Promise<StoreNotification> {
-    const { transaction: notification, verifier } = await this.verifyInEitherEnvironment(
-      (candidate) => candidate.verifyAndDecodeNotification(signedPayload),
-    );
-    const data = notification.data;
-    let normalizedTransaction: SubscriptionTransaction | null = null;
-    if (data?.signedTransactionInfo) {
-      const decodedTransaction = await verifier.verifyAndDecodeTransaction(data.signedTransactionInfo);
-      const decodedRenewal = data.signedRenewalInfo
-        ? await verifier.verifyAndDecodeRenewalInfo(data.signedRenewalInfo)
-        : undefined;
-      normalizedTransaction = this.normalizeTransaction(decodedTransaction, decodedRenewal);
+    try {
+      const { transaction: notification, verifier } = await this.verifyInEitherEnvironment(
+        (candidate) => candidate.verifyAndDecodeNotification(signedPayload),
+      );
+      const data = notification.data;
+      let normalizedTransaction: SubscriptionTransaction | null = null;
+      if (data?.signedTransactionInfo) {
+        const decodedTransaction = await verifier.verifyAndDecodeTransaction(data.signedTransactionInfo);
+        const decodedRenewal = data.signedRenewalInfo
+          ? await verifier.verifyAndDecodeRenewalInfo(data.signedRenewalInfo)
+          : undefined;
+        normalizedTransaction = this.normalizeTransaction(decodedTransaction, decodedRenewal);
+      }
+      const environment = normalizeEnvironment(data?.environment ?? normalizedTransaction?.environment);
+      const notificationUUID = notification.notificationUUID?.trim();
+      if (!notificationUUID || !environment) throw new Error("Apple notification is missing identifiers");
+      return {
+        environment,
+        notificationUUID,
+        notificationType: notification.notificationType?.toString() ?? "UNKNOWN",
+        subtype: notification.subtype?.toString() ?? null,
+        status: typeof data?.status === "number" ? data.status : null,
+        transaction: normalizedTransaction,
+      };
+    } catch (error) {
+      throw normalizeStoreVerificationError(error);
     }
-    const environment = normalizeEnvironment(data?.environment ?? normalizedTransaction?.environment);
-    const notificationUUID = notification.notificationUUID?.trim();
-    if (!notificationUUID || !environment) throw new Error("Apple notification is missing identifiers");
-    return {
-      environment,
-      notificationUUID,
-      notificationType: notification.notificationType?.toString() ?? "UNKNOWN",
-      subtype: notification.subtype?.toString() ?? null,
-      status: typeof data?.status === "number" ? data.status : null,
-      transaction: normalizedTransaction,
-    };
   }
 
   private normalizeTransaction(
@@ -125,6 +136,26 @@ export class AppleSignedDataVerifier implements StoreSignedDataVerifying {
       }
     }
   }
+}
+
+function normalizeStoreVerificationError(error: unknown): StoreSyncUnavailableError | StoreTransactionInvalidError {
+  if (error instanceof StoreSyncUnavailableError || error instanceof StoreTransactionInvalidError) return error;
+  if (containsRetryableVerificationFailure(error)) {
+    return new StoreSyncUnavailableError(undefined, { cause: error });
+  }
+  return new StoreTransactionInvalidError(undefined, { cause: error instanceof Error ? error : undefined });
+}
+
+function containsRetryableVerificationFailure(error: unknown): boolean {
+  if (error instanceof VerificationException) {
+    return error.status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE;
+  }
+  if (error instanceof AggregateError) {
+    return Array.from(error.errors).some(containsRetryableVerificationFailure);
+  }
+  return error instanceof Error && error.cause != null
+    ? containsRetryableVerificationFailure(error.cause)
+    : false;
 }
 
 function normalizeEnvironment(value: unknown): AccessEnvironment | null {

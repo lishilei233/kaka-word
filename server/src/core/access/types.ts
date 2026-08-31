@@ -1,4 +1,5 @@
 export type SubscriptionState = "none" | "active" | "grace" | "expired" | "revoked";
+export type SyncedTransactionState = Exclude<SubscriptionState, "none">;
 export type AccessEnvironment = "Sandbox" | "Production" | "Xcode" | "LocalTesting";
 
 export type EntitlementSummary = {
@@ -33,6 +34,11 @@ export type BootstrapResult = {
   entitlement: EntitlementSummary;
 };
 
+export type StoreSyncResult = {
+  entitlement: EntitlementSummary;
+  syncedTransactionState: SyncedTransactionState;
+};
+
 export type AggregateMetricInput = {
   eventName: string;
   productId?: string | null;
@@ -61,6 +67,20 @@ export type StoreNotification = {
   transaction: SubscriptionTransaction | null;
 };
 
+export class StoreTransactionInvalidError extends Error {
+  constructor(message = "Apple transaction is invalid", options?: ErrorOptions) {
+    super(message, options);
+    this.name = "StoreTransactionInvalidError";
+  }
+}
+
+export class StoreSyncUnavailableError extends Error {
+  constructor(message = "Apple transaction verification is temporarily unavailable", options?: ErrorOptions) {
+    super(message, options);
+    this.name = "StoreSyncUnavailableError";
+  }
+}
+
 export type QuotaReservation =
   | { allowed: true; reservationId: string; entitlement: EntitlementSummary }
   | { allowed: false; entitlement: EntitlementSummary }
@@ -84,8 +104,9 @@ export interface AccessService {
     principal: AccessPrincipal,
     signedTransaction: string,
     signedRenewalInfo?: string,
-  ): Promise<EntitlementSummary>;
-  processStoreNotification(signedPayload: string): Promise<void>;
+    requestId?: string,
+  ): Promise<StoreSyncResult>;
+  processStoreNotification(signedPayload: string, requestId?: string): Promise<void>;
   recordMetric(input: AggregateMetricInput): Promise<void>;
   reserveAnalyze(principal: AccessPrincipal, operationId: string, deviceToken?: string): Promise<QuotaReservation>;
   commitAnalyze(reservationId: string, deviceToken?: string): Promise<EntitlementSummary>;

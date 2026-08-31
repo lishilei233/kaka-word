@@ -55,7 +55,7 @@ struct PaywallView: View {
             if membership.products.isEmpty {
                 await membership.prepare()
             } else {
-                await membership.refreshCurrentEntitlements()
+                await membership.refreshCurrentEntitlements(source: .purchase)
             }
         }
         .alert("会员", isPresented: Binding(
@@ -65,7 +65,7 @@ struct PaywallView: View {
                 // Avoid publishing synchronously from SwiftUI's alert transaction.
                 Task { @MainActor in
                     await Task.yield()
-                    membership.message = nil
+                    membership.dismissMessage()
                 }
             }
         )) {
@@ -154,7 +154,7 @@ struct PaywallView: View {
         ) {
             guard let product = selectedProduct else { return }
             Task {
-                if await membership.purchase(product) {
+                if await membership.purchase(product) == .active {
                     onPurchaseCompleted?()
                     dismiss()
                 }
@@ -201,7 +201,7 @@ struct PaywallView: View {
             if !membership.isMember {
                 Button {
                     Task {
-                        if await membership.restorePurchases() {
+                        if await membership.restorePurchases() == .active {
                             onPurchaseCompleted?()
                             dismiss()
                         }

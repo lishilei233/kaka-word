@@ -22,6 +22,7 @@ struct HomeView: View {
     @State private var historyMessage: String?
     @State private var confirmMissionSwitch = false
     @State private var paywallPresented = false
+    @State private var membershipUnavailableMessage: String?
     @State private var wordsSearchFocused = false
 
     private var mode: LearningMode {
@@ -107,6 +108,17 @@ struct HomeView: View {
         } message: {
             Text(historyMessage ?? "")
         }
+        .alert("暂时无法读取会员状态", isPresented: Binding(
+            get: { membershipUnavailableMessage != nil },
+            set: { if !$0 { membershipUnavailableMessage = nil } }
+        )) {
+            Button("重试") {
+                Task { await membership.refreshCurrentEntitlements() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(membershipUnavailableMessage ?? "请检查网络后重试。")
+        }
     }
 
     private func switchMission() {
@@ -126,6 +138,8 @@ struct HomeView: View {
     private func requestCamera() {
         if membership.canStartRecognition {
             cameraPresented = true
+        } else if !membership.hasFreshEntitlement {
+            membershipUnavailableMessage = membership.entitlementFailureMessage ?? "会员状态仍在读取，请稍后重试。"
         } else {
             paywallPresented = true
         }

@@ -3,6 +3,7 @@ import { Pool, type PoolClient } from "pg";
 import type { AccessConfig } from "../../config.js";
 import type { Logger } from "../../utils/logger.js";
 import { monthlyQuotaPeriod } from "./quota-period.js";
+import { StoreSyncUnavailableError } from "./types.js";
 import type {
   AccessEnvironment,
   AggregateMetricInput,
@@ -15,6 +16,7 @@ import type {
   QuotaReservation,
   StoreNotification,
   StoreSignedDataVerifying,
+  StoreSyncResult,
   SubscriptionState,
   SubscriptionTransaction,
 } from "./types.js";
@@ -145,20 +147,28 @@ export class PostgresAccessService implements AccessService {
     principal: AccessPrincipal,
     signedTransaction: string,
     signedRenewalInfo?: string,
-  ): Promise<EntitlementSummary> {
+    requestId?: string,
+  ): Promise<StoreSyncResult> {
     const transaction = await this.verifier.verifyTransaction(signedTransaction, signedRenewalInfo);
+    const syncedTransactionState = notificationState(undefined, transaction);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await this.upsertSubscriptionTransaction(client, transaction);
       await this.upsertSubscription(client, transaction);
-      await client.query(
-        `
-          UPDATE picture_word_access_tokens
-          SET subscription_environment = $1, original_transaction_id = $2
-          WHERE token_hash = $3 AND installation_id = $4::uuid
-        `,
-        [transaction.environment, transaction.originalTransactionId, principal.accessTokenHash, principal.installationId],
-      );
+      // An audited inactive transaction must not detach this installation from a
+      // different active subscription chain. Active/grace transactions are the
+      // only proof that can become the token's current membership binding.
+      if (syncedTransactionState === "active" || syncedTransactionState === "grace") {
+        await client.query(
+          `
+            UPDATE picture_word_access_tokens
+            SET subscription_environment = $1, original_transaction_id = $2
+            WHERE token_hash = $3 AND installation_id = $4::uuid
+          `,
+          [transaction.environment, transaction.originalTransactionId, principal.accessTokenHash, principal.installationId],
+        );
+      }
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -166,14 +176,27 @@ export class PostgresAccessService implements AccessService {
     } finally {
       client.release();
     }
-    return await this.status({
+    const entitlement = await this.status({
       ...principal,
       subscriptionEnvironment: transaction.environment,
       originalTransactionId: transaction.originalTransactionId,
     });
+    if ((syncedTransactionState === "active" || syncedTransactionState === "grace")
+        && !isActiveMemberEntitlement(entitlement)) {
+      throw new StoreSyncUnavailableError("Persisted active transaction did not produce an active entitlement");
+    }
+    this.logger.info("store.sync_completed", {
+      requestId,
+      environment: transaction.environment,
+      productId: transaction.productId,
+      syncedTransactionState,
+      originalTransactionHash: this.hash(`store-original:${transaction.originalTransactionId}`).slice(0, 16),
+      transactionHash: this.hash(`store-transaction:${transaction.transactionId}`).slice(0, 16),
+    });
+    return { entitlement, syncedTransactionState };
   }
 
-  async processStoreNotification(signedPayload: string): Promise<void> {
+  async processStoreNotification(signedPayload: string, requestId?: string): Promise<void> {
     const notification = await this.verifier.verifyNotification(signedPayload);
     const client = await this.pool.connect();
     try {
@@ -193,9 +216,19 @@ export class PostgresAccessService implements AccessService {
         return;
       }
       if (notification.transaction) {
+        await this.upsertSubscriptionTransaction(client, notification.transaction);
         await this.upsertSubscription(client, notification.transaction, notification);
       }
       await client.query("COMMIT");
+      if (notification.transaction) {
+        this.logger.info("store.notification_processed", {
+          requestId,
+          environment: notification.transaction.environment,
+          productId: notification.transaction.productId,
+          originalTransactionHash: this.hash(`store-original:${notification.transaction.originalTransactionId}`).slice(0, 16),
+          transactionHash: this.hash(`store-transaction:${notification.transaction.transactionId}`).slice(0, 16),
+        });
+      }
       await this.recordMetric({
         eventName: "subscription_event",
         productId: notification.transaction?.productId,
@@ -582,6 +615,38 @@ export class PostgresAccessService implements AccessService {
     );
   }
 
+  private async upsertSubscriptionTransaction(
+    client: PoolClient,
+    transaction: SubscriptionTransaction,
+  ): Promise<void> {
+    await client.query(
+      `
+        INSERT INTO picture_word_subscription_transactions
+          (environment, transaction_id, original_transaction_id, product_id,
+           original_purchase_at, purchase_at, expires_at, revoked_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (environment, transaction_id) DO UPDATE
+        SET original_transaction_id = EXCLUDED.original_transaction_id,
+            product_id = EXCLUDED.product_id,
+            original_purchase_at = EXCLUDED.original_purchase_at,
+            purchase_at = EXCLUDED.purchase_at,
+            expires_at = EXCLUDED.expires_at,
+            revoked_at = COALESCE(EXCLUDED.revoked_at, picture_word_subscription_transactions.revoked_at),
+            last_seen_at = clock_timestamp()
+      `,
+      [
+        transaction.environment,
+        transaction.transactionId,
+        transaction.originalTransactionId,
+        transaction.productId,
+        transaction.originalPurchaseDate,
+        transaction.purchaseDate,
+        transaction.expiresDate,
+        transaction.revokedAt,
+      ],
+    );
+  }
+
   private async cleanupExpiredReservations(client?: PoolClient): Promise<void> {
     const executor = client ?? this.pool;
     await executor.query(
@@ -739,6 +804,11 @@ function effectiveState(subscription: SubscriptionRow): Exclude<SubscriptionStat
   if (subscription.expires_at.getTime() > now) return "active";
   if (subscription.grace_expires_at && subscription.grace_expires_at.getTime() > now) return "grace";
   return "expired";
+}
+
+function isActiveMemberEntitlement(entitlement: EntitlementSummary): boolean {
+  return entitlement.tier === "member"
+    && (entitlement.subscriptionState === "active" || entitlement.subscriptionState === "grace");
 }
 
 function notificationState(

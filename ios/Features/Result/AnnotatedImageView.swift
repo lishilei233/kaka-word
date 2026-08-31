@@ -23,17 +23,21 @@ struct AnnotatedImageView: View {
 
     @State private var draftLabelCenters: [String: ObjectAnchor] = [:]
     @State private var draftTargets: [String: ObjectAnchor] = [:]
+    @State private var dragBaselineLabelCenters: [String: ObjectAnchor] = [:]
 
     var body: some View {
         GeometryReader { proxy in
             let imageFrame = fittedImageFrame(in: proxy.size)
             let renderedObjects = objects.map { object in
                 object.withOverrides(
-                    labelCenter: draftLabelCenters[object.id],
+                    labelCenter: draftLabelCenters[object.id] ?? dragBaselineLabelCenters[object.id],
                     target: draftTargets[object.id]
                 )
             }
-            let layout = AnnotationLayoutEngine(objects: renderedObjects).layout(in: imageFrame)
+            let layout = AnnotationLayoutEngine(
+                objects: renderedObjects,
+                movableObjectID: activeEditingObjectID
+            ).layout(in: imageFrame)
 
             ZStack(alignment: .topLeading) {
                 Color.clear
@@ -61,7 +65,12 @@ struct AnnotatedImageView: View {
                 .animation(.easeOut(duration: 0.28), value: revealsAnnotations)
 
                 ForEach(Array(layout.placements.enumerated()), id: \.element.id) { index, placement in
-                    annotationLabel(for: placement, index: index, in: imageFrame)
+                    annotationLabel(
+                        for: placement,
+                        index: index,
+                        allPlacements: layout.placements,
+                        in: imageFrame
+                    )
                 }
 
                 if isEditable, let activeEditingObjectID {
@@ -79,7 +88,11 @@ struct AnnotatedImageView: View {
                                     }
                             }
                             .position(placement.target)
-                            .gesture(targetDragGesture(for: placement, in: imageFrame))
+                            .gesture(targetDragGesture(
+                                for: placement,
+                                allPlacements: layout.placements,
+                                in: imageFrame
+                            ))
                             .accessibilityLabel("调整 \(placement.object.english) 的引导线终点")
                             .accessibilityHint("拖动圆点改变引导线指向")
                     }
@@ -97,6 +110,7 @@ struct AnnotatedImageView: View {
     private func annotationLabel(
         for placement: AnnotationPlacement,
         index: Int,
+        allPlacements: [AnnotationPlacement],
         in imageFrame: CGRect
     ) -> some View {
         TimelineView(.animation(
@@ -146,7 +160,11 @@ struct AnnotatedImageView: View {
                     for: placement,
                     wasEditing: activeEditingObjectID != nil
                 ))
-                .simultaneousGesture(labelPositionDragGesture(for: placement, in: imageFrame))
+                .simultaneousGesture(labelPositionDragGesture(
+                    for: placement,
+                    allPlacements: allPlacements,
+                    in: imageFrame
+                ))
                 .transition(.scale(scale: 0.72).combined(with: .opacity))
                 .scaleEffect(revealsAnnotations ? 1 : 0.72)
                 .opacity(revealsAnnotations ? 1 : 0)
@@ -183,6 +201,7 @@ struct AnnotatedImageView: View {
 
     private func labelPositionDragGesture(
         for placement: AnnotationPlacement,
+        allPlacements: [AnnotationPlacement],
         in imageFrame: CGRect
     ) -> some Gesture {
         DragGesture(
@@ -191,46 +210,81 @@ struct AnnotatedImageView: View {
         )
             .onChanged { drag in
                 guard isEditable, activeEditingObjectID == placement.id else { return }
-                draftLabelCenters[placement.id] = normalizedLabelCenter(
+                let baseline = dragBaselineLabelCenters.isEmpty
+                    ? normalizedCenters(for: allPlacements, in: imageFrame)
+                    : dragBaselineLabelCenters
+                if dragBaselineLabelCenters.isEmpty {
+                    dragBaselineLabelCenters = baseline
+                }
+                let proposed = normalizedLabelCenter(
                     drag.location,
                     labelWidth: placement.labelWidth,
                     labelHeight: placement.labelHeight,
+                    in: imageFrame
+                )
+                draftLabelCenters[placement.id] = resolvedLabelCenter(
+                    proposed,
+                    for: placement.id,
+                    fallback: placement.labelCenter,
+                    baselineCenters: baseline,
                     in: imageFrame
                 )
             }
             .onEnded { drag in
                 guard isEditable, activeEditingObjectID == placement.id else { return }
-                let center = normalizedLabelCenter(
+                let baseline = dragBaselineLabelCenters.isEmpty
+                    ? normalizedCenters(for: allPlacements, in: imageFrame)
+                    : dragBaselineLabelCenters
+                let proposed = normalizedLabelCenter(
                     drag.location,
                     labelWidth: placement.labelWidth,
                     labelHeight: placement.labelHeight,
                     in: imageFrame
                 )
+                let center = resolvedLabelCenter(
+                    proposed,
+                    for: placement.id,
+                    fallback: placement.labelCenter,
+                    baselineCenters: baseline,
+                    in: imageFrame
+                )
                 onUpdate?(placement.object.withOverrides(labelCenter: center))
                 draftLabelCenters[placement.id] = nil
+                dragBaselineLabelCenters.removeAll()
             }
     }
 
     private func targetDragGesture(
         for placement: AnnotationPlacement,
+        allPlacements: [AnnotationPlacement],
         in imageFrame: CGRect
     ) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .named("annotation-canvas"))
             .onChanged { drag in
+                if dragBaselineLabelCenters.isEmpty {
+                    dragBaselineLabelCenters = normalizedCenters(
+                        for: allPlacements,
+                        in: imageFrame
+                    )
+                }
                 draftTargets[placement.id] = normalizedPoint(drag.location, in: imageFrame)
             }
             .onEnded { drag in
                 let target = normalizedPoint(drag.location, in: imageFrame)
                 onUpdate?(placement.object.withOverrides(target: target))
                 draftTargets[placement.id] = nil
+                dragBaselineLabelCenters.removeAll()
             }
     }
 
     private func beginEditing(_ objectID: String) {
+        dragBaselineLabelCenters.removeAll()
         editingObjectID.wrappedValue = objectID
     }
 
     private func finishEditing() {
+        draftLabelCenters.removeAll()
+        dragBaselineLabelCenters.removeAll()
         editingObjectID.wrappedValue = nil
     }
 
@@ -252,6 +306,36 @@ struct AnnotatedImageView: View {
             y: min(max(point.y, frame.minY + Interaction.labelInset + labelHeight / 2), frame.maxY - Interaction.labelInset - labelHeight / 2)
         )
         return normalizedPoint(clamped, in: frame)
+    }
+
+    private func resolvedLabelCenter(
+        _ proposed: ObjectAnchor,
+        for objectID: String,
+        fallback: CGPoint,
+        baselineCenters: [String: ObjectAnchor],
+        in imageFrame: CGRect
+    ) -> ObjectAnchor {
+        let proposedObjects = objects.map { object in
+            let draftCenter = object.id == objectID ? proposed : baselineCenters[object.id]
+            return object.withOverrides(
+                labelCenter: draftCenter,
+                target: draftTargets[object.id]
+            )
+        }
+        let resolved = AnnotationLayoutEngine(
+            objects: proposedObjects,
+            movableObjectID: objectID
+        ).placements(in: imageFrame).first { $0.id == objectID }?.labelCenter ?? fallback
+        return normalizedPoint(resolved, in: imageFrame)
+    }
+
+    private func normalizedCenters(
+        for placements: [AnnotationPlacement],
+        in imageFrame: CGRect
+    ) -> [String: ObjectAnchor] {
+        Dictionary(uniqueKeysWithValues: placements.map { placement in
+            (placement.id, normalizedPoint(placement.labelCenter, in: imageFrame))
+        })
     }
 
     private func drawLeaderLine(

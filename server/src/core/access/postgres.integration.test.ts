@@ -31,7 +31,10 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
 
   const isolatedURL = new URL(testDatabaseURL);
   isolatedURL.searchParams.set("options", `-c search_path=${schema}`);
-  const migration = await readFile(new URL("../../../migrations/002_subscriptions.sql", import.meta.url), "utf8");
+  const migration = [
+    await readFile(new URL("../../../migrations/002_subscriptions.sql", import.meta.url), "utf8"),
+    await readFile(new URL("../../../migrations/003_subscription_transactions.sql", import.meta.url), "utf8"),
+  ].join("\n");
   const setupPool = new Pool({ connectionString: isolatedURL.toString() });
   await setupPool.query(migration);
   await setupPool.query(migration);
@@ -63,8 +66,10 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
   assert.equal(reinstall.entitlement.remaining, 0);
 
   const memberTransaction = verifier.transaction;
-  const firstMemberEntitlement = await service.syncSubscription(firstPrincipal, "signed-transaction");
+  const firstMemberEntitlement = (await service.syncSubscription(firstPrincipal, "signed-transaction")).entitlement;
   assert.equal(firstMemberEntitlement.tier, "member");
+  await service.syncSubscription(firstPrincipal, "signed-transaction-retry");
+  assert.equal((await setupPool.query("SELECT COUNT(*)::integer AS count FROM picture_word_subscription_transactions")).rows[0].count, 1);
   const firstMemberReservation = await service.reserveAnalyze(firstPrincipal, randomUUID());
   assert.equal(firstMemberReservation.allowed, true);
   if (!firstMemberReservation.allowed) throw new Error("expected member reservation");
@@ -74,9 +79,50 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
   const secondPrincipal = await service.authenticate(`Bearer ${secondBootstrap.accessToken}`);
   assert.ok(secondPrincipal);
   verifier.transaction = memberTransaction;
-  const secondMemberEntitlement = await service.syncSubscription(secondPrincipal, "same-original-transaction");
+  const secondMemberEntitlement = (await service.syncSubscription(secondPrincipal, "same-original-transaction")).entitlement;
   assert.equal(secondMemberEntitlement.used, 1);
   assert.equal(secondMemberEntitlement.remaining, 99);
+
+  verifier.transaction = {
+    ...memberTransaction,
+    transactionId: "200000000000002",
+    productId: "com.kakaword.app.membership.month",
+    purchaseDate: new Date(memberTransaction.purchaseDate.getTime() + 60_000),
+    expiresDate: new Date(Date.now() + 31 * 24 * 60 * 60 * 1_000),
+  };
+  const switchedEntitlement = (await service.syncSubscription(secondPrincipal, "newer-plan-transaction")).entitlement;
+  assert.equal(switchedEntitlement.productId, "com.kakaword.app.membership.month");
+  assert.equal((await setupPool.query("SELECT COUNT(*)::integer AS count FROM picture_word_subscription_transactions")).rows[0].count, 2);
+
+  verifier.transaction = memberTransaction;
+  const replayedOldEntitlement = (await service.syncSubscription(secondPrincipal, "older-plan-transaction")).entitlement;
+  assert.equal(replayedOldEntitlement.productId, "com.kakaword.app.membership.month");
+
+  verifier.transaction = {
+    ...memberTransaction,
+    originalTransactionId: "100000000000777",
+    transactionId: "200000000000777",
+    originalPurchaseDate: new Date(Date.now() - 2 * 60 * 60 * 1_000),
+    purchaseDate: new Date(Date.now() - 2 * 60 * 60 * 1_000),
+    expiresDate: new Date(Date.now() - 60 * 60 * 1_000),
+  };
+  const expiredResult = await service.syncSubscription(secondPrincipal, "expired-unfinished-transaction");
+  assert.equal(expiredResult.syncedTransactionState, "expired");
+  assert.equal(expiredResult.entitlement.tier, "free");
+  const principalAfterExpiredAudit = await service.authenticate(`Bearer ${secondBootstrap.accessToken}`);
+  assert.equal(principalAfterExpiredAudit?.originalTransactionId, memberTransaction.originalTransactionId);
+
+  const thirdBootstrap = await service.bootstrap({ installationId: randomUUID(), deviceToken: "device-c-token-value" });
+  const thirdPrincipal = await service.authenticate(`Bearer ${thirdBootstrap.accessToken}`);
+  assert.ok(thirdPrincipal);
+  verifier.transaction = {
+    ...memberTransaction,
+    originalTransactionId: "100000000000999",
+    transactionId: "200000000000999",
+  };
+  const isolatedEntitlement = (await service.syncSubscription(thirdPrincipal, "different-original-transaction")).entitlement;
+  assert.equal(isolatedEntitlement.used, 0);
+  assert.equal(isolatedEntitlement.remaining, 100);
 
   const concurrentMemberReservations = await Promise.all(
     Array.from({ length: 100 }, () => service.reserveAnalyze(secondPrincipal, randomUUID())),

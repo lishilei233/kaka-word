@@ -1,7 +1,11 @@
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../app.js";
-import type { AccessService } from "../core/access/index.js";
+import {
+  StoreSyncUnavailableError,
+  StoreTransactionInvalidError,
+  type AccessService,
+} from "../core/access/index.js";
 import type { Logger } from "../utils/logger.js";
 import { authenticateAccess, unauthorized } from "./access-auth.js";
 
@@ -27,18 +31,34 @@ export function registerStoreRoutes(
       return c.json({ error: "INVALID_TRANSACTION", message: "购买凭证无效" }, 400);
     }
     try {
-      const entitlement = await accessService.syncSubscription(
+      const result = await accessService.syncSubscription(
         principal,
         parsed.data.signedTransaction,
         parsed.data.signedRenewalInfo,
+        c.get("requestId"),
       );
-      return c.json({ entitlement });
+      if ((result.syncedTransactionState === "active" || result.syncedTransactionState === "grace")
+          && (result.entitlement.tier !== "member"
+            || (result.entitlement.subscriptionState !== "active"
+              && result.entitlement.subscriptionState !== "grace"))) {
+        throw new StoreSyncUnavailableError("Active transaction produced an inactive entitlement");
+      }
+      return c.json(result);
     } catch (error) {
-      logger.warn("store.sync_rejected", {
+      if (error instanceof StoreTransactionInvalidError) {
+        logger.warn("store.sync_rejected", {
+          requestId: c.get("requestId"),
+          message: error.message,
+        });
+        return c.json({ error: "TRANSACTION_VERIFICATION_FAILED", message: "无法验证这笔购买，请尝试恢复购买" }, 400);
+      }
+      logger.error("store.sync_unavailable", {
         requestId: c.get("requestId"),
+        errorType: error instanceof Error ? error.name : "UnknownError",
         message: error instanceof Error ? error.message : String(error),
       });
-      return c.json({ error: "TRANSACTION_VERIFICATION_FAILED", message: "无法验证这笔购买，请尝试恢复购买" }, 400);
+      c.header("Retry-After", error instanceof StoreSyncUnavailableError ? "2" : "3");
+      return c.json({ error: "STORE_SYNC_UNAVAILABLE", message: "购买已完成，但会员权益暂时无法同步，请稍后重试" }, 503);
     }
   });
 
@@ -46,7 +66,7 @@ export function registerStoreRoutes(
     const parsed = notificationSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "INVALID_NOTIFICATION" }, 400);
     try {
-      await accessService.processStoreNotification(parsed.data.signedPayload);
+      await accessService.processStoreNotification(parsed.data.signedPayload, c.get("requestId"));
       return c.json({ ok: true });
     } catch (error) {
       logger.error("store.notification_failed", {

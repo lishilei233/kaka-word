@@ -36,6 +36,9 @@ struct SettingsView: View {
         .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
         .background(InteractivePopGestureEnabler())
+        .task {
+            await membership.refreshForSettingsPresentation()
+        }
         .confirmationDialog("清空全部历史记录？", isPresented: $confirmClearHistory, titleVisibility: .visible) {
             Button("清空全部", role: .destructive) { historyStore.deleteAll() }
             Button("取消", role: .cancel) {}
@@ -53,7 +56,7 @@ struct SettingsView: View {
                 // Avoid publishing synchronously from SwiftUI's alert transaction.
                 Task { @MainActor in
                     await Task.yield()
-                    membership.message = nil
+                    membership.dismissMessage()
                 }
             }
         )) {
@@ -78,6 +81,7 @@ struct SettingsView: View {
                         Text(membershipQuotaText)
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundStyle(Color.ink.opacity(0.58))
+                        membershipRefreshStatus
                         if let reset = membership.entitlement?.resetDate {
                             Text("\(reset.formatted(date: .abbreviated, time: .omitted)) 重置")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -101,7 +105,7 @@ struct SettingsView: View {
                     ) {
                         paywallPresented = true
                     }
-                    .disabled(membership.isPurchasing || membership.isLoading || membership.isRefreshingEntitlements)
+                    .disabled(!membership.canPurchase)
                 }
 
                 if !membership.isMember {
@@ -308,13 +312,46 @@ struct SettingsView: View {
     }
 
     private var membershipPlanName: String {
+        guard membership.entitlement != nil else { return "会员状态" }
         guard membership.isMember else { return "免费版" }
         return membership.entitlement?.productId == MembershipStore.annualProductId ? "年会员" : "月会员"
     }
 
     private var membershipQuotaText: String {
-        guard let entitlement = membership.entitlement else { return "正在读取识别额度…" }
+        guard let entitlement = membership.entitlement else {
+            if membership.hasUnavailableEntitlement { return "会员服务暂时不可用" }
+            return "正在读取识别额度…"
+        }
         return "本期剩余 \(entitlement.remaining)/\(entitlement.limit) 次识别"
+    }
+
+    @ViewBuilder
+    private var membershipRefreshStatus: some View {
+        switch membership.entitlementLoadState {
+        case .idle:
+            EmptyView()
+        case .loading(let hasCachedValue):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(hasCachedValue ? "正在刷新会员状态…" : "正在读取会员状态…")
+            }
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color.ink.opacity(0.5))
+        case .loaded:
+            EmptyView()
+        case .failed(_, let hasCachedValue, _):
+            VStack(alignment: .leading, spacing: 6) {
+                Text(hasCachedValue ? "当前显示上次数据，暂时无法刷新。" : "无法读取会员状态，请检查网络后重试。")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.coral)
+                Button("重新读取") {
+                    Task { await membership.refreshCurrentEntitlements() }
+                }
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.ink)
+                .disabled(membership.isRefreshingEntitlements)
+            }
+        }
     }
 }
 

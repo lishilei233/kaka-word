@@ -469,7 +469,9 @@ class FakeAccessService implements AccessService {
   }
   async authenticate(): Promise<AccessPrincipal> { return this.principal; }
   async status(): Promise<EntitlementSummary> { return this.entitlement; }
-  async syncSubscription(): Promise<EntitlementSummary> { return this.entitlement; }
+  async syncSubscription(): Promise<import("../core/access/types.js").StoreSyncResult> {
+    return { entitlement: this.entitlement, syncedTransactionState: "active" };
+  }
   async processStoreNotification(): Promise<void> {}
   async recordMetric(): Promise<void> {}
   async reserveAnalyze(): Promise<QuotaReservation> {

@@ -12,7 +12,7 @@ npm run dev
 App 首次启动调用 `POST /v1/access/bootstrap`，提交随机安装 ID 与 Apple DeviceCheck token，取得匿名访问令牌和权益摘要。之后：
 
 - `GET /v1/access/status` 返回当前方案、订阅状态、已用/预占/剩余次数与重置时间。
-- `POST /v1/store/sync` 接收 StoreKit 2 签名交易和可选的签名续订信息；服务端验证成功后才允许客户端完成交易。
+- `POST /v1/store/sync` 接收 StoreKit 2 签名交易和可选的签名续订信息，成功时同时返回订阅链最终 `entitlement` 与本次交易的 `syncedTransactionState`（`active`、`grace`、`expired` 或 `revoked`）。客户端会完成已审计的有效、过期或撤销交易；仅在同步未成功时保留未完成交易继续重试。
 - `POST /v1/store/notifications` 接收 App Store Server Notifications V2，按 `notificationUUID` 幂等处理续订、到期、退款、撤销和账单宽限期。
 
 `POST /v1/analyze` 必须携带 `Authorization: Bearer ...`、唯一的 UUID v4 `X-Operation-ID`，免费用户还需携带最新 `X-DeviceCheck-Token`。服务端先创建 10 分钟预占；只有生成至少一个有效物体且成功写出 SSE `complete` 后才扣除 1 次。失败、空结果、取消、超时和过期预占都会释放。相同操作 ID 不会重复扣次；额度耗尽返回 `402 QUOTA_EXHAUSTED` 和最新 `entitlement`。
