@@ -162,6 +162,40 @@ final class MembershipStoreTests: XCTestCase {
         XCTAssertEqual(keys.sorted().map(\.transactionID), [9, 4, 2, 3])
     }
 
+    func testEntitlementSyncQueueCoalescesRequestsIntoNextBatch() {
+        var queue = EntitlementSyncQueueState()
+
+        let first = queue.enqueue()
+        XCTAssertEqual(queue.nextBatchRevision, first)
+
+        let second = queue.enqueue()
+        let third = queue.enqueue()
+        XCTAssertEqual(queue.nextBatchRevision, third)
+        XCTAssertFalse(queue.isSatisfied(second))
+
+        queue.complete(first)
+        XCTAssertEqual(queue.nextBatchRevision, third)
+        XCTAssertFalse(queue.isSatisfied(second))
+
+        queue.complete(third)
+        XCTAssertTrue(queue.isSatisfied(second))
+        XCTAssertTrue(queue.isSatisfied(third))
+        XCTAssertNil(queue.nextBatchRevision)
+    }
+
+    func testEntitlementSyncQueueCompletionCannotRegress() {
+        var queue = EntitlementSyncQueueState()
+        let first = queue.enqueue()
+        let second = queue.enqueue()
+
+        queue.complete(second)
+        queue.complete(first)
+
+        XCTAssertTrue(queue.isSatisfied(first))
+        XCTAssertTrue(queue.isSatisfied(second))
+        XCTAssertNil(queue.nextBatchRevision)
+    }
+
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MembershipMockURLProtocol.self]
