@@ -1,4 +1,5 @@
 import AVFoundation
+import Foundation
 import PhotosUI
 import SwiftUI
 
@@ -29,13 +30,11 @@ final class CameraViewController: UIViewController {
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var captureDevice: AVCaptureDevice?
     private var isSessionConfigured = false
-    private var cameraPosition: AVCaptureDevice.Position = .back
     private var previewCheckToken = UUID()
     private var hasReceivedFirstVideoFrame = false
     private let guideView = CameraGuideView()
     private let shutter = UIButton(type: .custom)
     private let flashButton = UIButton(type: .system)
-    private let cameraSwitchButton = UIButton(type: .system)
     private let libraryButton = UIButton(type: .system)
     private let cameraStatusView = UIStackView()
     private let cameraStatusIcon = UIImageView()
@@ -264,7 +263,7 @@ final class CameraViewController: UIViewController {
                 self.session.beginConfiguration()
                 self.session.sessionPreset = .photo
 
-                guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: self.cameraPosition),
+                guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
                       let input = try? AVCaptureDeviceInput(device: device),
                       self.session.canAddInput(input),
                       self.session.canAddOutput(self.output),
@@ -355,15 +354,7 @@ final class CameraViewController: UIViewController {
         flashButton.addAction(UIAction { [weak self] _ in self?.toggleFlash() }, for: .touchUpInside)
         let flashGlass = glassControl(containing: flashButton)
 
-        cameraSwitchButton.setImage(UIImage(systemName: "arrow.triangle.2.circlepath.camera", withConfiguration: UIImage.SymbolConfiguration(weight: .bold)), for: .normal)
-        cameraSwitchButton.tintColor = .white
-        cameraSwitchButton.accessibilityLabel = "切换前后摄像头"
-        cameraSwitchButton.addAction(UIAction { [weak self] _ in self?.switchCamera() }, for: .touchUpInside)
-        cameraSwitchButton.isEnabled = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) != nil
-        cameraSwitchButton.alpha = cameraSwitchButton.isEnabled ? 1 : 0.45
-        let cameraSwitchGlass = glassControl(containing: cameraSwitchButton)
-
-        let topBar = UIStackView(arrangedSubviews: [closeGlass, titleGlass, cameraSwitchGlass, flashGlass])
+        let topBar = UIStackView(arrangedSubviews: [closeGlass, titleGlass, flashGlass])
         topBar.axis = .horizontal
         topBar.alignment = .center
         topBar.spacing = 6
@@ -454,8 +445,6 @@ final class CameraViewController: UIViewController {
         NSLayoutConstraint.activate([
             closeGlass.widthAnchor.constraint(equalToConstant: 50),
             closeGlass.heightAnchor.constraint(equalToConstant: 50),
-            cameraSwitchGlass.widthAnchor.constraint(equalToConstant: 50),
-            cameraSwitchGlass.heightAnchor.constraint(equalToConstant: 50),
             flashGlass.widthAnchor.constraint(equalToConstant: 50),
             flashGlass.heightAnchor.constraint(equalToConstant: 50),
             topBar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 18),
@@ -507,58 +496,6 @@ final class CameraViewController: UIViewController {
             ? .white
             : UIColor(red: 0.96, green: 0.79, blue: 0.37, alpha: 1)
         flashButton.accessibilityLabel = flashMode == .off ? "闪光灯已关闭" : "闪光灯自动"
-    }
-
-    private func switchCamera() {
-        let nextPosition: AVCaptureDevice.Position = cameraPosition == .back ? .front : .back
-        showCameraStatus(message: "正在切换镜头…", symbol: "arrow.triangle.2.circlepath.camera")
-        hasReceivedFirstVideoFrame = false
-        sessionQueue.async { [weak self] in
-            guard let self,
-                  let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: nextPosition),
-                  let newInput = try? AVCaptureDeviceInput(device: device) else {
-                DispatchQueue.main.async { [weak self] in
-                    self?.showCameraStatus(
-                        message: "没有找到可用的前置或后置镜头。",
-                        symbol: "camera.slash.fill",
-                        action: .retry
-                    )
-                }
-                return
-            }
-
-            let oldInput = self.session.inputs.compactMap { $0 as? AVCaptureDeviceInput }.first
-            self.session.beginConfiguration()
-            if let oldInput {
-                self.session.removeInput(oldInput)
-            }
-
-            guard self.session.canAddInput(newInput) else {
-                if let oldInput, self.session.canAddInput(oldInput) {
-                    self.session.addInput(oldInput)
-                }
-                self.session.commitConfiguration()
-                DispatchQueue.main.async { [weak self] in
-                    self?.showCameraStatus(
-                        message: "镜头切换失败，请重试。",
-                        symbol: "exclamationmark.camera.fill",
-                        action: .retry
-                    )
-                }
-                return
-            }
-
-            self.session.addInput(newInput)
-            self.session.commitConfiguration()
-            self.captureDevice = device
-            self.cameraPosition = nextPosition
-            if !self.session.isRunning {
-                self.session.startRunning()
-            }
-            DispatchQueue.main.async { [weak self] in
-                self?.startPreviewReadinessCheck()
-            }
-        }
     }
 
     @objc private func focus(at recognizer: UITapGestureRecognizer) {
@@ -638,9 +575,6 @@ final class CameraViewController: UIViewController {
         shutter.alpha = 1
         flashButton.isEnabled = captureDevice?.hasFlash == true
         flashButton.alpha = flashButton.isEnabled ? 1 : 0.45
-        cameraSwitchButton.isEnabled = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) != nil
-            && AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil
-        cameraSwitchButton.alpha = cameraSwitchButton.isEnabled ? 1 : 0.45
     }
 
     private func startPreviewReadinessCheck() {
@@ -673,7 +607,7 @@ final class CameraViewController: UIViewController {
             }
         } else {
             showCameraStatus(
-                message: "相机已授权，但预览画面还没有准备好。\n请点击重试，或切换前后摄像头。",
+                message: "相机已授权，但预览画面还没有准备好。\n请点击重试。",
                 symbol: "exclamationmark.camera.fill",
                 action: .retry
             )
@@ -703,8 +637,6 @@ final class CameraViewController: UIViewController {
         shutter.alpha = 0.62
         flashButton.isEnabled = false
         flashButton.alpha = 0.45
-        cameraSwitchButton.isEnabled = false
-        cameraSwitchButton.alpha = 0.45
     }
 
     private func performCameraStatusAction() {

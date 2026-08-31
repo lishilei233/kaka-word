@@ -1,5 +1,44 @@
+import Foundation
 import StoreKit
 import SwiftUI
+
+struct SubscriptionDiscountCalculator {
+    /// Returns the whole-number percentage saved by paying annually instead of
+    /// paying the monthly price for twelve months. A nil result means the two
+    /// prices are not safe to compare or there is no real discount.
+    static func savingsPercent(
+        monthlyPrice: Decimal,
+        annualPrice: Decimal,
+        monthlyCurrencyCode: String?,
+        annualCurrencyCode: String?
+    ) -> Int? {
+        guard monthlyPrice > 0,
+              annualPrice > 0,
+              let monthlyCurrencyCode,
+              let annualCurrencyCode,
+              !monthlyCurrencyCode.isEmpty,
+              monthlyCurrencyCode == annualCurrencyCode else {
+            return nil
+        }
+
+        let twelveMonths = monthlyPrice * Decimal(12)
+        guard annualPrice < twelveMonths else { return nil }
+
+        let savings = (twelveMonths - annualPrice) / twelveMonths * Decimal(100)
+        let rounded = NSDecimalNumber(decimal: savings).rounding(
+            accordingToBehavior: NSDecimalNumberHandler(
+                roundingMode: .plain,
+                scale: 0,
+                raiseOnExactness: false,
+                raiseOnOverflow: true,
+                raiseOnUnderflow: true,
+                raiseOnDivideByZero: true
+            )
+        ).intValue
+        guard (1...99).contains(rounded) else { return nil }
+        return rounded
+    }
+}
 
 struct PaywallView: View {
     var onPurchaseCompleted: (() -> Void)?
@@ -135,7 +174,7 @@ struct PaywallView: View {
                     planCard(
                         annual,
                         title: "年会员",
-                        badge: "推荐 · 省 40%",
+                        badge: annualBadge(for: annual),
                         detail: annualMonthlyEquivalent(annual)
                     )
                 }
@@ -289,5 +328,18 @@ struct PaywallView: View {
     private func annualMonthlyEquivalent(_ product: Product) -> String {
         let monthly = product.price / Decimal(12)
         return "约 \(monthly.formatted(product.priceFormatStyle))/月，按年自动续订"
+    }
+
+    private func annualBadge(for annualProduct: Product) -> String {
+        guard let monthlyProduct = membership.monthlyProduct,
+              let savings = SubscriptionDiscountCalculator.savingsPercent(
+                  monthlyPrice: monthlyProduct.price,
+                  annualPrice: annualProduct.price,
+                  monthlyCurrencyCode: monthlyProduct.priceFormatStyle.currencyCode,
+                  annualCurrencyCode: annualProduct.priceFormatStyle.currencyCode
+              ) else {
+            return "推荐"
+        }
+        return "推荐 · 省 \(savings)%"
     }
 }

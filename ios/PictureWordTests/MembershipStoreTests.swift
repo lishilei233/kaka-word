@@ -196,6 +196,44 @@ final class MembershipStoreTests: XCTestCase {
         XCTAssertNil(queue.nextBatchRevision)
     }
 
+    func testSubscriptionDiscountUsesLocalPricesAndCurrency() {
+        XCTAssertEqual(
+            SubscriptionDiscountCalculator.savingsPercent(
+                monthlyPrice: 10,
+                annualPrice: 60,
+                monthlyCurrencyCode: "CNY",
+                annualCurrencyCode: "CNY"
+            ),
+            50
+        )
+    }
+
+    func testSubscriptionDiscountFallsBackWhenPricesAreNotComparable() {
+        XCTAssertNil(discount(monthly: 10, annual: 120, currency: "CNY"))
+        XCTAssertNil(discount(monthly: 10, annual: 60, currency: "USD", annualCurrency: "CNY"))
+        XCTAssertNil(discount(monthly: 0, annual: 60, currency: "CNY"))
+        XCTAssertNil(discount(monthly: 10, annual: 60, currency: nil))
+    }
+
+    func testSubscriptionDiscountRoundsAndSuppressesZeroPercent() {
+        XCTAssertEqual(discount(monthly: 10, annual: 99, currency: "USD"), 18)
+        XCTAssertNil(discount(monthly: 100, annual: 1199, currency: "USD"))
+    }
+
+    private func discount(
+        monthly: Decimal,
+        annual: Decimal,
+        currency: String?,
+        annualCurrency: String? = nil
+    ) -> Int? {
+        SubscriptionDiscountCalculator.savingsPercent(
+            monthlyPrice: monthly,
+            annualPrice: annual,
+            monthlyCurrencyCode: currency,
+            annualCurrencyCode: annualCurrency ?? currency
+        )
+    }
+
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MembershipMockURLProtocol.self]
