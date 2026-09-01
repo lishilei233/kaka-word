@@ -50,20 +50,14 @@ struct WordLearningRow: View {
                     }
                         .font(.system(.caption2, design: .rounded, weight: .bold))
                         .foregroundStyle(accentColor)
-                        .shadow(color: Color.ink.opacity(0.00), radius: 0, x: 0, y: 0)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer(minLength: 0)
-
-                VStack(spacing: 12) {
-                    if state == .mastered {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 11, weight: .black))
-                            .foregroundStyle(Color.ink)
-                            .frame(width: 30, height: 30)
-                            .background(accentColor.opacity(0.82), in: Circle())
-                    }
-                }
+                Image(systemName: state == .learning ? "pencil" : "checkmark.seal.fill")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundStyle(Color.ink)
+                    .frame(width: 30, height: 30)
+                    .background(accentColor.opacity(0.82), in: Circle())
             }
             .foregroundStyle(Color.ink)
             .padding(12)
@@ -76,20 +70,6 @@ struct WordLearningRow: View {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .stroke(Color.ink.opacity(0.07))
             }
-            // .overlay(alignment: .leading) {
-            //     Capsule()
-            //         .fill(accentColor.opacity(0.9))
-            //         .frame(width: 4, height: 44)
-            //         .offset(x: -2)
-            //         .accessibilityHidden(true)
-            // }
-            // .overlay(alignment: .topTrailing) {
-            //     WashiTape(color: accentColor, showsShadow: false)
-            //         .scaleEffect(0.42)
-            //         .offset(x: -24, y: -9)
-            //         .accessibilityHidden(true)
-            // }
-//            .shadow(color: Color.ink.opacity(0.09), radius: 0, x: 2, y: 3)
         }
         .buttonStyle(.plain)
         .rotationEffect(.degrees(entry.id.hashValue.isMultiple(of: 2) ? -0.22 : 0.22))
