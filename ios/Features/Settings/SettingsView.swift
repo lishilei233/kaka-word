@@ -92,11 +92,11 @@ struct SettingsView: View {
                 }
 
                 if membership.isMember {
-                    Button("管理订阅") {
-                        Task { await membership.showManageSubscriptions() }
-                    }
-                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
-                    .foregroundStyle(Color.ink)
+                    // Button("管理订阅") {
+                    //     Task { await membership.showManageSubscriptions() }
+                    // }
+                    // .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                    // .foregroundStyle(Color.ink)
                 } else {
                     PictureWordButton(
                         membership.isRestoring ? "正在恢复购买…" : "开通会员",

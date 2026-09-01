@@ -43,13 +43,23 @@
 		111111111111111111111122 /* WordLearningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222A /* WordLearningViews.swift */; };
 		111111111111111111111123 /* WordFilterControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222B /* WordFilterControls.swift */; };
 		111111111111111111111124 /* PictureWordTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222C /* PictureWordTextField.swift */; };
-		D00000000000000000000001 /* WordLearningStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* WordLearningStoreTests.swift */; };
-		D00000000000000000000010 /* MembershipStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* MembershipStoreTests.swift */; };
-		D00000000000000000000012 /* AnnotationLayoutEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */; };
-		D00000000000000000000003 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D00000000000000000000004 /* XCTest.framework */; };
 		A931C8C030407ED6002F4806 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A931C8BF30407ED6002F4806 /* StoreKit.framework */; };
 		A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96C244B303D79F8009BAAFD /* Assets.xcassets */; };
+		D00000000000000000000001 /* WordLearningStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* WordLearningStoreTests.swift */; };
+		D00000000000000000000003 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D00000000000000000000004 /* XCTest.framework */; };
+		D00000000000000000000010 /* MembershipStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* MembershipStoreTests.swift */; };
+		D00000000000000000000012 /* AnnotationLayoutEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D00000000000000000000006 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 999999999999999999999901 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 555555555555555555555501;
+			remoteInfo = PictureWord;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		222222222222222222222201 /* PictureWordApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordApp.swift; sourceTree = "<group>"; };
@@ -91,25 +101,15 @@
 		22222222222222222222222B /* WordFilterControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordFilterControls.swift; sourceTree = "<group>"; };
 		22222222222222222222222C /* PictureWordTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordTextField.swift; sourceTree = "<group>"; };
 		22222222222222222222222D /* Info-Debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-Debug.plist"; sourceTree = "<group>"; };
-		D00000000000000000000002 /* WordLearningStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordLearningStoreTests.swift; sourceTree = "<group>"; };
-		D00000000000000000000011 /* MembershipStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembershipStoreTests.swift; sourceTree = "<group>"; };
-		D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationLayoutEngineTests.swift; sourceTree = "<group>"; };
-		D00000000000000000000004 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
-		D00000000000000000000005 /* PictureWordTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PictureWordTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = KakawordSubscriptions.storekit; sourceTree = "<group>"; };
 		A931C8BF30407ED6002F4806 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/StoreKit.framework; sourceTree = DEVELOPER_DIR; };
 		A96C244B303D79F8009BAAFD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D00000000000000000000002 /* WordLearningStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordLearningStoreTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000004 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
+		D00000000000000000000005 /* PictureWordTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PictureWordTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D00000000000000000000011 /* MembershipStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembershipStoreTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationLayoutEngineTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXContainerItemProxy section */
-		D00000000000000000000006 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 999999999999999999999901 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 555555555555555555555501;
-			remoteInfo = PictureWord;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		333333333333333333333301 /* Frameworks */ = {
@@ -139,6 +139,7 @@
 				D00000000000000000000008 /* PictureWordTests */,
 				A931C8BE30407ED6002F4806 /* Frameworks */,
 				444444444444444444444403 /* Products */,
+				A9C3B4A23045DA8700B00870 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -162,16 +163,6 @@
 				D00000000000000000000005 /* PictureWordTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		D00000000000000000000008 /* PictureWordTests */ = {
-			isa = PBXGroup;
-			children = (
-				D00000000000000000000002 /* WordLearningStoreTests.swift */,
-				D00000000000000000000011 /* MembershipStoreTests.swift */,
-				D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */,
-			);
-			path = PictureWordTests;
 			sourceTree = "<group>";
 		};
 		444444444444444444444404 /* App */ = {
@@ -335,6 +326,24 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		A9C3B4A23045DA8700B00870 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000004 /* XCTest.framework */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+		D00000000000000000000008 /* PictureWordTests */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000002 /* WordLearningStoreTests.swift */,
+				D00000000000000000000011 /* MembershipStoreTests.swift */,
+				D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */,
+			);
+			path = PictureWordTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -491,17 +500,17 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
-				ENABLE_TESTABILITY = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Info-Debug.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词Test";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.0;
-				PICTURE_WORD_API_BASE_URL = "http://192.168.0.108:8787";
+				MARKETING_VERSION = 0.1.1;
+				PICTURE_WORD_API_BASE_URL = "https://api.kakaword.com";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -521,7 +530,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -529,7 +538,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.1;
 				PICTURE_WORD_API_BASE_URL = "https://api.kakaword.com";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
