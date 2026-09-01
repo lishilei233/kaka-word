@@ -50,43 +50,46 @@ struct WordLearningRow: View {
                     }
                         .font(.system(.caption2, design: .rounded, weight: .bold))
                         .foregroundStyle(accentColor)
+                        .shadow(color: Color.ink.opacity(0.00), radius: 0, x: 0, y: 0)
                 }
 
                 Spacer(minLength: 0)
 
                 VStack(spacing: 12) {
-                    Image(systemName: state == .learning ? "pencil" : "checkmark")
-                        .font(.system(size: 11, weight: .black))
-                        .foregroundStyle(Color.ink)
-                        .frame(width: 30, height: 30)
-                        .background(accentColor.opacity(0.82), in: Circle())
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .black))
-                        .foregroundStyle(Color.ink.opacity(0.28))
+                    if state == .mastered {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .black))
+                            .foregroundStyle(Color.ink)
+                            .frame(width: 30, height: 30)
+                            .background(accentColor.opacity(0.82), in: Circle())
+                    }
                 }
             }
             .foregroundStyle(Color.ink)
             .padding(12)
-            .background(Color.paperLight.opacity(0.94), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                       .fill(Color.paperLight.opacity(0.94))
+                       .shadow(color: Color.ink.opacity(0.09), radius: 0, x: 2, y: 3)
+            )
             .overlay {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .stroke(Color.ink.opacity(0.07))
             }
-            .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(accentColor.opacity(0.9))
-                    .frame(width: 4, height: 44)
-                    .offset(x: -2)
-                    .accessibilityHidden(true)
-            }
-            .overlay(alignment: .topTrailing) {
-                WashiTape(color: accentColor, showsShadow: false)
-                    .scaleEffect(0.42)
-                    .offset(x: -24, y: -9)
-                    .accessibilityHidden(true)
-            }
-            .shadow(color: Color.ink.opacity(0.09), radius: 0, x: 2, y: 3)
+            // .overlay(alignment: .leading) {
+            //     Capsule()
+            //         .fill(accentColor.opacity(0.9))
+            //         .frame(width: 4, height: 44)
+            //         .offset(x: -2)
+            //         .accessibilityHidden(true)
+            // }
+            // .overlay(alignment: .topTrailing) {
+            //     WashiTape(color: accentColor, showsShadow: false)
+            //         .scaleEffect(0.42)
+            //         .offset(x: -24, y: -9)
+            //         .accessibilityHidden(true)
+            // }
+//            .shadow(color: Color.ink.opacity(0.09), radius: 0, x: 2, y: 3)
         }
         .buttonStyle(.plain)
         .rotationEffect(.degrees(entry.id.hashValue.isMultiple(of: 2) ? -0.22 : 0.22))
