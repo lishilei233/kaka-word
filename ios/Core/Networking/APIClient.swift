@@ -313,7 +313,6 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
         if let error {
             finish(.failure(error))
         } else if let response = task.response {
-            onProgress(1)
             if let http = response as? HTTPURLResponse,
                (200..<300).contains(http.statusCode),
                http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true {

@@ -260,11 +260,13 @@ struct PhotoWordCardDetailView: View {
     @State private var wordDetailDetent: PresentationDetent = .medium
     @State private var editingObjectID: String?
     @State private var suppressPageDismissUntil = Date.distantPast
+    @State private var isRevealingCompletion = false
     @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @EnvironmentObject private var membership: MembershipStore
     @EnvironmentObject private var wordLearningStore: WordLearningStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { proxy in
@@ -334,8 +336,14 @@ struct PhotoWordCardDetailView: View {
         } message: {
             Text(editErrorMessage ?? "")
         }
-        .onChange(of: status) { _, newStatus in
-            if !newStatus.isComplete { finishAnnotationEditing() }
+        .onChange(of: status) { oldStatus, newStatus in
+            if !newStatus.isComplete {
+                finishAnnotationEditing()
+                isRevealingCompletion = false
+            }
+            if case .recognizing = oldStatus, newStatus.isComplete {
+                isRevealingCompletion = true
+            }
         }
         .onChange(of: result.objects.map(\.id)) { _, objectIDs in
             if let editingObjectID, !objectIDs.contains(editingObjectID) {
@@ -411,69 +419,18 @@ struct PhotoWordCardDetailView: View {
     private var footer: some View {
         switch status {
         case .complete:
-            VStack(spacing: 0) {
-                masterySummary
-
-                if let missionUpdate {
-                    Text(missionUpdate.completedNow
-                         ? "今天的寻宝完成啦 · 贴纸已收入"
-                         : "今日寻宝 \(missionUpdate.count)/\(missionUpdate.target)")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.sun.opacity(0.8))
-                        .padding(.bottom, 5)
-                }
-
-                if let caption = result.caption, !caption.isEmpty {
-                    PhotoCaptionCard(
-                        caption: caption,
-                        captionChinese: result.captionChinese,
-                        speechEnabled: speechEnabled,
-                        onSpeak: { speech.speak(caption, rate: speechRate) }
-                    )
-                }
-
-                // 暂时隐藏分享、反馈入口，后续恢复时取消下面两段注释。
-                // resultActionButton(
-                //     "分享",
-                //     systemImage: "square.and.arrow.up",
-                //     style: .primary,
-                //     action: onShare
-                // )
-                // resultActionButton(
-                //     "反馈",
-                //     systemImage: "envelope",
-                //     style: .secondary,
-                //     action: onFeedback
-                // )
-
-                HStack(spacing: 8) {
-                    if onResultChange != nil {
-                        PictureWordButton(
-                            "添加单词",
-                            systemImage: "plus",
-                            style: .secondary,
-                            size: .large
-                        ) {
-                            finishAnnotationEditing()
-                            if membership.isMember {
-                                showAddWord = true
-                            } else {
-                                showVocabularyPaywall = true
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
+            ZStack(alignment: .top) {
+                if isRevealingCompletion {
+                    CompletionRevealFooter {
+                        revealDetails()
                     }
-                    if let onRetry {
-                        resultIconActionButton(
-                            "重新识别",
-                            systemImage: "arrow.clockwise",
-                            action: onRetry
-                        )
-                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 16)
+                } else {
+                    completedFooter
+                        .transition(.opacity)
                 }
-                .padding(.top, 28)
             }
-            .padding(.horizontal, 20)
         case .failed(let message):
             RecognitionFailureFooter(
                 message: message,
@@ -483,9 +440,82 @@ struct PhotoWordCardDetailView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
         case .preparing, .uploading, .recognizing, .cancelled:
-            StreamingRecognitionFooter(status: status, objectCount: result.objects.count)
+            StreamingRecognitionFooter(status: status)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
+        }
+    }
+
+    private var completedFooter: some View {
+        VStack(spacing: 0) {
+            masterySummary
+
+            if let missionUpdate {
+                Text(missionUpdate.completedNow
+                     ? "今天的寻宝完成啦 · 贴纸已收入"
+                     : "今日寻宝 \(missionUpdate.count)/\(missionUpdate.target)")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.sun.opacity(0.8))
+                    .padding(.bottom, 5)
+            }
+
+            if let caption = result.caption, !caption.isEmpty {
+                PhotoCaptionCard(
+                    caption: caption,
+                    captionChinese: result.captionChinese,
+                    speechEnabled: speechEnabled,
+                    onSpeak: { speech.speak(caption, rate: speechRate) }
+                )
+            }
+
+            // 暂时隐藏分享、反馈入口，后续恢复时取消下面两段注释。
+            // resultActionButton(
+            //     "分享",
+            //     systemImage: "square.and.arrow.up",
+            //     style: .primary,
+            //     action: onShare
+            // )
+            // resultActionButton(
+            //     "反馈",
+            //     systemImage: "envelope",
+            //     style: .secondary,
+            //     action: onFeedback
+            // )
+
+            HStack(spacing: 8) {
+                if onResultChange != nil {
+                    PictureWordButton(
+                        "添加单词",
+                        systemImage: "plus",
+                        style: .secondary,
+                        size: .large
+                    ) {
+                        finishAnnotationEditing()
+                        if membership.isMember {
+                            showAddWord = true
+                        } else {
+                            showVocabularyPaywall = true
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                if let onRetry {
+                    resultIconActionButton(
+                        "重新识别",
+                        systemImage: "arrow.clockwise",
+                        action: onRetry
+                    )
+                }
+            }
+            .padding(.top, 28)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func revealDetails() {
+        guard isRevealingCompletion else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: RecognitionFooterMetrics.detailRevealDuration)) {
+            isRevealingCompletion = false
         }
     }
 
@@ -652,6 +682,150 @@ struct PhotoWordCardDetailView: View {
     private func finishAnnotationEditing() {
         editingObjectID = nil
         suppressPageDismissUntil = .distantPast
+    }
+}
+
+private struct CompletionRevealFooter: View {
+    let onFinished: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var fillProgress: CGFloat = 0
+    @State private var segmentPhase: CGFloat = 0
+    @State private var isTimelineActive = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("COMPLETE")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundStyle(Color.coral)
+
+            Text("识别完成")
+                .font(.system(size: 17, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color.ink)
+
+            RecognitionProgressBar(
+                mode: .completing(
+                    progress: fillProgress,
+                    phase: segmentPhase,
+                    timelineActive: isTimelineActive
+                )
+            )
+        }
+        .task {
+            if reduceMotion {
+                fillProgress = 1
+                isTimelineActive = false
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                onFinished()
+                return
+            }
+
+            // 先让阶段文字完成切换，保持同一条滑动线，再从当前视觉位置收满。
+            try? await Task.sleep(for: RecognitionFooterMetrics.completionTextHold)
+            guard !Task.isCancelled else { return }
+
+            segmentPhase = RecognitionFooterMetrics.pingPongPhase(at: Date())
+            withAnimation(.easeOut(duration: RecognitionFooterMetrics.completionFillDuration)) {
+                fillProgress = 1
+            }
+
+            try? await Task.sleep(for: RecognitionFooterMetrics.completionFillDelay)
+            guard !Task.isCancelled else { return }
+            isTimelineActive = false
+            onFinished()
+        }
+    }
+}
+
+private enum RecognitionFooterMetrics {
+    static let segmentFraction: CGFloat = 0.27
+    static let minimumSegmentWidth: CGFloat = 48
+    static let completionTextHold: Duration = .milliseconds(80)
+    static let completionFillDelay: Duration = .milliseconds(320)
+    static let completionFillDuration: TimeInterval = 0.32
+    static let detailRevealDuration: TimeInterval = 0.24
+    static let pingPongDuration: TimeInterval = 2.4
+
+    static func segmentWidth(for totalWidth: CGFloat) -> CGFloat {
+        min(max(minimumSegmentWidth, totalWidth * segmentFraction), totalWidth)
+    }
+
+    static func pingPongPhase(at date: Date) -> CGFloat {
+        let elapsed = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: pingPongDuration)
+        let normalized = elapsed / pingPongDuration
+        return normalized <= 0.5
+            ? CGFloat(normalized * 2)
+            : CGFloat((1 - normalized) * 2)
+    }
+}
+
+private struct RecognitionProgressBar: View {
+    enum Mode {
+        case indeterminate
+        case completing(progress: CGFloat, phase: CGFloat, timelineActive: Bool)
+    }
+
+    let mode: Mode
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(Color.ink.opacity(0.12))
+                    .frame(height: 2)
+
+                foreground(width: proxy.size.width)
+            }
+        }
+        .frame(height: 2)
+    }
+
+    @ViewBuilder
+    private func foreground(width totalWidth: CGFloat) -> some View {
+        switch mode {
+        case .indeterminate:
+            if reduceMotion {
+                let segmentWidth = RecognitionFooterMetrics.segmentWidth(for: totalWidth)
+                Rectangle()
+                    .fill(Color.coral)
+                    .frame(width: segmentWidth, height: 2)
+                    .offset(x: max(0, totalWidth - segmentWidth) / 2)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
+                    let segmentWidth = RecognitionFooterMetrics.segmentWidth(for: totalWidth)
+                    let availableWidth = max(0, totalWidth - segmentWidth)
+                    Rectangle()
+                        .fill(Color.coral)
+                        .frame(width: segmentWidth, height: 2)
+                        .offset(x: availableWidth * RecognitionFooterMetrics.pingPongPhase(at: context.date))
+                }
+            }
+        case .completing(let progress, let phase, let timelineActive):
+            if reduceMotion || !timelineActive {
+                Rectangle()
+                    .fill(Color.coral)
+                    .frame(width: totalWidth, height: 2)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
+                    let segmentWidth = RecognitionFooterMetrics.segmentWidth(for: totalWidth)
+                    let width = segmentWidth + (totalWidth - segmentWidth) * progress
+                    let currentPhase = progress == 0
+                        ? RecognitionFooterMetrics.pingPongPhase(at: context.date)
+                        : phase
+                    let availableWidth = max(0, totalWidth - width)
+                    Rectangle()
+                        .fill(Color.coral)
+                        .frame(width: width, height: 2)
+                        .offset(x: availableWidth * currentPhase * (1 - progress))
+                }
+                .animation(.easeOut(duration: RecognitionFooterMetrics.completionFillDuration), value: progress)
+            }
+        }
     }
 }
 
@@ -875,21 +1049,12 @@ private struct AnnotationTipsSheet: View {
 
 private struct StreamingRecognitionFooter: View {
     let status: PhotoWordCardStatus
-    let objectCount: Int
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Text(stageLabel)
                 Spacer()
-                if case .uploading(let progress) = status {
-                    Text("\(Int((progress * 100).rounded()))%")
-                        .contentTransition(.numericText())
-                } else if objectCount > 0 {
-                    Text("\(objectCount) WORDS")
-                        .contentTransition(.numericText())
-                }
             }
             .font(.system(size: 10, weight: .bold, design: .monospaced))
             .tracking(1.5)
@@ -899,33 +1064,7 @@ private struct StreamingRecognitionFooter: View {
                 .font(.system(size: 17, weight: .heavy, design: .rounded))
                 .foregroundStyle(Color.ink)
 
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Rectangle().fill(Color.ink.opacity(0.12)).frame(height: 2)
-                    if case .uploading(let progress) = status {
-                        Rectangle()
-                            .fill(Color.coral)
-                            .frame(width: proxy.size.width * min(max(progress, 0), 1), height: 2)
-                    } else if reduceMotion {
-                        let segmentWidth = min(max(48, proxy.size.width * 0.27), proxy.size.width)
-                        Rectangle()
-                            .fill(Color.coral)
-                            .frame(width: segmentWidth, height: 2)
-                            .offset(x: max(0, proxy.size.width - segmentWidth) / 2)
-                    } else {
-                        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
-                            let segmentWidth = min(max(48, proxy.size.width * 0.27), proxy.size.width)
-                            let availableWidth = max(0, proxy.size.width - segmentWidth)
-                            let phase = pingPongPhase(at: context.date)
-                            Rectangle()
-                                .fill(Color.coral)
-                                .frame(width: segmentWidth, height: 2)
-                                .offset(x: availableWidth * phase)
-                        }
-                    }
-                }
-            }
-            .frame(height: 2)
+            RecognitionProgressBar(mode: .indeterminate)
         }
     }
 
@@ -944,20 +1083,13 @@ private struct StreamingRecognitionFooter: View {
         switch status {
         case .preparing: return "正在准备照片…"
         case .uploading: return "正在上传照片…"
-        case .recognizing:
-            return objectCount == 0 ? "正在分析照片…" : "正在识别并整理单词…"
+        case .recognizing: return "正在分析照片…"
         case .cancelled: return "正在取消…"
         case .complete: return "识别完成"
         case .failed: return "识别遇到问题"
         }
     }
 
-    private func pingPongPhase(at date: Date) -> CGFloat {
-        let duration = 2.4
-        let elapsed = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: duration)
-        let normalized = elapsed / duration
-        return normalized <= 0.5 ? CGFloat(normalized * 2) : CGFloat((1 - normalized) * 2)
-    }
 }
 
 private struct RecognitionFailureFooter: View {

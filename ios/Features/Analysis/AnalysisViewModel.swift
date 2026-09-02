@@ -79,19 +79,24 @@ final class AnalysisViewModel: ObservableObject {
 
     private func receiveUploadProgress(_ progress: Double, operationID id: UUID) {
         guard isCurrent(id) else { return }
+        let previousProgress: Double
         switch phase {
         case .preparing, .uploading:
-            break
+            if case .uploading(let progress) = phase {
+                previousProgress = progress
+            } else {
+                previousProgress = 0
+            }
         case .analyzing, .success, .failed, .cancelled:
             // URLSession 的最后一次代理回调可能比响应 continuation 更晚抵达主线程。
             return
         }
         let normalized = min(max(progress, 0), 1)
-        phase = .uploading(progress: normalized)
-
-        guard normalized >= 1 else { return }
-        if case .uploading = phase {
+        let monotonicProgress = max(previousProgress, normalized)
+        if monotonicProgress >= 1 {
             phase = .analyzing
+        } else {
+            phase = .uploading(progress: monotonicProgress)
         }
     }
 
