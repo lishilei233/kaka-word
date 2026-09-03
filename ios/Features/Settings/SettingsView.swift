@@ -71,33 +71,33 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 14) {
                     Image(systemName: membership.isMember ? "sparkles" : "camera.viewfinder")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(.title3, design: .rounded, weight: .bold))
                         .foregroundStyle(Color.ink)
                         .frame(width: 46, height: 46)
                         .background(membership.isMember ? Color.sun : Color.sky, in: Circle())
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(membershipPlanName)
-                            .font(.system(size: 17, weight: .heavy, design: .rounded))
-                        Text(membershipQuotaText)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.ink.opacity(0.58))
-                        membershipRefreshStatus
-                        if let reset = membership.entitlement?.resetDate {
-                            Text("\(reset.formatted(date: .abbreviated, time: .omitted)) 重置")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundStyle(Color.coral)
+                        if membershipDisplayState == .failedWithoutCachedValue {
+                            membershipRefreshStatus
+                        } else {
+                            Text(membershipPlanName)
+                                .font(.system(.headline, design: .rounded, weight: .heavy))
+                            Text(membershipQuotaText)
+                                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                                .foregroundStyle(Color.ink.opacity(0.58))
+                            membershipRefreshStatus
+                            if let membershipResetText {
+                                Text(membershipResetText)
+                                    .font(.system(.caption2, design: .monospaced, weight: .bold))
+                                    .foregroundStyle(Color.coral)
+                            }
                         }
                     }
-                    Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+                    membershipRefreshButton
                 }
 
-                if membership.isMember {
-                    // Button("管理订阅") {
-                    //     Task { await membership.showManageSubscriptions() }
-                    // }
-                    // .font(.system(.subheadline, design: .rounded, weight: .heavy))
-                    // .foregroundStyle(Color.ink)
-                } else {
+                if !membership.isMember && membershipDisplayState != .failedWithoutCachedValue {
                     PictureWordButton(
                         membership.isRestoring ? "正在恢复购买…" : "开通会员",
                         systemImage: "sparkles",
@@ -122,7 +122,7 @@ struct SettingsView: View {
                     }
                     .font(.system(.caption, design: .rounded, weight: .bold))
                     .foregroundStyle(Color.ink.opacity(0.62))
-                    .disabled(membership.isPurchasing)
+                    .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
                 }
             }
         }
@@ -318,40 +318,78 @@ struct SettingsView: View {
     }
 
     private var membershipQuotaText: String {
-        guard let entitlement = membership.entitlement else {
-            if membership.hasUnavailableEntitlement { return "会员服务暂时不可用" }
-            return "正在读取识别额度…"
+        MembershipSettingsDisplayState.quotaText(
+            entitlement: membership.entitlement,
+            state: membershipDisplayState
+        )
+    }
+
+    private var membershipDisplayState: MembershipSettingsDisplayState {
+        MembershipSettingsDisplayState.resolve(
+            loadState: membership.entitlementLoadState,
+            isRefreshing: membership.isRefreshingEntitlements
+        )
+    }
+
+    private var membershipResetText: String? {
+        guard let reset = membership.entitlement?.resetDate else { return nil }
+        return "\(reset.formatted(date: .abbreviated, time: .omitted)) 重置"
+    }
+
+    private var membershipRefreshButton: some View {
+        let state = membershipDisplayState
+        return Button(action: refreshMembershipStatus) {
+            Group {
+                if state.isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(.subheadline, weight: .black))
+                }
+            }
+            .foregroundStyle(Color.ink)
+            .frame(width: 44, height: 44)
+            .background(Color.paperLight.opacity(0.78), in: Circle())
+            .overlay { Circle().stroke(Color.ink.opacity(0.08)) }
+            .contentShape(Circle())
         }
-        return "本期剩余 \(entitlement.remaining)/\(entitlement.limit) 次识别"
+        .buttonStyle(.plain)
+        .accessibilityLabel(membershipRefreshButtonLabel)
+        .accessibilityValue(state.statusText)
+        .accessibilityHint("确认最新会员方案和识别额度")
+        .disabled(state.isLoading || membership.isLoading || membership.isPurchasing)
+    }
+
+    private var membershipRefreshButtonLabel: String {
+        if membershipDisplayState.isFailure { return "重新读取会员状态" }
+        if membershipDisplayState.isLoading { return "正在刷新会员状态" }
+        return "刷新会员状态"
+    }
+
+    private func refreshMembershipStatus() {
+        Task {
+            await membership.refreshCurrentEntitlements(source: .settings)
+        }
     }
 
     @ViewBuilder
     private var membershipRefreshStatus: some View {
-        switch membership.entitlementLoadState {
-        case .idle:
-            EmptyView()
-        case .loading(let hasCachedValue):
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini)
-                Text(hasCachedValue ? "正在刷新会员状态…" : "正在读取会员状态…")
+        let state = membershipDisplayState
+        HStack(spacing: 6) {
+            if state.isLoading {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Image(systemName: state.statusSymbol)
+                    .font(.system(.caption2, weight: .bold))
             }
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundStyle(Color.ink.opacity(0.5))
-        case .loaded:
-            EmptyView()
-        case .failed(_, let hasCachedValue, _):
-            VStack(alignment: .leading, spacing: 6) {
-                Text(hasCachedValue ? "当前显示上次数据，暂时无法刷新。" : "无法读取会员状态，请检查网络后重试。")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.coral)
-                Button("重新读取") {
-                    Task { await membership.refreshCurrentEntitlements() }
-                }
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.ink)
-                .disabled(membership.isRefreshingEntitlements)
-            }
+            Text(state.statusText)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .font(.system(.caption2, design: .rounded, weight: .semibold))
+        .foregroundStyle(state.isFailure ? Color.coral : Color.ink.opacity(0.5))
+        .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
     }
 }
 

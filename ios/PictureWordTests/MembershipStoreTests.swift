@@ -150,6 +150,162 @@ final class MembershipStoreTests: XCTestCase {
         XCTAssertEqual(MembershipNotice.afterSuccessfulEntitlementSync(informational), informational)
     }
 
+    func testSettingsDisplayStateDistinguishesInitialRefreshFreshAndFailure() {
+        XCTAssertEqual(MembershipSettingsDisplayState.idle.statusText, "等待读取会员状态…")
+        XCTAssertEqual(MembershipSettingsDisplayState.initialLoading.statusText, "正在读取会员状态…")
+        XCTAssertEqual(MembershipSettingsDisplayState.refreshing.statusText, "正在刷新会员状态…")
+        XCTAssertEqual(MembershipSettingsDisplayState.loaded.statusText, "会员状态已更新")
+        XCTAssertEqual(MembershipSettingsDisplayState.failedWithCachedValue.statusText, "显示上次数据，刷新失败")
+        XCTAssertEqual(MembershipSettingsDisplayState.failedWithoutCachedValue.statusText, "暂时无法读取")
+
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.resolve(
+                loadState: .loading(hasCachedValue: false),
+                isRefreshing: false
+            ),
+            .initialLoading
+        )
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.resolve(
+                loadState: .loading(hasCachedValue: true),
+                isRefreshing: false
+            ),
+            .refreshing
+        )
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.resolve(
+                loadState: .loaded,
+                isRefreshing: false
+            ),
+            .loaded
+        )
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.resolve(
+                loadState: .failed(message: "temporary", hasCachedValue: true, requestID: nil),
+                isRefreshing: false
+            ),
+            .failedWithCachedValue
+        )
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.resolve(
+                loadState: .failed(message: "temporary", hasCachedValue: false, requestID: nil),
+                isRefreshing: false
+            ),
+            .failedWithoutCachedValue
+        )
+    }
+
+    func testSettingsDisplayStateTreatsAnActiveSyncAsRefreshing() {
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.resolve(
+                loadState: .loaded,
+                isRefreshing: true
+            ),
+            .refreshing
+        )
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.resolve(
+                loadState: .loading(hasCachedValue: false),
+                isRefreshing: true
+            ),
+            .initialLoading
+        )
+    }
+
+    func testSettingsQuotaTextNeverInventsUnavailableQuota() {
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.quotaText(
+                entitlement: nil,
+                state: .initialLoading
+            ),
+            "正在读取识别额度…"
+        )
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.quotaText(
+                entitlement: nil,
+                state: .failedWithoutCachedValue
+            ),
+            "暂时无法读取"
+        )
+    }
+
+    func testSettingsQuotaTextStaysCompactForCachedValueStates() {
+        let entitlement = makeMemberEntitlement(remaining: 27)
+
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.quotaText(
+                entitlement: entitlement,
+                state: .loaded
+            ),
+            "本期剩余 27/100 次识别"
+        )
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.quotaText(
+                entitlement: entitlement,
+                state: .refreshing
+            ),
+            "本期剩余 27/100 次识别"
+        )
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.quotaText(
+                entitlement: entitlement,
+                state: .failedWithCachedValue
+            ),
+            "本期剩余 27/100 次识别"
+        )
+    }
+
+    func testSettingsRefreshSkipsActiveSyncAndRecentCompletion() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let loaded = EntitlementLoadState.loaded
+
+        XCTAssertFalse(
+            MembershipStore.shouldRefreshForSettingsPresentation(
+                loadState: loaded,
+                isRefreshing: true,
+                lastFinishedAt: nil,
+                now: now,
+                cooldown: 3
+            )
+        )
+        XCTAssertFalse(
+            MembershipStore.shouldRefreshForSettingsPresentation(
+                loadState: loaded,
+                isRefreshing: false,
+                lastFinishedAt: now.addingTimeInterval(-1),
+                now: now,
+                cooldown: 3
+            )
+        )
+        XCTAssertTrue(
+            MembershipStore.shouldRefreshForSettingsPresentation(
+                loadState: loaded,
+                isRefreshing: false,
+                lastFinishedAt: now.addingTimeInterval(-3),
+                now: now,
+                cooldown: 3
+            )
+        )
+        XCTAssertTrue(
+            MembershipStore.shouldRefreshForSettingsPresentation(
+                loadState: loaded,
+                isRefreshing: false,
+                lastFinishedAt: nil,
+                now: now,
+                cooldown: 3
+            )
+        )
+        XCTAssertFalse(
+            MembershipStore.shouldRefreshForSettingsPresentation(
+                loadState: .loading(hasCachedValue: true),
+                isRefreshing: false,
+                lastFinishedAt: nil,
+                now: now,
+                cooldown: 3
+            )
+        )
+    }
+
     func testPaywallDoesNotShowExhaustedWhileEntitlementIsBeingSynced() {
         let exhausted = makeMemberEntitlement(remaining: 0)
 
