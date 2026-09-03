@@ -187,8 +187,10 @@ private struct HomeDashboard: View {
             .padding(.bottom, 118)
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
-        .fullScreenCover(isPresented: $practicePresented) {
-            ListeningPracticeView()
+        .navigationDestination(isPresented: $practicePresented) {
+            ListeningPracticeView {
+                practicePresented = false
+            }
         }
     }
 

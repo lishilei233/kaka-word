@@ -475,6 +475,8 @@ private final class ReviewZoomScrollView: UIScrollView {
 }
 
 struct ListeningPracticeView: View {
+    var onClose: (() -> Void)?
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var wordLearningStore: WordLearningStore
@@ -489,35 +491,24 @@ struct ListeningPracticeView: View {
     @State private var wrongTapMarker: ReviewTapMarker?
     @State private var listeningPhoto: WordImageCropper.ReviewPhoto?
     @State private var didLoad = false
+    @State private var showTips = false
+
+    init(onClose: (() -> Void)? = nil) {
+        self.onClose = onClose
+    }
 
     var body: some View {
         ZStack {
             NotebookBackground()
-            VStack(spacing: 0) {
-                header
-
-                if let currentWord {
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 22) {
-                            prompt
-                                .padding(.horizontal, 24)
-                            listeningGame(for: currentWord)
-                            if revealed {
-                                VStack(spacing: 18) {
-                                    revealedAnswer(for: currentWord)
-                                    answerActions(for: currentWord)
-                                }
-                                .padding(.horizontal, 24)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 24)
-                        .padding(.bottom, 36)
-                    }
-                } else {
-                    completion
-                }
+            if let currentWord {
+                practiceContent(for: currentWord)
+            } else {
+                completion
             }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            header
+                .zIndex(10)
         }
         .onAppear { loadPractice() }
         .task(id: currentQuestionID) {
@@ -532,7 +523,21 @@ struct ListeningPracticeView: View {
             try? await Task.sleep(for: .milliseconds(320))
             speak(currentWord.object.english)
         }
-        .pictureWordBackSwipe { dismiss() }
+        .sheet(isPresented: $showTips) {
+            ListeningPracticeTipsSheet()
+                .pictureWordSheetPresentation()
+        }
+        .navigationBarBackButtonHidden()
+        .toolbar(.hidden, for: .navigationBar)
+        .background(InteractivePopGestureEnabler())
+    }
+
+    private func closePractice() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
+        }
     }
 
     private var currentWord: WordEntry? {
@@ -543,6 +548,39 @@ struct ListeningPracticeView: View {
         currentWord.map { "\($0.id)-\(questionRevision)" }
     }
 
+    @ViewBuilder
+    private func practiceContent(for word: WordEntry) -> some View {
+        GeometryReader { proxy in
+            let layout = ListeningPracticeLayout(
+                containerSize: proxy.size,
+                image: listeningPhoto?.image
+            )
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: layout.stackSpacing) {
+                    listeningGame(
+                        for: word,
+                        photoSize: layout.photoSize,
+                        horizontalPadding: layout.horizontalPadding,
+                        isCompact: layout.isCompact
+                    )
+
+                    if revealed {
+                        VStack(spacing: layout.isCompact ? 14 : 18) {
+                            revealedAnswer(for: word)
+                            answerActions(for: word)
+                        }
+                        .padding(.horizontal, layout.horizontalPadding)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, layout.topPadding)
+                .padding(.bottom, layout.bottomPadding)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
     private var header: some View {
         PictureWordPageHeader(
             eyebrow: "LISTEN & FIND",
@@ -551,50 +589,47 @@ struct ListeningPracticeView: View {
             eyebrowColor: .coral,
             tint: Color.paperLight.opacity(0.52)
         ) {
-            PictureWordHeaderCapsule(tint: Color.paperLight.opacity(0.52), foreground: .ink, interactive: true) {
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
+            Button { closePractice() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(Color.ink)
+                    .frame(width: 50, height: 50)
+                    .contentShape(Capsule())
+                    .pictureWordGlass(
+                        tint: Color.paperLight.opacity(0.52),
+                        interactive: true,
+                        in: Capsule()
+                    )
+            }
+            .accessibilityLabel("返回")
+            .buttonStyle(.plain)
+        } trailing: {
+            PictureWordHeaderCapsule(
+                tint: Color.sun.opacity(0.72),
+                foreground: .ink,
+                interactive: true
+            ) {
+                Button {
+                    showTips = true
+                } label: {
+                    Image(systemName: "lightbulb.fill")
                         .font(.system(size: 14, weight: .bold))
                         .frame(width: 50, height: 50)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("关闭听音找词")
+                .accessibilityLabel("查看听音找词提示")
+                .accessibilityHint("了解播放声音、寻找物体和查看答案的步骤")
             }
-        } trailing: {
-            Text("还剩 \(wordLearningStore.learningEntries.count) 个")
-                .font(.system(.caption2, design: .rounded, weight: .black))
-                .foregroundStyle(Color.ink.opacity(0.52))
-                .frame(width: 84, height: 50)
         }
     }
 
-    private var prompt: some View {
-        VStack(spacing: 7) {
-            Text("听一听，它在哪里？")
-                .font(.scrapbookTitle)
-            Text("听声音，在完整照片里点一点它。")
-                .font(.system(.subheadline, design: .rounded, weight: .medium))
-                .foregroundStyle(Color.ink.opacity(0.56))
-        }
-        .multilineTextAlignment(.center)
-    }
-
-    private func listeningGame(for word: WordEntry) -> some View {
-        VStack(spacing: 18) {
-            Button {
-                speak(word.object.english)
-            } label: {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Color.ink)
-                    .frame(width: 72, height: 72)
-                    .background(Color.sun, in: Circle())
-                    .shadow(color: Color.ink.opacity(0.18), radius: 0, x: 3, y: 4)
-            }
-            .buttonStyle(.plain)
-            .disabled(!speechEnabled)
-            .accessibilityLabel("再次播放单词")
-
+    private func listeningGame(
+        for word: WordEntry,
+        photoSize: CGSize,
+        horizontalPadding: CGFloat,
+        isCompact: Bool
+    ) -> some View {
+        VStack(spacing: isCompact ? 12 : 18) {
             if let listeningPhoto {
                 NotebookPhotoFrame {
                     ZoomableReviewImage(
@@ -606,13 +641,20 @@ struct ListeningPracticeView: View {
                         onTap: { tap in handleListeningTap(tap, word: word, photo: listeningPhoto) },
                         onReveal: { revealListeningAnswer(word) }
                     )
-                    .aspectRatio(photoAspectRatio(listeningPhoto.image), contentMode: .fit)
+                    .frame(width: photoSize.width, height: photoSize.height)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, horizontalPadding)
+            } else {
+                reviewImage(for: word, height: photoSize.height)
+                    .padding(.horizontal, horizontalPadding)
+            }
 
-                if !revealed {
+            if !revealed {
+                playbackControl(for: word, isCompact: isCompact)
+
+                if let listeningPhoto {
                     VStack(spacing: 12) {
                         Text(listeningHint)
                             .font(.system(.subheadline, design: .rounded, weight: .bold))
@@ -631,20 +673,48 @@ struct ListeningPracticeView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 24)
-                }
-            } else {
-                VStack(spacing: 16) {
-                    reviewImage(for: word)
-                    if !revealed {
-                        PictureWordButton("看看答案", systemImage: "eye.fill") {
-                            revealListeningAnswer(word)
-                        }
+                    .padding(.horizontal, horizontalPadding)
+                } else {
+                    PictureWordButton(
+                        "看看答案",
+                        systemImage: "eye.fill",
+                        size: isCompact ? .compact : .large
+                    ) {
+                        revealListeningAnswer(word)
                     }
                 }
-                .padding(.horizontal, 24)
             }
         }
+    }
+
+    @ViewBuilder
+    private func playbackControl(for word: WordEntry, isCompact: Bool) -> some View {
+        VStack(spacing: 8) {
+            playbackButton(for: word)
+            Text(speechEnabled
+                 ? (isCompact ? "再次播放单词" : "点击喇叭，再听一次")
+                 : "语音已关闭，请在设置中开启")
+                .font(.system(.caption, design: .rounded, weight: .medium))
+                .foregroundStyle(Color.ink.opacity(0.56))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, isCompact ? 20 : 24)
+    }
+
+    private func playbackButton(for word: WordEntry) -> some View {
+        Button {
+            speak(word.object.english)
+        } label: {
+            Image(systemName: speechEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(Color.ink)
+                .frame(width: 68, height: 68)
+                .background(Color.sun, in: Circle())
+                .shadow(color: Color.ink.opacity(0.18), radius: 0, x: 3, y: 4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!speechEnabled)
+        .accessibilityLabel(speechEnabled ? "再次播放单词" : "语音已关闭")
     }
 
     private func revealedAnswer(for word: WordEntry) -> some View {
@@ -698,7 +768,7 @@ struct ListeningPracticeView: View {
         .padding(24)
     }
 
-    private func reviewImage(for entry: WordEntry) -> some View {
+    private func reviewImage(for entry: WordEntry, height: CGFloat) -> some View {
         Group {
             if let image = WordImageCropper.image(for: entry, historyStore: historyStore) {
                 Image(uiImage: image)
@@ -713,7 +783,7 @@ struct ListeningPracticeView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .aspectRatio(1.18, contentMode: .fit)
+        .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .shadow(color: Color.ink.opacity(0.12), radius: 0, x: 2, y: 3)
@@ -738,11 +808,6 @@ struct ListeningPracticeView: View {
     private var listeningHint: String {
         guard wrongAttempts > 0 else { return "双指可以放大，点一点你听到的物体。" }
         return wrongAttempts >= 2 ? "再找找，或者看看答案。" : "再找找，就在照片里。"
-    }
-
-    private func photoAspectRatio(_ image: UIImage) -> CGFloat {
-        guard image.size.width > 0, image.size.height > 0 else { return 4 / 3 }
-        return image.size.width / image.size.height
     }
 
     private func handleListeningTap(
@@ -789,6 +854,113 @@ struct ListeningPracticeView: View {
         wrongTapMarker = nil
         listeningPhoto = words.first.flatMap {
             WordImageCropper.reviewPhoto(for: $0, historyStore: historyStore)
+        }
+    }
+}
+
+private struct ListeningPracticeLayout {
+    let isCompact: Bool
+    let photoSize: CGSize
+    let horizontalPadding: CGFloat
+    let stackSpacing: CGFloat
+    let topPadding: CGFloat
+    let bottomPadding: CGFloat
+
+    init(containerSize: CGSize, image: UIImage?) {
+        isCompact = containerSize.height < 720 || containerSize.width < 390
+        horizontalPadding = isCompact ? 20 : 24
+        stackSpacing = isCompact ? 12 : 22
+        topPadding = isCompact ? 12 : 24
+        bottomPadding = isCompact ? 24 : 36
+
+        let aspectRatio: CGFloat
+        if let image, image.size.width > 0, image.size.height > 0 {
+            aspectRatio = image.size.width / image.size.height
+        } else {
+            aspectRatio = 1.18
+        }
+
+        let photoWidth = max(containerSize.width - horizontalPadding * 2 - 16, 1)
+        let naturalPhotoHeight = photoWidth / aspectRatio
+        let reservedHeight: CGFloat = isCompact ? 220 : 250
+        let minimumPhotoHeight: CGFloat = isCompact ? 180 : 220
+        let availablePhotoHeight = max(minimumPhotoHeight, containerSize.height - reservedHeight)
+        let height = min(naturalPhotoHeight, availablePhotoHeight)
+        photoSize = CGSize(
+            width: min(photoWidth, height * aspectRatio),
+            height: height
+        )
+    }
+}
+
+private struct ListeningPracticeTipsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        PictureWordSheet {
+            VStack(alignment: .leading, spacing: 20) {
+                PictureWordSheetHeader(
+                    eyebrow: "PRACTICE TIPS",
+                    title: "听音找词怎么玩"
+                ) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color.ink)
+                            .frame(width: 44, height: 44)
+                            .background(Color.paperLight.opacity(0.86), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭练习提示")
+                }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    tipRow(
+                        number: "01",
+                        title: "先听声音",
+                        detail: "点击黄色喇叭播放单词，也可以再次播放。"
+                    )
+                    tipRow(
+                        number: "02",
+                        title: "在照片里找一找",
+                        detail: "根据声音在完整照片中点选对应的物体。双指可以放大照片。"
+                    )
+                    tipRow(
+                        number: "03",
+                        title: "答错后再试一次",
+                        detail: "照片上的红色标记会提示刚才点到的位置，连续答错后可以查看答案。"
+                    )
+                    tipRow(
+                        number: "04",
+                        title: "看完答案再判断",
+                        detail: "确认英文、中文和音标后，选择“我还不会”或“我会了”。"
+                    )
+                }
+
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func tipRow(number: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 13) {
+            Text(number)
+                .font(.system(size: 11, weight: .black, design: .monospaced))
+                .foregroundStyle(Color.paperLight)
+                .frame(width: 30, height: 30)
+                .background(Color.ink, in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.ink)
+                Text(detail)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.ink.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

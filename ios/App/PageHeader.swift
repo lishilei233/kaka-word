@@ -30,12 +30,6 @@ struct PictureWordPageHeader<Leading: View, Trailing: View>: View {
 
     var body: some View {
         ZStack {
-            HStack(spacing: 6) {
-                leading
-                Spacer(minLength: 0)
-                trailing
-            }
-
             PictureWordHeaderCapsule(
                 tint: tint,
                 foreground: foreground
@@ -58,6 +52,14 @@ struct PictureWordPageHeader<Leading: View, Trailing: View>: View {
                 .frame(minWidth: 126, maxWidth: 220, minHeight: 50)
             }
             .padding(.horizontal, 56)
+            .allowsHitTesting(false)
+
+            HStack(spacing: 6) {
+                leading
+                Spacer(minLength: 0)
+                trailing
+            }
+            .zIndex(1)
         }
         .frame(maxWidth: .infinity, minHeight: 50)
         .padding(.horizontal, 18)
