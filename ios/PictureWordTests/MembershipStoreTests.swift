@@ -150,6 +150,60 @@ final class MembershipStoreTests: XCTestCase {
         XCTAssertEqual(MembershipNotice.afterSuccessfulEntitlementSync(informational), informational)
     }
 
+    func testPaywallDoesNotShowExhaustedWhileEntitlementIsBeingSynced() {
+        let exhausted = makeMemberEntitlement(remaining: 0)
+
+        XCTAssertEqual(
+            MembershipStore.membershipPaywallState(
+                entitlement: exhausted,
+                loadState: .loading(hasCachedValue: true),
+                isRefreshing: true
+            ),
+            .syncing
+        )
+        XCTAssertEqual(
+            MembershipStore.membershipPaywallState(
+                entitlement: exhausted,
+                loadState: .loaded,
+                isRefreshing: true
+            ),
+            .syncing
+        )
+    }
+
+    func testPaywallShowsFreshRemainingQuotaAndOnlyThenCanShowExhausted() {
+        let active = makeMemberEntitlement(remaining: 27)
+        let exhausted = makeMemberEntitlement(remaining: 0)
+
+        XCTAssertEqual(
+            MembershipStore.membershipPaywallState(
+                entitlement: active,
+                loadState: .loaded,
+                isRefreshing: false
+            ),
+            .active(remaining: 27, limit: 100)
+        )
+        XCTAssertEqual(
+            MembershipStore.membershipPaywallState(
+                entitlement: exhausted,
+                loadState: .loaded,
+                isRefreshing: false
+            ),
+            .exhausted
+        )
+    }
+
+    func testPaywallUsesRecoverableUnavailableStateAfterSyncFailure() {
+        XCTAssertEqual(
+            MembershipStore.membershipPaywallState(
+                entitlement: makeMemberEntitlement(remaining: 0),
+                loadState: .failed(message: "temporary", hasCachedValue: true, requestID: "request-id"),
+                isRefreshing: false
+            ),
+            .unavailable
+        )
+    }
+
     func testTransactionOrderingIsDeterministic() {
         let purchase = Date(timeIntervalSince1970: 1_000)
         let keys = [
@@ -231,6 +285,23 @@ final class MembershipStoreTests: XCTestCase {
             annualPrice: annual,
             monthlyCurrencyCode: currency,
             annualCurrencyCode: annualCurrency ?? currency
+        )
+    }
+
+    private func makeMemberEntitlement(remaining: Int) -> EntitlementSummary {
+        EntitlementSummary(
+            tier: "member",
+            productId: MembershipStore.annualProductId,
+            subscriptionState: "active",
+            limit: 100,
+            used: 100 - remaining,
+            reserved: 0,
+            remaining: remaining,
+            periodStart: "2026-08-01T00:00:00.000Z",
+            resetAt: "2026-09-01T00:00:00.000Z",
+            expiresAt: "2027-08-01T00:00:00.000Z",
+            autoRenewEnabled: true,
+            vocabularyCorrectionEnabled: true
         )
     }
 

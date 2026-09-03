@@ -57,7 +57,7 @@ struct PaywallView: View {
                         hero
                         benefits
                         if membership.isMember {
-                            quotaExhaustedCard
+                            membershipStatusCard
                             manageSubscriptionButton
                         } else {
                             plans
@@ -187,7 +187,7 @@ struct PaywallView: View {
 
     private var purchaseButton: some View {
         PictureWordButton(
-            membership.isRestoring ? "正在恢复购买…" : (membership.isPurchasing ? "正在连接 App Store…" : "开通咔咔会员"),
+            purchaseButtonTitle,
             systemImage: "sparkles",
             isLoading: membership.isPurchasing
         ) {
@@ -200,6 +200,20 @@ struct PaywallView: View {
             }
         }
         .disabled(selectedProduct == nil || !membership.canPurchase)
+    }
+
+    private var purchaseButtonTitle: String {
+        if membership.isRestoring { return "正在恢复购买…" }
+        switch membership.purchasePhase {
+        case .preflight:
+            return "正在确认会员状态…"
+        case .waitingForApple:
+            return "正在连接 App Store…"
+        case .syncingEntitlement:
+            return "正在同步会员权益…"
+        case nil:
+            return membership.isPurchasing ? "正在连接 App Store…" : "开通咔咔会员"
+        }
     }
 
     private var quotaExhaustedCard: some View {
@@ -221,6 +235,86 @@ struct PaywallView: View {
                     .foregroundStyle(Color.ink.opacity(0.58))
                     .multilineTextAlignment(.center)
             }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(Color.paperLight.opacity(0.82), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.08)) }
+    }
+
+    @ViewBuilder
+    private var membershipStatusCard: some View {
+        switch membership.membershipPaywallState {
+        case .syncing:
+            membershipSyncingCard
+        case .active(let remaining, let limit):
+            activeMembershipCard(remaining: remaining, limit: limit)
+        case .exhausted:
+            quotaExhaustedCard
+        case .unavailable:
+            membershipUnavailableCard
+        }
+    }
+
+    private var membershipSyncingCard: some View {
+        VStack(spacing: 10) {
+            ProgressView().tint(Color.ink)
+            Text("正在同步会员权益…")
+                .font(.system(.headline, design: .rounded, weight: .heavy))
+                .foregroundStyle(Color.ink)
+            Text("同步完成后将显示本期剩余额度。")
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .foregroundStyle(Color.ink.opacity(0.58))
+                .multilineTextAlignment(.center)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(Color.paperLight.opacity(0.82), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.08)) }
+    }
+
+    private func activeMembershipCard(remaining: Int, limit: Int) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(Color.mint)
+            Text("咔咔会员已开通")
+                .font(.system(.headline, design: .rounded, weight: .heavy))
+                .foregroundStyle(Color.ink)
+            Text("本期剩余 \(remaining)/\(limit) 次识别")
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(Color.ink.opacity(0.7))
+            if let reset = membership.entitlement?.resetDate {
+                Text("额度将在 \(reset.formatted(date: .abbreviated, time: .omitted)) 重置。")
+                    .font(.system(.caption, design: .rounded, weight: .semibold))
+                    .foregroundStyle(Color.ink.opacity(0.58))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(Color.paperLight.opacity(0.82), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.08)) }
+    }
+
+    private var membershipUnavailableCard: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(Color.coral)
+            Text("会员状态暂时无法确认")
+                .font(.system(.headline, design: .rounded, weight: .heavy))
+                .foregroundStyle(Color.ink)
+            Text("已保留会员状态，暂不判断本期额度。")
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .foregroundStyle(Color.ink.opacity(0.58))
+                .multilineTextAlignment(.center)
+            Button("重新读取") {
+                Task { await membership.refreshCurrentEntitlements(source: .manual) }
+            }
+            .font(.system(.subheadline, design: .rounded, weight: .heavy))
+            .foregroundStyle(Color.ink)
+            .disabled(membership.isRefreshingEntitlements)
         }
         .padding(20)
         .frame(maxWidth: .infinity)

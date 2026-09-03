@@ -46,6 +46,19 @@ enum EntitlementLoadState: Equatable, Sendable {
     }
 }
 
+enum MembershipPaywallState: Equatable, Sendable {
+    case syncing
+    case active(remaining: Int, limit: Int)
+    case exhausted
+    case unavailable
+}
+
+enum MembershipPurchasePhase: Equatable, Sendable {
+    case preflight
+    case waitingForApple
+    case syncingEntitlement
+}
+
 enum MembershipActionOutcome: Equatable, Sendable {
     case active
     case pending
@@ -528,6 +541,7 @@ final class MembershipStore: ObservableObject {
     @Published private(set) var productLoadFailed = false
     @Published private(set) var isLoading = false
     @Published private(set) var isPurchasing = false
+    @Published private(set) var purchasePhase: MembershipPurchasePhase?
     @Published private(set) var isRestoring = false
     @Published private(set) var isRefreshingEntitlements = false
     @Published private(set) var notice: MembershipNotice?
@@ -572,6 +586,13 @@ final class MembershipStore: ObservableObject {
         }
         return false
     }
+    var membershipPaywallState: MembershipPaywallState {
+        Self.membershipPaywallState(
+            entitlement: entitlement,
+            loadState: entitlementLoadState,
+            isRefreshing: isRefreshingEntitlements
+        )
+    }
     var entitlementFailureMessage: String? {
         if case .failed(let message, _, _) = entitlementLoadState { return message }
         return nil
@@ -583,6 +604,19 @@ final class MembershipStore: ObservableObject {
 
     var annualProduct: Product? { products.first { $0.id == Self.annualProductId } }
     var monthlyProduct: Product? { products.first { $0.id == Self.monthlyProductId } }
+
+    static func membershipPaywallState(
+        entitlement: EntitlementSummary?,
+        loadState: EntitlementLoadState,
+        isRefreshing: Bool
+    ) -> MembershipPaywallState {
+        guard let entitlement, entitlement.isMember else { return .unavailable }
+        if case .failed = loadState { return .unavailable }
+        guard !isRefreshing, loadState.hasFreshValue else { return .syncing }
+        return entitlement.remaining <= 0
+            ? .exhausted
+            : .active(remaining: max(0, entitlement.remaining), limit: entitlement.limit)
+    }
 
     func dismissMessage() {
         notice = nil
@@ -725,19 +759,37 @@ final class MembershipStore: ObservableObject {
     func purchase(_ product: Product) async -> MembershipActionOutcome {
         guard !isPurchasing else { return .failed }
         isPurchasing = true
-        defer { isPurchasing = false }
+        purchasePhase = .preflight
+        defer {
+            isPurchasing = false
+            purchasePhase = nil
+        }
+        let purchaseStartedAt = Date()
+        Self.logger.info("purchase started product_id=\(product.id, privacy: .public)")
+        defer {
+            let duration = Int(max(0, Date().timeIntervalSince(purchaseStartedAt)) * 1_000)
+            Self.logger.info("purchase finished product_id=\(product.id, privacy: .public) duration_ms=\(duration, privacy: .public)")
+        }
         var applePurchaseCompleted = false
         do {
             // Re-read StoreKit and server state immediately before presenting Apple's
             // purchase sheet. This prevents a stale free cache on a new device from
             // initiating a plan change for an already-active subscriber.
             beginEntitlementLoading()
+            let preflightStartedAt = Date()
             try await requestEntitlementSync(source: .purchase)
+            let preflightDuration = Int(max(0, Date().timeIntervalSince(preflightStartedAt)) * 1_000)
+            Self.logger.info("purchase phase=preflight_sync_completed product_id=\(product.id, privacy: .public) duration_ms=\(preflightDuration, privacy: .public)")
             guard !isMember else {
                 setMessage("已找到有效会员，无需重复购买", source: .purchase)
                 return .active
             }
-            switch try await product.purchase() {
+            purchasePhase = .waitingForApple
+            let applePurchaseStartedAt = Date()
+            let purchaseResult = try await product.purchase()
+            let applePurchaseDuration = Int(max(0, Date().timeIntervalSince(applePurchaseStartedAt)) * 1_000)
+            Self.logger.info("purchase phase=apple_result_received product_id=\(product.id, privacy: .public) duration_ms=\(applePurchaseDuration, privacy: .public)")
+            switch purchaseResult {
             case .success(let result):
                 guard case .verified(let transaction) = result else {
                     setMessage("App Store 无法验证这笔购买，请稍后重试", source: .purchase)
@@ -745,6 +797,8 @@ final class MembershipStore: ObservableObject {
                     return .failed
                 }
                 applePurchaseCompleted = true
+                purchasePhase = .syncingEntitlement
+                let entitlementSyncStartedAt = Date()
                 try await requestEntitlementSync(
                     source: .purchase,
                     candidate: StoreTransactionCandidate(
@@ -752,8 +806,9 @@ final class MembershipStore: ObservableObject {
                         signedTransaction: result.jwsRepresentation
                     )
                 )
+                let entitlementSyncDuration = Int(max(0, Date().timeIntervalSince(entitlementSyncStartedAt)) * 1_000)
+                Self.logger.info("purchase phase=post_apple_sync_completed product_id=\(product.id, privacy: .public) duration_ms=\(entitlementSyncDuration, privacy: .public)")
                 if isMember {
-                    setMessage("会员已开通", source: .purchase)
                     recordMetric("purchase_result", productId: product.id, outcome: "success")
                     return .active
                 } else {
@@ -844,6 +899,7 @@ final class MembershipStore: ObservableObject {
         source: MembershipNoticeSource,
         candidate: StoreTransactionCandidate? = nil
     ) async throws {
+        let syncStartedAt = Date()
         if let candidate {
             pendingTransactionCandidates[candidate.transaction.id] = candidate
         }
@@ -863,9 +919,13 @@ final class MembershipStore: ObservableObject {
                 // revision. A later coalesced batch may fail without changing
                 // an earlier request that already completed successfully.
                 if entitlementSyncQueue.isSatisfied(requestedRevision) { return }
+                let duration = Int(max(0, Date().timeIntervalSince(syncStartedAt)) * 1_000)
+                Self.logger.error("entitlement sync failed source=\(source.rawValue, privacy: .public) revision=\(requestedRevision, privacy: .public) duration_ms=\(duration, privacy: .public)")
                 throw error
             }
         }
+        let duration = Int(max(0, Date().timeIntervalSince(syncStartedAt)) * 1_000)
+        Self.logger.info("entitlement sync completed source=\(source.rawValue, privacy: .public) revision=\(requestedRevision, privacy: .public) duration_ms=\(duration, privacy: .public)")
     }
 
     private func ensureEntitlementSyncLoop() -> (UUID, Task<Void, Error>) {
@@ -893,14 +953,16 @@ final class MembershipStore: ObservableObject {
     }
 
     private func runEntitlementSyncLoop() async throws {
-        while let batchRevision = entitlementSyncQueue.nextBatchRevision {
-            try Task.checkCancellation()
-            try await performCurrentEntitlementSync()
-            entitlementSyncQueue.complete(batchRevision)
-            Self.logger.debug(
-                "entitlement sync batch completed revision=\(batchRevision, privacy: .public)"
-            )
-        }
+        // Finish only the batch that was ready when this task started. Requests
+        // arriving during the batch get a new task, so purchase callers don't
+        // wait for unrelated foreground or transaction-update refreshes.
+        guard let batchRevision = entitlementSyncQueue.nextBatchRevision else { return }
+        try Task.checkCancellation()
+        try await performCurrentEntitlementSync()
+        entitlementSyncQueue.complete(batchRevision)
+        Self.logger.debug(
+            "entitlement sync batch completed revision=\(batchRevision, privacy: .public)"
+        )
     }
 
     private func performCurrentEntitlementSync() async throws {
@@ -1011,6 +1073,7 @@ final class MembershipStore: ObservableObject {
         signedTransaction: String
     ) async throws -> TransactionDeliveryOutcome {
         let syncAttemptID = UUID()
+        let syncStartedAt = Date()
 #if DEBUG
         if transaction.environment == .xcode {
             let updated = await localEntitlement(for: transaction)
@@ -1034,7 +1097,7 @@ final class MembershipStore: ObservableObject {
             )
             let transactionHash = Self.hashedTransactionID(transaction.id)
             Self.logger.info(
-                "store sync completed category=success state=\(receipt.syncedTransactionState.rawValue, privacy: .public) request_id=\(receipt.requestID, privacy: .public) transaction_hash=\(transactionHash, privacy: .public)"
+                "store sync completed category=success state=\(receipt.syncedTransactionState.rawValue, privacy: .public) request_id=\(receipt.requestID, privacy: .public) transaction_hash=\(transactionHash, privacy: .public) duration_ms=\(Int(max(0, Date().timeIntervalSince(syncStartedAt)) * 1_000), privacy: .public)"
             )
             switch receipt.syncedTransactionState {
             case .active, .grace:
@@ -1065,7 +1128,7 @@ final class MembershipStore: ObservableObject {
         } catch let error as AccessCredentialError where error.isRetryable {
             let transactionHash = Self.hashedTransactionID(transaction.id)
             Self.logger.error(
-                "store sync deferred category=\(error.categoryCode, privacy: .public) request_id=\(error.requestID ?? requestID, privacy: .public) transaction_hash=\(transactionHash, privacy: .public)"
+                "store sync deferred category=\(error.categoryCode, privacy: .public) request_id=\(error.requestID ?? requestID, privacy: .public) transaction_hash=\(transactionHash, privacy: .public) duration_ms=\(Int(max(0, Date().timeIntervalSince(syncStartedAt)) * 1_000), privacy: .public)"
             )
             return .awaitingSync(TransactionSyncDeferredError(
                 underlying: error,
