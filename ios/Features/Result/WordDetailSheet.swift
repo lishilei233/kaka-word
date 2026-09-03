@@ -11,8 +11,10 @@ struct WordDetailSheet: View {
     @EnvironmentObject private var wordLearningStore: WordLearningStore
     @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
+    @AppStorage(AppSettings.Key.automaticWordSpeechEnabled) private var automaticWordSpeechEnabled = AppSettings.defaultAutomaticWordSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @State private var displayedObject: LearningObject
+    @State private var autoPlayTracker = WordDetailAutoPlayTracker()
     @State private var editingTerm = ""
     @State private var isEditing = false
     @State private var isResolving = false
@@ -119,9 +121,19 @@ struct WordDetailSheet: View {
             PaywallView(onPurchaseCompleted: startEditing)
                 .environmentObject(membership)
         }
+        .onAppear {
+            playWordAutomaticallyIfNeeded(for: displayedObject)
+        }
+        .onDisappear {
+            speech.stop()
+            autoPlayTracker.reset()
+        }
         .onChange(of: object) { _, updatedObject in
             displayedObject = updatedObject
             if !isEditing { editingTerm = updatedObject.english }
+            if !isEditing {
+                playWordAutomaticallyIfNeeded(for: updatedObject)
+            }
         }
     }
 
@@ -186,6 +198,15 @@ struct WordDetailSheet: View {
 
     private var learningState: WordLearningState {
         wordLearningStore.state(for: displayedObject.english)
+    }
+
+    private func playWordAutomaticallyIfNeeded(for object: LearningObject) {
+        guard autoPlayTracker.shouldPlay(
+            objectID: object.id,
+            english: object.english,
+            isEnabled: automaticWordSpeechEnabled && speechEnabled
+        ) else { return }
+        speech.speak(object.english, rate: speechRate)
     }
 
     private func toggleLearningState() {

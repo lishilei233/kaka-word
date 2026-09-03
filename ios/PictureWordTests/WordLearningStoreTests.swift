@@ -3,6 +3,34 @@ import XCTest
 
 @MainActor
 final class WordLearningStoreTests: XCTestCase {
+    func testWordDetailAutoPlayDefaultsToEnabled() {
+        XCTAssertTrue(AppSettings.defaultAutomaticWordSpeechEnabled)
+    }
+
+    func testWordDetailAutoPlayTrackerPlaysEachWordOnce() {
+        var tracker = WordDetailAutoPlayTracker()
+
+        XCTAssertTrue(tracker.shouldPlay(objectID: "object-1", english: " vase ", isEnabled: true))
+        XCTAssertFalse(tracker.shouldPlay(objectID: "object-1", english: "vase", isEnabled: true))
+        XCTAssertTrue(tracker.shouldPlay(objectID: "object-2", english: "cup", isEnabled: true))
+    }
+
+    func testDisabledWordDetailAutoPlayDoesNotConsumeTheNextAttempt() {
+        var tracker = WordDetailAutoPlayTracker()
+
+        XCTAssertFalse(tracker.shouldPlay(objectID: "object-1", english: "vase", isEnabled: false))
+        XCTAssertTrue(tracker.shouldPlay(objectID: "object-1", english: "vase", isEnabled: true))
+        XCTAssertFalse(tracker.shouldPlay(objectID: "object-1", english: "vase", isEnabled: true))
+    }
+
+    func testWordDetailAutoPlayTrackerResetsAfterPresentationEnds() {
+        var tracker = WordDetailAutoPlayTracker()
+
+        XCTAssertTrue(tracker.shouldPlay(objectID: "object-1", english: "vase", isEnabled: true))
+        tracker.reset()
+        XCTAssertTrue(tracker.shouldPlay(objectID: "object-1", english: "vase", isEnabled: true))
+    }
+
     private var directory: URL!
 
     override func setUp() {

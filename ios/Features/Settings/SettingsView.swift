@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
+    @AppStorage(AppSettings.Key.automaticWordSpeechEnabled) private var automaticWordSpeechEnabled = AppSettings.defaultAutomaticWordSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
     @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
@@ -214,10 +215,19 @@ struct SettingsView: View {
     private var speechSection: some View {
         SettingsCard(index: "03", title: "发音") {
             VStack(spacing: 18) {
-                // Toggle(isOn: $speechEnabled) {
-                //     SettingsLabel(icon: "speaker.wave.2.fill", title: "英文发音")
-                // }
-                // .tint(Color.coral)
+                VStack(alignment: .leading, spacing: 9) {
+                    Toggle(isOn: $automaticWordSpeechEnabled) {
+                        SettingsLabel(icon: "speaker.wave.2.fill", title: "自动播放单词音频")
+                    }
+                    .tint(Color.coral)
+                    .accessibilityLabel("打开单词详情时自动播放单词音频")
+                    .accessibilityHint("进入单词详情时自动朗读当前英文单词；关闭后仍可手动播放")
+
+                    Text("进入单词详情时自动朗读当前单词，关闭后仍可点击英文单词手动播放。")
+                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .foregroundStyle(Color.ink.opacity(0.52))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 Divider().overlay(Color.ink.opacity(0.12))
 
