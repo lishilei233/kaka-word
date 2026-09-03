@@ -44,6 +44,108 @@ enum EntitlementLoadState: Equatable, Sendable {
         if case .loaded = self { return true }
         return false
     }
+
+    var hasCachedValue: Bool {
+        switch self {
+        case .loading(let hasCachedValue), .failed(_, let hasCachedValue, _):
+            return hasCachedValue
+        case .loaded:
+            return true
+        case .idle:
+            return false
+        }
+    }
+}
+
+enum MembershipSettingsDisplayState: Equatable, Sendable {
+    case idle
+    case initialLoading
+    case refreshing
+    case loaded
+    case failedWithCachedValue
+    case failedWithoutCachedValue
+
+    static func resolve(
+        loadState: EntitlementLoadState,
+        isRefreshing: Bool
+    ) -> Self {
+        if isRefreshing {
+            return loadState.hasCachedValue ? .refreshing : .initialLoading
+        }
+        switch loadState {
+        case .idle:
+            return .idle
+        case .loading(let hasCachedValue):
+            return hasCachedValue ? .refreshing : .initialLoading
+        case .loaded:
+            return .loaded
+        case .failed(_, let hasCachedValue, _):
+            return hasCachedValue ? .failedWithCachedValue : .failedWithoutCachedValue
+        }
+    }
+
+    var statusText: String {
+        switch self {
+        case .idle:
+            return "等待读取会员状态…"
+        case .initialLoading:
+            return "正在读取会员状态…"
+        case .refreshing:
+            return "正在刷新会员状态…"
+        case .loaded:
+            return "会员状态已更新"
+        case .failedWithCachedValue:
+            return "显示上次数据，刷新失败"
+        case .failedWithoutCachedValue:
+            return "暂时无法读取"
+        }
+    }
+
+    var isFailure: Bool {
+        switch self {
+        case .failedWithCachedValue, .failedWithoutCachedValue:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isLoading: Bool {
+        switch self {
+        case .initialLoading, .refreshing:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var statusSymbol: String {
+        switch self {
+        case .idle:
+            return "clock"
+        case .loaded:
+            return "checkmark.circle.fill"
+        case .failedWithCachedValue, .failedWithoutCachedValue:
+            return "exclamationmark.triangle.fill"
+        case .initialLoading, .refreshing:
+            return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    var isFresh: Bool { self == .loaded }
+
+    static func quotaText(
+        entitlement: EntitlementSummary?,
+        state: Self
+    ) -> String {
+        guard let entitlement else {
+            return state == .failedWithoutCachedValue
+                ? "暂时无法读取"
+                : "正在读取识别额度…"
+        }
+        let quota = "本期剩余 \(entitlement.remaining)/\(entitlement.limit) 次识别"
+        return quota
+    }
 }
 
 enum MembershipPaywallState: Equatable, Sendable {
@@ -550,6 +652,7 @@ final class MembershipStore: ObservableObject {
     private var transactionTask: Task<Void, Never>?
     private var entitlementTask: Task<Void, Never>?
     private var prepareTask: Task<Void, Never>?
+    private var productPrepareTask: Task<Void, Never>?
     private var entitlementSyncLoopTask: Task<Void, Error>?
     private var entitlementSyncLoopID: UUID?
     private var entitlementSyncQueue = EntitlementSyncQueueState()
@@ -574,6 +677,7 @@ final class MembershipStore: ObservableObject {
         transactionTask?.cancel()
         entitlementTask?.cancel()
         prepareTask?.cancel()
+        productPrepareTask?.cancel()
         entitlementSyncLoopTask?.cancel()
     }
 
@@ -628,6 +732,9 @@ final class MembershipStore: ObservableObject {
             await prepareTask.value
             return
         }
+        if let productPrepareTask {
+            await productPrepareTask.value
+        }
         guard !didPrepare || products.isEmpty else { return }
         let task: Task<Void, Never> = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -636,6 +743,49 @@ final class MembershipStore: ObservableObject {
         prepareTask = task
         await task.value
         prepareTask = nil
+    }
+
+    /// Loads StoreKit products for the paywall without refreshing entitlement state.
+    /// The app-startup `prepare()` remains responsible for the initial entitlement sync.
+    func prepareProducts() async {
+        guard products.isEmpty else { return }
+        if let prepareTask {
+            await prepareTask.value
+            return
+        }
+        if let productPrepareTask {
+            await productPrepareTask.value
+            return
+        }
+        let task: Task<Void, Never> = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performProductPrepare()
+        }
+        productPrepareTask = task
+        await task.value
+        productPrepareTask = nil
+    }
+
+    private func performProductPrepare() async {
+        isLoading = true
+        defer { isLoading = false }
+        productLoadFailed = false
+        do {
+            products = sortProducts(try await Product.products(for: [
+                Self.monthlyProductId,
+                Self.annualProductId
+            ]))
+            productLoadFailed = products.isEmpty
+            if productLoadFailed {
+                setMessage(
+                    "暂时没有找到可用的订阅商品，请确认 App Store 商品配置后重试",
+                    source: .products
+                )
+            }
+        } catch {
+            productLoadFailed = true
+            setMessage(error.localizedDescription, source: .products, category: .entitlementFailure)
+        }
     }
 
     private func performPrepare() async {
@@ -729,14 +879,41 @@ final class MembershipStore: ObservableObject {
 
     func refreshForSettingsPresentation() async {
         // Settings can be opened while the root startup task is still waiting for
-        // the local-network permission decision. Share that work, then retry only
-        // when the completed attempt actually failed.
+        // the local-network permission decision. Share that work before deciding
+        // whether a fresh settings request is needed.
         if let prepareTask {
             await prepareTask.value
         } else if !didPrepare {
             await prepare()
         }
-        await retryFailedEntitlementAfterCooldown()
+        guard !Task.isCancelled else { return }
+        guard !isRefreshingEntitlements else { return }
+
+        if case .failed = entitlementLoadState {
+            await retryFailedEntitlementAfterCooldown()
+            return
+        }
+
+        guard Self.shouldRefreshForSettingsPresentation(
+            loadState: entitlementLoadState,
+            isRefreshing: isRefreshingEntitlements,
+            lastFinishedAt: lastEntitlementSyncFinishedAt,
+            now: Date()
+        ) else { return }
+        await refreshCurrentEntitlements(source: .settings)
+    }
+
+    static func shouldRefreshForSettingsPresentation(
+        loadState: EntitlementLoadState,
+        isRefreshing: Bool,
+        lastFinishedAt: Date?,
+        now: Date,
+        cooldown: TimeInterval = 3
+    ) -> Bool {
+        guard !isRefreshing else { return false }
+        if case .loading = loadState { return false }
+        guard let lastFinishedAt else { return true }
+        return now.timeIntervalSince(lastFinishedAt) >= cooldown
     }
 
     private func retryFailedEntitlementAfterCooldown() async {

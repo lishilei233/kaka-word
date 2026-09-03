@@ -91,11 +91,7 @@ struct PaywallView: View {
             await Task.yield()
             canPresentMembershipAlert = true
             membership.recordMetric("paywall_exposure")
-            if membership.products.isEmpty {
-                await membership.prepare()
-            } else {
-                await membership.refreshCurrentEntitlements(source: .purchase)
-            }
+            await membership.prepareProducts()
         }
         .alert("会员", isPresented: Binding(
             get: { canPresentMembershipAlert && membership.message != nil },
