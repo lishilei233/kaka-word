@@ -83,6 +83,34 @@ test("returns a stable error for an unknown content key", async () => {
   });
 });
 
+test("terms use the configured finite or unlimited member quota", async () => {
+  for (const expectation of [
+    { unlimited: false, limit: 240, pattern: /每个订阅月获得 240 次识别额度/ },
+    { unlimited: true, limit: 240, pattern: /每个订阅月提供无限识别额度/ },
+  ]) {
+    const configured: ServerConfig = {
+      ...config,
+      access: {
+        ...config.access,
+        memberQuotaDefault: expectation.limit,
+        memberQuotaUnlimited: expectation.unlimited,
+      },
+    };
+    const app = createApp({
+      config: configured,
+      provider: new MockVisionProvider(),
+      usageLimiter: new NeverCalledLimiter(),
+      logger,
+    });
+    const response = await app.request("/v1/content/terms");
+    const body = await response.json();
+    const text = JSON.stringify(body);
+    assert.equal(body.version, "1.2.0");
+    assert.match(text, expectation.pattern);
+    assert.doesNotMatch(text, /有限或无限识别额度|不提供无限识别/);
+  }
+});
+
 class NeverCalledLimiter implements AnalyzeUsageLimiter {
   calls = 0;
 

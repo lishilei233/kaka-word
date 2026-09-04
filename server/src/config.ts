@@ -21,6 +21,8 @@ export type AccessConfig = {
   appleOnlineChecks: boolean;
   monthlyProductId: string;
   annualProductId: string;
+  memberQuotaDefault?: number;
+  memberQuotaUnlimited?: boolean;
   deviceCheck: DeviceCheckConfig;
 };
 
@@ -72,6 +74,8 @@ function readAccessConfig(environment: NodeJS.ProcessEnv, defaultEnabled: boolea
     appleOnlineChecks: readBoolean(environment.APPLE_JWS_ONLINE_CHECKS, true, "APPLE_JWS_ONLINE_CHECKS"),
     monthlyProductId: environment.APPLE_MONTHLY_PRODUCT_ID?.trim() || "com.kakaword.app.membership.month",
     annualProductId: environment.APPLE_ANNUAL_PRODUCT_ID?.trim() || "com.kakaword.app.membership.annual",
+    memberQuotaDefault: readNonNegativeInteger(environment.MEMBER_QUOTA_DEFAULT, 100, "MEMBER_QUOTA_DEFAULT"),
+    memberQuotaUnlimited: readBoolean(environment.MEMBER_QUOTA_UNLIMITED, false, "MEMBER_QUOTA_UNLIMITED"),
     deviceCheck: {
       keyId: environment.DEVICECHECK_KEY_ID?.trim() ?? "",
       teamId: environment.APPLE_TEAM_ID?.trim() ?? "",
@@ -169,6 +173,14 @@ function readLogLevel(value: string | undefined): LogLevel {
 function readPositiveInteger(value: string | undefined, fallback: number, name: string): number {
   const parsed = value == null || value === "" ? fallback : Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
+function readNonNegativeInteger(value: string | undefined, fallback: number, name: string): number {
+  const parsed = value == null || value === "" ? fallback : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 1_000_000) {
+    throw new Error(`${name} must be an integer between 0 and 1000000`);
+  }
   return parsed;
 }
 

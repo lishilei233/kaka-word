@@ -18,6 +18,7 @@ export type ContentDocument = {
 };
 
 const updatedAt = "2026-08-26T00:00:00+08:00";
+const termsUpdatedAt = "2026-09-04T00:00:00+08:00";
 
 export const contentDocuments: Record<ContentKey, ContentDocument> = {
   privacy: {
@@ -68,8 +69,8 @@ export const contentDocuments: Record<ContentKey, ContentDocument> = {
     locale: "zh-CN",
     title: "服务条款",
     code: "TERMS",
-    version: "1.1.0",
-    updatedAt,
+    version: "1.2.0",
+    updatedAt: termsUpdatedAt,
     summary: "使用咔咔单词，即表示你同意在合理、合法的范围内使用本服务。",
     sections: [
       {
@@ -89,7 +90,7 @@ export const contentDocuments: Record<ContentKey, ContentDocument> = {
       {
         heading: "免费额度与会员",
         paragraphs: [
-          "每台设备可获得终身 3 次完整 AI 拍照识别。月会员与年会员在每个订阅月获得 100 次识别额度，额度不结转。只有成功生成至少一个有效物体的识别才扣除 1 次；失败、空结果、取消或超时不扣除。每次成功的重新识别也会扣除 1 次。",
+          "每台设备可获得终身 3 次完整 AI 拍照识别。月会员与年会员的每个订阅月可能提供有限或无限识别额度，具体以购买页面和最新会员状态显示为准，额度不结转。只有成功生成至少一个有效物体的识别才扣除 1 次；失败、空结果、取消或超时不扣除。每次成功的重新识别也会扣除 1 次。",
           "会员可以使用 AI 单词纠错，纠错不会扣除拍照识别额度，但仍受安全与服务容量限制。免费额度与会员识别的输出质量一致；额度用尽或会员到期后，已有历史、发音、分享和亲子寻宝仍可使用。",
         ],
         bullets: [],
@@ -101,7 +102,7 @@ export const contentDocuments: Record<ContentKey, ContentDocument> = {
           "符合条件的账单问题可进入最多 16 天的宽限期，宽限期内会员权益照常。退款、撤销或宽限期结束后，会员权益会立即停止。退款申请和结果由 Apple 按其规则处理。",
         ],
         bullets: [
-          "不提供免费试用、家庭共享、次数包或无限识别。",
+          "不提供免费试用、家庭共享或次数包。",
           "关闭自动续订、升级或降级不会提前赠送新的月度额度。",
           "最终价格、扣款币种和税费以购买确认界面显示的信息为准。",
         ],
@@ -134,6 +135,26 @@ export const contentDocuments: Record<ContentKey, ContentDocument> = {
     ],
   },
 };
+
+export function contentDocument(
+  key: ContentKey,
+  memberQuota: { limit: number; unlimited: boolean },
+): ContentDocument {
+  const document = contentDocuments[key];
+  if (key !== "terms") return document;
+
+  const quotaDescription = memberQuota.unlimited
+    ? "月会员与年会员在每个订阅月提供无限识别额度。"
+    : `月会员与年会员在每个订阅月获得 ${memberQuota.limit} 次识别额度，额度不结转。`;
+  const quotaParagraph = `每台设备可获得终身 3 次完整 AI 拍照识别。${quotaDescription}只有成功生成至少一个有效物体的识别才扣除 1 次；失败、空结果、取消或超时不扣除。每次成功的重新识别也会扣除 1 次。`;
+
+  return {
+    ...document,
+    sections: document.sections.map((section) => section.heading === "免费额度与会员"
+      ? { ...section, paragraphs: [quotaParagraph, ...section.paragraphs.slice(1)] }
+      : section),
+  };
+}
 
 export function isContentKey(value: string): value is ContentKey {
   return value === "privacy" || value === "terms" || value === "about";

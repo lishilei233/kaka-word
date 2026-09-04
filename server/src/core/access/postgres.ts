@@ -51,7 +51,7 @@ type OperationRow = {
 };
 
 const FREE_LIMIT = 3;
-const MEMBER_LIMIT = 100;
+const UNLIMITED_MEMBER_LIMIT = 2_147_483_647;
 const RESERVATION_TTL_MS = 10 * 60 * 1_000;
 
 export class PostgresAccessService implements AccessService {
@@ -468,12 +468,13 @@ export class PostgresAccessService implements AccessService {
   ): Promise<QuotaReservation> {
     const period = monthlyQuotaPeriod(subscription.original_purchase_at, new Date());
     const subjectId = subscriptionSubjectId(subscription.environment, subscription.original_transaction_id);
+    const effectiveLimit = this.memberLimit;
     await client.query(
       `INSERT INTO picture_word_quota_periods
         (subject_type, subject_id, period_start, period_end, quota_limit)
        VALUES ('subscription', $1, $2, $3, $4)
        ON CONFLICT (subject_type, subject_id, period_start) DO NOTHING`,
-      [subjectId, period.start, period.end, MEMBER_LIMIT],
+      [subjectId, period.start, period.end, effectiveLimit],
     );
     const quotaResult = await client.query<QuotaPeriodRow>(
       `SELECT used_count, reserved_count, quota_limit FROM picture_word_quota_periods
@@ -481,7 +482,14 @@ export class PostgresAccessService implements AccessService {
       [subjectId, period.start],
     );
     const quota = requiredRow(quotaResult.rows[0], "quota period");
-    if (quota.used_count + quota.reserved_count >= quota.quota_limit) {
+    quota.quota_limit = effectiveLimit;
+    await client.query(
+      `UPDATE picture_word_quota_periods SET quota_limit = $3, updated_at = clock_timestamp()
+       WHERE subject_type = 'subscription' AND subject_id = $1 AND period_start = $2`,
+      [subjectId, period.start, effectiveLimit],
+    );
+    if (quota.quota_limit !== UNLIMITED_MEMBER_LIMIT
+        && quota.used_count + quota.reserved_count >= quota.quota_limit) {
       return { allowed: false, entitlement: memberEntitlementFrom(subscription, quota, period) };
     }
     const reservationId = randomUUID();
@@ -518,14 +526,24 @@ export class PostgresAccessService implements AccessService {
     }
     const period = monthlyQuotaPeriod(subscription.original_purchase_at, new Date());
     const subjectId = subscriptionSubjectId(subscription.environment, subscription.original_transaction_id);
+    const effectiveLimit = this.memberLimit;
     const quota = await client.query<QuotaPeriodRow>(
       `SELECT used_count, reserved_count, quota_limit FROM picture_word_quota_periods
        WHERE subject_type = 'subscription' AND subject_id = $1 AND period_start = $2`,
       [subjectId, period.start],
     );
+    if (quota.rows[0]?.quota_limit !== effectiveLimit) {
+      await client.query(
+        `UPDATE picture_word_quota_periods SET quota_limit = $3, updated_at = clock_timestamp()
+         WHERE subject_type = 'subscription' AND subject_id = $1 AND period_start = $2`,
+        [subjectId, period.start, effectiveLimit],
+      );
+    }
     return memberEntitlementFrom(
       subscription,
-      quota.rows[0] ?? { used_count: 0, reserved_count: 0, quota_limit: MEMBER_LIMIT },
+      quota.rows[0]
+        ? { ...quota.rows[0], quota_limit: effectiveLimit }
+        : { used_count: 0, reserved_count: 0, quota_limit: effectiveLimit },
       period,
     );
   }
@@ -533,16 +551,32 @@ export class PostgresAccessService implements AccessService {
   private async memberEntitlement(subscription: SubscriptionRow): Promise<EntitlementSummary> {
     const period = monthlyQuotaPeriod(subscription.original_purchase_at, new Date());
     const subjectId = subscriptionSubjectId(subscription.environment, subscription.original_transaction_id);
+    const effectiveLimit = this.memberLimit;
     const result = await this.pool.query<QuotaPeriodRow>(
       `SELECT used_count, reserved_count, quota_limit FROM picture_word_quota_periods
        WHERE subject_type = 'subscription' AND subject_id = $1 AND period_start = $2`,
       [subjectId, period.start],
     );
+    if (result.rows[0]?.quota_limit !== effectiveLimit) {
+      await this.pool.query(
+        `UPDATE picture_word_quota_periods SET quota_limit = $3, updated_at = clock_timestamp()
+         WHERE subject_type = 'subscription' AND subject_id = $1 AND period_start = $2`,
+        [subjectId, period.start, effectiveLimit],
+      );
+    }
     return memberEntitlementFrom(
       subscription,
-      result.rows[0] ?? { used_count: 0, reserved_count: 0, quota_limit: MEMBER_LIMIT },
+      result.rows[0]
+        ? { ...result.rows[0], quota_limit: effectiveLimit }
+        : { used_count: 0, reserved_count: 0, quota_limit: effectiveLimit },
       period,
     );
+  }
+
+  private get memberLimit(): number {
+    return this.config.memberQuotaUnlimited === true
+      ? UNLIMITED_MEMBER_LIMIT
+      : this.config.memberQuotaDefault ?? 100;
   }
 
   private async loadInstallation(id: string, client: Pool | PoolClient = this.pool): Promise<InstallationRow> {
@@ -786,6 +820,7 @@ function memberEntitlementFrom(
     used: quota.used_count,
     reserved: quota.reserved_count,
     remaining: Math.max(0, quota.quota_limit - quota.used_count - quota.reserved_count),
+    unlimited: quota.quota_limit === UNLIMITED_MEMBER_LIMIT,
     periodStart: period.start.toISOString(),
     resetAt: period.end.toISOString(),
     expiresAt: subscription.expires_at.toISOString(),

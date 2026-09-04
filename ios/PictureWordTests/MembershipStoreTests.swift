@@ -255,6 +255,23 @@ final class MembershipStoreTests: XCTestCase {
         )
     }
 
+    func testUnlimitedQuotaUsesExplicitCopyAndPaywallState() {
+        let entitlement = makeMemberEntitlement(remaining: Int.max, unlimited: true)
+
+        XCTAssertEqual(
+            MembershipSettingsDisplayState.quotaText(entitlement: entitlement, state: .loaded),
+            "本期识别额度：无限"
+        )
+        XCTAssertEqual(
+            MembershipStore.membershipPaywallState(
+                entitlement: entitlement,
+                loadState: .loaded,
+                isRefreshing: false
+            ),
+            .unlimited
+        )
+    }
+
     func testSettingsRefreshSkipsActiveSyncAndRecentCompletion() {
         let now = Date(timeIntervalSince1970: 10_000)
         let loaded = EntitlementLoadState.loaded
@@ -444,7 +461,7 @@ final class MembershipStoreTests: XCTestCase {
         )
     }
 
-    private func makeMemberEntitlement(remaining: Int) -> EntitlementSummary {
+    private func makeMemberEntitlement(remaining: Int, unlimited: Bool = false) -> EntitlementSummary {
         EntitlementSummary(
             tier: "member",
             productId: MembershipStore.annualProductId,
@@ -453,6 +470,7 @@ final class MembershipStoreTests: XCTestCase {
             used: 100 - remaining,
             reserved: 0,
             remaining: remaining,
+            unlimited: unlimited,
             periodStart: "2026-08-01T00:00:00.000Z",
             resetAt: "2026-09-01T00:00:00.000Z",
             expiresAt: "2027-08-01T00:00:00.000Z",

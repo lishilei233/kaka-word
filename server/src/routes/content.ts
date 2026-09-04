@@ -1,8 +1,9 @@
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.js";
-import { contentDocuments, isContentKey } from "../content/documents.js";
+import type { AccessConfig } from "../config.js";
+import { contentDocument, isContentKey } from "../content/documents.js";
 
-export function registerContentRoute(app: Hono<AppEnv>): void {
+export function registerContentRoute(app: Hono<AppEnv>, accessConfig: AccessConfig): void {
   app.get("/v1/content/:key", (c) => {
     const key = c.req.param("key");
     if (!isContentKey(key)) {
@@ -10,6 +11,9 @@ export function registerContentRoute(app: Hono<AppEnv>): void {
     }
 
     c.header("Cache-Control", "public, max-age=300, must-revalidate");
-    return c.json(contentDocuments[key]);
+    return c.json(contentDocument(key, {
+      limit: accessConfig.memberQuotaDefault ?? 100,
+      unlimited: accessConfig.memberQuotaUnlimited === true,
+    }));
   });
 }

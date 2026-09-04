@@ -41,7 +41,8 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
 
   const verifier = new FakeStoreVerifier();
   const deviceCheck = new FakeDeviceCheck();
-  const service = new PostgresAccessService(accessConfig(isolatedURL.toString()), verifier, deviceCheck, logger);
+  const serviceConfig = accessConfig(isolatedURL.toString());
+  const service = new PostgresAccessService(serviceConfig, verifier, deviceCheck, logger);
   t.after(async () => {
     await service.close();
     await setupPool.end();
@@ -132,6 +133,11 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
   assert.equal(status.used, 1);
   assert.equal(status.reserved, 99);
   assert.equal(status.remaining, 0);
+
+  serviceConfig.memberQuotaUnlimited = true;
+  const environmentUnlimited = await service.status(secondPrincipal);
+  assert.equal(environmentUnlimited.unlimited, true);
+  assert.equal((await service.reserveAnalyze(secondPrincipal, randomUUID())).allowed, true);
 });
 
 function accessConfig(databaseURL: string): AccessConfig {

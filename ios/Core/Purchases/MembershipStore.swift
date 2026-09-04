@@ -18,6 +18,7 @@ struct EntitlementSummary: Codable, Equatable, Sendable {
     let used: Int
     let reserved: Int
     let remaining: Int
+    let unlimited: Bool?
     let periodStart: String?
     let resetAt: String?
     let expiresAt: String?
@@ -27,6 +28,8 @@ struct EntitlementSummary: Codable, Equatable, Sendable {
     var isMember: Bool {
         tier == "member" && (subscriptionState == "active" || subscriptionState == "grace")
     }
+
+    var hasUnlimitedQuota: Bool { unlimited == true }
 
     var resetDate: Date? { resetAt.flatMap(Self.dateFormatter.date(from:)) }
     var expirationDate: Date? { expiresAt.flatMap(Self.dateFormatter.date(from:)) }
@@ -143,7 +146,9 @@ enum MembershipSettingsDisplayState: Equatable, Sendable {
                 ? "暂时无法读取"
                 : "正在读取识别额度…"
         }
-        let quota = "本期剩余 \(entitlement.remaining)/\(entitlement.limit) 次识别"
+        let quota = entitlement.hasUnlimitedQuota
+            ? "本期识别额度：无限"
+            : "本期剩余 \(entitlement.remaining)/\(entitlement.limit) 次识别"
         return quota
     }
 }
@@ -151,6 +156,7 @@ enum MembershipSettingsDisplayState: Equatable, Sendable {
 enum MembershipPaywallState: Equatable, Sendable {
     case syncing
     case active(remaining: Int, limit: Int)
+    case unlimited
     case exhausted
     case unavailable
 }
@@ -681,7 +687,7 @@ final class MembershipStore: ObservableObject {
         entitlementSyncLoopTask?.cancel()
     }
 
-    var canStartRecognition: Bool { (entitlement?.remaining ?? 0) > 0 }
+    var canStartRecognition: Bool { entitlement?.hasUnlimitedQuota == true || (entitlement?.remaining ?? 0) > 0 }
     var isMember: Bool { entitlement?.isMember == true }
     var hasFreshEntitlement: Bool { entitlementLoadState.hasFreshValue }
     var hasUnavailableEntitlement: Bool {
@@ -717,6 +723,7 @@ final class MembershipStore: ObservableObject {
         guard let entitlement, entitlement.isMember else { return .unavailable }
         if case .failed = loadState { return .unavailable }
         guard !isRefreshing, loadState.hasFreshValue else { return .syncing }
+        if entitlement.hasUnlimitedQuota { return .unlimited }
         return entitlement.remaining <= 0
             ? .exhausted
             : .active(remaining: max(0, entitlement.remaining), limit: entitlement.limit)
@@ -1480,6 +1487,7 @@ final class MembershipStore: ObservableObject {
         EntitlementSummary(
             tier: "free", productId: nil, subscriptionState: "none",
             limit: 3, used: 0, reserved: 0, remaining: 3,
+            unlimited: false,
             periodStart: nil, resetAt: nil, expiresAt: nil,
             autoRenewEnabled: nil, vocabularyCorrectionEnabled: false
         )
@@ -1499,6 +1507,7 @@ final class MembershipStore: ObservableObject {
         return EntitlementSummary(
             tier: "member", productId: transaction.productID, subscriptionState: "active",
             limit: 100, used: 0, reserved: 0, remaining: 100,
+            unlimited: false,
             periodStart: formatter.string(from: now),
             resetAt: formatter.string(from: reset),
             expiresAt: formatter.string(from: expiration),

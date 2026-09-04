@@ -10,6 +10,7 @@ export type EntitlementSummary = {
   used: number;
   reserved: number;
   remaining: number;
+  unlimited?: boolean;
   periodStart: string | null;
   resetAt: string | null;
   expiresAt: string | null;
@@ -127,6 +128,7 @@ export function disabledEntitlement(): EntitlementSummary {
     used: 0,
     reserved: 0,
     remaining: Number.MAX_SAFE_INTEGER,
+    unlimited: true,
     periodStart: null,
     resetAt: null,
     expiresAt: null,

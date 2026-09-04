@@ -119,7 +119,7 @@ struct PaywallView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Color.ink)
                 .lineSpacing(2)
-            Text("每个额度月 100 次完整 AI 拍照识别")
+            Text("会员额度以服务端实时显示为准")
                 .font(.system(.subheadline, design: .rounded, weight: .bold))
                 .foregroundStyle(Color.ink.opacity(0.58))
         }
@@ -127,7 +127,7 @@ struct PaywallView: View {
 
     private var benefits: some View {
         VStack(alignment: .leading, spacing: 13) {
-            benefit("camera.viewfinder", "每月 100 次完整拍照识词")
+            benefit("camera.viewfinder", "每个额度月享有完整拍照识词额度")
             benefit("pencil.and.outline", "AI 修改单词并补全音标、释义和例句")
             benefit("books.vertical.fill", "历史、发音、分享和亲子寻宝持续保留")
         }
@@ -245,6 +245,8 @@ struct PaywallView: View {
             membershipSyncingCard
         case .active(let remaining, let limit):
             activeMembershipCard(remaining: remaining, limit: limit)
+        case .unlimited:
+            unlimitedMembershipCard
         case .exhausted:
             quotaExhaustedCard
         case .unavailable:
@@ -286,6 +288,24 @@ struct PaywallView: View {
                     .foregroundStyle(Color.ink.opacity(0.58))
                     .multilineTextAlignment(.center)
             }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(Color.paperLight.opacity(0.82), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.08)) }
+    }
+
+    private var unlimitedMembershipCard: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "infinity.circle.fill")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(Color.mint)
+            Text("咔咔会员已开通")
+                .font(.system(.headline, design: .rounded, weight: .heavy))
+                .foregroundStyle(Color.ink)
+            Text("本期识别额度：无限")
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(Color.ink.opacity(0.7))
         }
         .padding(20)
         .frame(maxWidth: .infinity)

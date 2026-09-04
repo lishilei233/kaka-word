@@ -28,6 +28,38 @@ test("keeps access control disabled by default for the mock provider", () => {
   assert.equal(config.access.enabled, false);
 });
 
+test("reads a configurable non-negative member quota default", () => {
+  const config = readServerConfig({
+    VISION_PROVIDER: "mock",
+    USAGE_LIMIT_ENABLED: "false",
+    ACCESS_CONTROL_ENABLED: "false",
+    MEMBER_QUOTA_DEFAULT: "0",
+  });
+  assert.equal(config.access.memberQuotaDefault, 0);
+  assert.throws(() => readServerConfig({
+    VISION_PROVIDER: "mock",
+    USAGE_LIMIT_ENABLED: "false",
+    ACCESS_CONTROL_ENABLED: "false",
+    MEMBER_QUOTA_DEFAULT: "-1",
+  }), /MEMBER_QUOTA_DEFAULT/);
+});
+
+test("allows unlimited member quota to be enabled with one environment variable", () => {
+  const config = readServerConfig({
+    VISION_PROVIDER: "mock",
+    USAGE_LIMIT_ENABLED: "false",
+    ACCESS_CONTROL_ENABLED: "false",
+    MEMBER_QUOTA_UNLIMITED: "true",
+  });
+  assert.equal(config.access.memberQuotaUnlimited, true);
+  assert.throws(() => readServerConfig({
+    VISION_PROVIDER: "mock",
+    USAGE_LIMIT_ENABLED: "false",
+    ACCESS_CONTROL_ENABLED: "false",
+    MEMBER_QUOTA_UNLIMITED: "yes",
+  }), /MEMBER_QUOTA_UNLIMITED/);
+});
+
 test("requires Apple and DeviceCheck secrets when access control is enabled", () => {
   assert.throws(
     () => readServerConfig({

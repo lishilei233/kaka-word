@@ -37,7 +37,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
   app.use("*", requestLogger(logger, config.logLevel));
 
   app.get("/health", (c) => c.json({ ok: true, provider: config.vision.name }));
-  registerContentRoute(app);
+  registerContentRoute(app, config.access);
   registerAccessRoutes(app, { accessService, logger });
   registerStoreRoutes(app, { accessService, logger });
   registerMetricsRoute(app, { accessService, logger });

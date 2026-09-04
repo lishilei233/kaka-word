@@ -21,13 +21,15 @@ App 首次启动调用 `POST /v1/access/bootstrap`，提交随机安装 ID 与 A
 
 `POST /v1/metrics` 只接收经过白名单限制的付费墙、方案选择、购买和恢复结果。服务端还会聚合识别结果、额度耗尽、纠错与订阅通知；数据按日、事件、产品和结果累计，不保存照片、安装标识、交易标识或其他个人身份。
 
-免费额度按设备终身 3 次。会员通过 Apple 的 `originalTransactionId` 跨设备共享每个订阅月 100 次额度，周期以首次购买时间为锚点并按月末截断。活跃订阅与账单宽限期提供权益，退款、撤销或宽限期结束后不再提供会员权益。
+免费额度按设备终身 3 次。会员通过 Apple 的 `originalTransactionId` 跨设备共享订阅月额度，周期以首次购买时间为锚点并按月末截断。统一有限额度由 `MEMBER_QUOTA_DEFAULT` 设置（默认 100）；设置 `MEMBER_QUOTA_UNLIMITED=true` 会让所有会员使用无限额度。活跃订阅与账单宽限期提供权益，退款、撤销或宽限期结束后不再提供会员权益。
 
 生产部署需要在 `.env` 配置：
 
 ```env
 ACCESS_CONTROL_ENABLED=true
 ACCESS_TOKEN_HASH_SECRET=<至少 32 字符且不同于 IP 哈希的随机值>
+MEMBER_QUOTA_DEFAULT=100
+MEMBER_QUOTA_UNLIMITED=false
 APPLE_BUNDLE_ID=com.kakaword.app
 APPLE_APP_ID=<App Store Connect 中的数字 Apple ID>
 APPLE_ROOT_CERTIFICATE_PATHS=/run/secrets/AppleRootCA-G3.cer
@@ -39,6 +41,8 @@ DEVICECHECK_ENVIRONMENT=production
 ```
 
 Apple Root CA 证书和 DeviceCheck 私钥必须作为部署密钥挂载，不能提交到仓库。本地 Mock 开发可同时设置 `ACCESS_CONTROL_ENABLED=false` 和 `USAGE_LIMIT_ENABLED=false`。生产与 Sandbox 的 Apple 交易按 `environment` 分区保存；DeviceCheck 测试环境使用 `development`。
+
+修改额度环境变量后需要重启服务。`MEMBER_QUOTA_UNLIMITED=true` 的优先级高于 `MEMBER_QUOTA_DEFAULT`；改回 `false` 后恢复有限额度。权益响应通过 `unlimited: true` 明确标识无限额度，同时保留兼容旧客户端的数值 `limit`/`remaining`。
 
 ## 全站用量保护
 
