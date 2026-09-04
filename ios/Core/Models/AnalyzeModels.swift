@@ -38,6 +38,12 @@ struct VocabularyDetails: Codable, Hashable {
     let exampleChinese: String?
 }
 
+enum ObjectConfirmationStatus: String, Codable, Hashable {
+    case confirmed
+    case needsConfirmation
+    case userConfirmed
+}
+
 struct LearningObject: Codable, Identifiable, Hashable {
     let id: String
     let english: String
@@ -48,9 +54,58 @@ struct LearningObject: Codable, Identifiable, Hashable {
     let anchor: ObjectAnchor?
     let example: String
     let exampleChinese: String?
+    let candidates: [VocabularyDetails]?
+    let confirmationStatus: ObjectConfirmationStatus?
     /// 用户手动放置的标签中心与引导线终点；缺失时继续使用自动布局和 AI 锚点。
     let labelCenterOverride: ObjectAnchor?
     let targetOverride: ObjectAnchor?
+
+    init(
+        id: String,
+        english: String,
+        chinese: String,
+        ipa: String,
+        confidence: Double,
+        box: ObjectBox,
+        anchor: ObjectAnchor?,
+        example: String,
+        exampleChinese: String?,
+        candidates: [VocabularyDetails]? = nil,
+        confirmationStatus: ObjectConfirmationStatus? = nil,
+        labelCenterOverride: ObjectAnchor?,
+        targetOverride: ObjectAnchor?
+    ) {
+        self.id = id
+        self.english = english
+        self.chinese = chinese
+        self.ipa = ipa
+        self.confidence = confidence
+        self.box = box
+        self.anchor = anchor
+        self.example = example
+        self.exampleChinese = exampleChinese
+        self.candidates = candidates
+        self.confirmationStatus = confirmationStatus
+        self.labelCenterOverride = labelCenterOverride
+        self.targetOverride = targetOverride
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        english = try container.decode(String.self, forKey: .english)
+        chinese = try container.decode(String.self, forKey: .chinese)
+        ipa = try container.decode(String.self, forKey: .ipa)
+        confidence = try container.decode(Double.self, forKey: .confidence)
+        box = try container.decode(ObjectBox.self, forKey: .box)
+        anchor = try container.decodeIfPresent(ObjectAnchor.self, forKey: .anchor)
+        example = try container.decode(String.self, forKey: .example)
+        exampleChinese = try container.decodeIfPresent(String.self, forKey: .exampleChinese)
+        candidates = try container.decodeIfPresent([VocabularyDetails].self, forKey: .candidates)
+        confirmationStatus = try container.decodeIfPresent(ObjectConfirmationStatus.self, forKey: .confirmationStatus)
+        labelCenterOverride = try container.decodeIfPresent(ObjectAnchor.self, forKey: .labelCenterOverride)
+        targetOverride = try container.decodeIfPresent(ObjectAnchor.self, forKey: .targetOverride)
+    }
 
     func replacingVocabulary(with details: VocabularyDetails) -> LearningObject {
         LearningObject(
@@ -63,6 +118,8 @@ struct LearningObject: Codable, Identifiable, Hashable {
             anchor: anchor,
             example: details.example,
             exampleChinese: details.exampleChinese,
+            candidates: nil,
+            confirmationStatus: .userConfirmed,
             labelCenterOverride: labelCenterOverride,
             targetOverride: targetOverride
         )
@@ -79,8 +136,33 @@ struct LearningObject: Codable, Identifiable, Hashable {
             anchor: anchor,
             example: example,
             exampleChinese: exampleChinese,
+            candidates: candidates,
+            confirmationStatus: confirmationStatus,
             labelCenterOverride: labelCenter ?? labelCenterOverride,
             targetOverride: target ?? targetOverride
+        )
+    }
+
+
+    var needsConfirmation: Bool {
+        confirmationStatus == .needsConfirmation && !(candidates ?? []).isEmpty
+    }
+
+    func choosingCandidate(_ candidate: VocabularyDetails) -> LearningObject {
+        LearningObject(
+            id: id,
+            english: candidate.english,
+            chinese: candidate.chinese,
+            ipa: candidate.ipa,
+            confidence: confidence,
+            box: box,
+            anchor: anchor,
+            example: candidate.example,
+            exampleChinese: candidate.exampleChinese,
+            candidates: candidates,
+            confirmationStatus: .userConfirmed,
+            labelCenterOverride: labelCenterOverride,
+            targetOverride: targetOverride
         )
     }
 

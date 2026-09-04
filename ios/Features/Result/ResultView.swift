@@ -253,6 +253,9 @@ struct PhotoWordCardDetailView: View {
     var onResultChange: ((AnalyzeResult) -> String?)?
 
     @State private var selectedObject: LearningObject?
+    @State private var confirmationObject: LearningObject?
+    @State private var presentedConfirmationID: String?
+    @State private var handledConfirmationIDs: Set<String> = []
     @State private var editErrorMessage: String?
     @State private var showTips = false
     @State private var showAddWord = false
@@ -314,6 +317,14 @@ struct PhotoWordCardDetailView: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color.paper)
         }
+        .sheet(item: $confirmationObject, onDismiss: finishConfirmationPresentation) { object in
+            ObjectConfirmationSheet(
+                image: image.cropped(to: object.box) ?? image,
+                object: object,
+                onChoose: confirmObject
+            )
+            .pictureWordSheetPresentation()
+        }
         .sheet(isPresented: $showAddWord) {
             ManualVocabularySheet(onAdd: addObject)
                 .pictureWordSheetPresentation()
@@ -343,6 +354,7 @@ struct PhotoWordCardDetailView: View {
             }
             if case .recognizing = oldStatus, newStatus.isComplete {
                 isRevealingCompletion = true
+                presentNextConfirmation()
             }
         }
         .onChange(of: result.objects.map(\.id)) { _, objectIDs in
@@ -350,6 +362,7 @@ struct PhotoWordCardDetailView: View {
                 finishAnnotationEditing()
             }
         }
+        .onAppear(perform: presentNextConfirmation)
     }
 
     private var legacyHeader: some View {
@@ -532,8 +545,13 @@ struct PhotoWordCardDetailView: View {
             showsShadow: false
         ) { object in
             finishAnnotationEditing()
-            wordDetailDetent = .medium
-            selectedObject = object
+            if object.needsConfirmation {
+                handledConfirmationIDs.remove(object.id)
+                confirmationObject = object
+            } else {
+                wordDetailDetent = .medium
+                selectedObject = object
+            }
         } onUpdate: { object in
             updateObject(object).map { editErrorMessage = $0 }
         }
@@ -606,6 +624,36 @@ struct PhotoWordCardDetailView: View {
             return error
         }
         return nil
+    }
+
+    private func presentNextConfirmation() {
+        guard status.isComplete,
+              onResultChange != nil,
+              confirmationObject == nil,
+              selectedObject == nil else { return }
+        confirmationObject = result.objects.first {
+            $0.needsConfirmation && !handledConfirmationIDs.contains($0.id)
+        }
+        presentedConfirmationID = confirmationObject?.id
+    }
+
+    private func confirmObject(_ object: LearningObject) -> String? {
+        if let error = updateObject(object) {
+            return error
+        }
+        handledConfirmationIDs.insert(object.id)
+        confirmationObject = nil
+        return nil
+    }
+
+    private func finishConfirmationPresentation() {
+        if let presentedConfirmationID {
+            handledConfirmationIDs.insert(presentedConfirmationID)
+        }
+        presentedConfirmationID = nil
+        DispatchQueue.main.async {
+            presentNextConfirmation()
+        }
     }
 
     private func deleteObject(_ object: LearningObject) -> String? {
@@ -903,6 +951,172 @@ private struct PhotoCaptionCard: View {
             return "图片描述，\(caption)，\(visibleChineseCaption)"
         }
         return "图片描述，\(caption)"
+    }
+}
+
+private struct ObjectConfirmationSheet: View {
+    let image: UIImage
+    let object: LearningObject
+    let onChoose: (LearningObject) -> String?
+
+    @EnvironmentObject private var membership: MembershipStore
+    @State private var showsManualEntry = false
+    @State private var term = ""
+    @State private var isResolving = false
+    @State private var errorMessage: String?
+    @State private var showPaywall = false
+
+    var body: some View {
+        PictureWordSheet {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    PictureWordSheetHeader(
+                        eyebrow: "CHECK WORD",
+                        title: "这个物体是什么？"
+                    )
+
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .accessibilityLabel("待确认物体图片")
+
+                    ForEach(Array((object.candidates ?? []).prefix(3).enumerated()), id: \.offset) { _, candidate in
+                        Button {
+                            choose(candidate)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(candidate.english)
+                                        .font(.system(.headline, design: .rounded, weight: .bold))
+                                    Text(candidate.chinese)
+                                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                                        .foregroundStyle(Color.ink.opacity(0.58))
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                            }
+                            .foregroundStyle(Color.ink)
+                            .padding(16)
+                            .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.ink.opacity(0.1))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isResolving)
+                        .accessibilityLabel("选择 \(candidate.english)，\(candidate.chinese)")
+                    }
+
+                    if showsManualEntry {
+                        PictureWordTextField(
+                            "输入中文或英文单词",
+                            text: $term,
+                            autoFocus: true,
+                            isLoading: isResolving,
+                            onSubmit: resolveManualTerm
+                        )
+                        .disabled(isResolving)
+
+                        PictureWordButton(
+                            "确认修改",
+                            systemImage: "checkmark",
+                            isLoading: isResolving,
+                            action: resolveManualTerm
+                        )
+                        .disabled(isResolving || submittedTerm.isEmpty || submittedTerm.count > 60)
+                    } else {
+                        PictureWordButton(
+                            "其他",
+                            systemImage: "pencil",
+                            style: .secondary,
+                            action: beginManualEntry
+                        )
+                        .disabled(isResolving)
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(.caption, design: .rounded, weight: .semibold))
+                            .foregroundStyle(Color.coral)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(onPurchaseCompleted: { showsManualEntry = true })
+                .environmentObject(membership)
+        }
+    }
+
+    private var submittedTerm: String {
+        term.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func choose(_ candidate: VocabularyDetails) {
+        errorMessage = onChoose(object.choosingCandidate(candidate))
+    }
+
+    private func beginManualEntry() {
+        if membership.isMember {
+            showsManualEntry = true
+        } else {
+            showPaywall = true
+        }
+    }
+
+    private func resolveManualTerm() {
+        guard membership.isMember,
+              !submittedTerm.isEmpty,
+              submittedTerm.count <= 60,
+              !isResolving else { return }
+        isResolving = true
+        errorMessage = nil
+        Task {
+            do {
+                let details = try await APIClient().resolveVocabulary(term: submittedTerm)
+                errorMessage = onChoose(object.replacingVocabulary(with: details))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isResolving = false
+        }
+    }
+}
+
+private extension UIImage {
+    func cropped(to box: ObjectBox) -> UIImage? {
+        let x = max(0, min(1, box.x))
+        let y = max(0, min(1, box.y))
+        let normalizedRect = CGRect(
+            x: x,
+            y: y,
+            width: max(0, min(1 - x, box.width)),
+            height: max(0, min(1 - y, box.height))
+        )
+        guard normalizedRect.width > 0, normalizedRect.height > 0 else { return nil }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        let normalized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: size))
+        }
+        guard let cgImage = normalized.cgImage else { return nil }
+        let pixelRect = CGRect(
+            x: normalizedRect.minX * CGFloat(cgImage.width),
+            y: normalizedRect.minY * CGFloat(cgImage.height),
+            width: normalizedRect.width * CGFloat(cgImage.width),
+            height: normalizedRect.height * CGFloat(cgImage.height)
+        ).integral.intersection(CGRect(
+            x: 0,
+            y: 0,
+            width: CGFloat(cgImage.width),
+            height: CGFloat(cgImage.height)
+        ))
+        guard !pixelRect.isEmpty, let cropped = cgImage.cropping(to: pixelRect) else { return nil }
+        return UIImage(cgImage: cropped, scale: scale, orientation: .up)
     }
 }
 

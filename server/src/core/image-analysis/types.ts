@@ -12,6 +12,16 @@ export const objectAnchorSchema = z.object({
   y: z.number().min(0).max(1),
 });
 
+export const objectCandidateSchema = z.object({
+  english: z.string().min(1).max(60),
+  chinese: z.string().min(1).max(60),
+  ipa: z.string().max(80).default(""),
+  example: z.string().min(1).max(180),
+  exampleChinese: z.string().min(1).max(180).optional(),
+});
+
+export const confirmationStatusSchema = z.enum(["confirmed", "needsConfirmation", "userConfirmed"]);
+
 export const learningObjectSchema = z.object({
   id: z.string().min(1).max(40),
   english: z.string().min(1).max(60),
@@ -22,6 +32,8 @@ export const learningObjectSchema = z.object({
   anchor: objectAnchorSchema.optional(),
   example: z.string().min(1).max(180),
   exampleChinese: z.string().min(1).max(180).optional(),
+  candidates: z.array(objectCandidateSchema).min(2).max(3).optional(),
+  confirmationStatus: confirmationStatusSchema.default("confirmed"),
 });
 
 export const captionStyleSchema = z.enum(["serious", "funny"]);
@@ -51,6 +63,7 @@ export type AnalyzeResult = z.infer<typeof analyzeResultSchema>;
 export type CaptionStyle = z.infer<typeof captionStyleSchema>;
 export type RequestedCaptionStyle = z.infer<typeof requestedCaptionStyleSchema>;
 export type VocabularyDetails = z.infer<typeof vocabularyDetailsSchema>;
+export type ConfirmationStatus = z.infer<typeof confirmationStatusSchema>;
 
 export type VisionInput = {
   image: Uint8Array;

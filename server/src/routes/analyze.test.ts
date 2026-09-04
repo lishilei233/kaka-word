@@ -19,6 +19,7 @@ import type {
   VocabularyDetails,
   VocabularyInput,
 } from "../core/image-analysis/types.js";
+import { learningObjectSchema } from "../core/image-analysis/types.js";
 import type { AnalyzeUsageLimiter, UsageLimitDecision } from "../core/usage-limits/index.js";
 import type { Logger } from "../utils/logger.js";
 
@@ -57,6 +58,43 @@ const config: ServerConfig = {
   },
 };
 
+test("keeps older learning objects confirmed when candidate fields are absent", () => {
+  const object = learningObjectSchema.parse({
+    id: "obj_legacy",
+    english: "cup",
+    chinese: "杯子",
+    ipa: "/kʌp/",
+    confidence: 0.9,
+    box: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+    example: "This is a cup.",
+  });
+  assert.equal(object.confirmationStatus, "confirmed");
+  assert.equal(object.candidates, undefined);
+});
+
+test("accepts at most three complete candidates", () => {
+  const base = {
+    id: "obj_uncertain",
+    english: "mug",
+    chinese: "杯子",
+    ipa: "/mʌɡ/",
+    confidence: 0.6,
+    box: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+    example: "This is a mug.",
+    confirmationStatus: "needsConfirmation",
+  };
+  const candidate = {
+    english: "mug",
+    chinese: "杯子",
+    ipa: "/mʌɡ/",
+    example: "This is a mug.",
+    exampleChinese: "这是一个杯子。",
+  };
+  assert.equal(learningObjectSchema.parse({ ...base, candidates: [candidate, candidate] }).candidates?.length, 2);
+  assert.equal(learningObjectSchema.safeParse({ ...base, candidates: [candidate, candidate, candidate, candidate] }).success, false);
+  assert.equal(learningObjectSchema.safeParse({ ...base, candidates: [{ english: "mug" }, candidate] }).success, false);
+});
+
 test("streams validated mock objects before the complete result", async () => {
   const limiter = new FakeUsageLimiter();
   const app = makeApp(limiter);
@@ -68,6 +106,8 @@ test("streams validated mock objects before the complete result", async () => {
   const events = [...body.matchAll(/^event: (.+)$/gm)].map((match) => match[1]);
   assert.deepEqual(events, ["started", "object", "object", "object", "complete", "quota"]);
   assert.match(body, /"english":"mug"/);
+  assert.match(body, /"confirmationStatus":"needsConfirmation"/);
+  assert.match(body, /"english":"vase"/);
   assert.match(body, /"captionStyle":"serious"/);
   assert.match(body, /"caption":"A mug, a book, and a plant sit together on the table\."/);
   assert.match(body, /"captionChinese":"一个杯子、一本书和一盆植物摆在一起。"/);

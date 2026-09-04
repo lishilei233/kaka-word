@@ -1,0 +1,58 @@
+### TODO-003：修复上传照片进度条从 0% 到 100% 缺少平滑过渡
+
+- 类型：bug
+- 优先级：P2
+- 状态：已完成
+- 需求描述：上传照片时，进度条看起来从 0% 直接跳到 100%，缺少连续的视觉过渡，需要确认真实上传进度是否正常传递，以及 UI 是否正确表现进度变化。
+- 简要分析：
+  - `UploadRequestExecutor` 已通过 `URLSessionTaskDelegate.didSendBodyData` 提供真实上传进度，并在开始时发送 0、完成时发送 1；目前不是完全没有进度数据。
+  - `AnalysisViewModel.receiveUploadProgress` 每次回调直接更新 `phase`，没有使用显式线性动画、显示值插值或回调节流；网络回调较快时，SwiftUI 可能来不及渲染中间帧。
+  - 进度达到 1.0 后会立即将状态切换为 `.analyzing`，因此 100% 状态可能还未完成一次可见渲染就被替换为 AI 分析状态。
+  - 需要分别验证：回调本身是否只产生 0/1 两个值、主线程状态更新是否丢失中间值、进度条是否缺少动画，以及上传完成到 AI 分析之间是否需要短暂保持完成态。
+- 影响范围：`ios/Core/Networking/APIClient.swift`、`ios/Features/Analysis/AnalysisViewModel.swift`、`ios/Features/Result/ResultView.swift`；可能涉及上传进度测试和识别阶段文案。
+- 验收标准：
+  - 在大图片、慢速网络和正常网络下，进度条能根据真实上传进度连续、单调地从 0% 变化到 100%。
+  - 进度百分比和进度条宽度保持一致，不出现回退、超过 100% 或明显跳变。
+  - 上传完成后能稳定看到 100% 或明确的“上传完成”，再进入 AI 分析状态；不能因为动画导致识别流程被阻塞。
+  - 小图片或极快上传时，即使真实回调很少，也应有合理的最小视觉过渡；不得用与实际进度严重不符的假进度误导用户。
+  - 取消识别、上传失败、重试和重复进入识别流程时，进度状态正确重置，不残留上一次进度。
+  - 增加或完善进度回调与 UI 状态测试，覆盖 0、连续中间值、重复值、回退值和 1.0 等输入。
+- 备注：优先确认数据链路，再决定采用显式动画、进度插值、回调节流或短暂的“上传完成”过渡；真实上传进度仍应作为基础数据。关联：识别上传状态组件。
+- 执行记录（2026-09-02）：
+  - 状态：待验证
+  - 实现摘要：保留真实上传回调的单调进度，移除请求结束时重复发送的 `1.0`，不再在进度达到 100% 时立即切换分析态；上传完成态至少保留约 180ms，进度百分比与进度条宽度共享动画显示值。
+  - 涉及范围：`ios/Core/Networking/APIClient.swift`、`ios/Features/Analysis/AnalysisViewModel.swift`、`ios/Features/Result/ResultView.swift`、`ios/PictureWordTests/AnalysisViewModelTests.swift` 及测试 target 配置。
+  - 验证：`xcrun swiftc -frontend -parse ...` 通过；使用去除 `#Preview` 宏块的临时副本执行完整 iOS 源码 `swiftc -typecheck` 通过。`xcodebuild test` 和 `xcodebuild build` 未能进入测试/编译阶段，原因是当前环境没有可用的 iOS Simulator runtime，`actool` 报 `No available simulator runtimes for platform iphonesimulator`。
+  - 后续事项：在可用 Simulator 或真机上验证大图、慢速网络、极快上传、取消/失败/重试，以及 Reduce Motion 下的实际动画与状态切换。
+- 执行记录（2026-09-02，方案调整）：
+  - 状态：待验证
+  - 实现摘要：部分撤销上一版百分比 UI、显示值插值和 100% 保持态；识别处理中统一显示“正在分析照片…”，移除右侧百分比/实时单词数，准备、上传、分析阶段统一使用左右往返滑动效果，仅变化顶部阶段标签。保留真实上传回调去重、进度归一化和单调保护。
+  - 涉及范围：`ios/Features/Analysis/AnalysisViewModel.swift`、`ios/Features/Result/ResultView.swift`、`ios/PictureWordTests/AnalysisViewModelTests.swift`。
+  - 验证：`git diff --check`、目标 Swift 文件语法解析通过；使用去除 `#Preview` 宏块的临时副本执行完整 iOS 源码 `swiftc -typecheck` 通过。`xcodebuild test` 未能进入测试阶段，原因是当前环境没有可用的 iOS Simulator runtime，无法找到指定设备。
+  - 后续事项：重点确认极快上传不会出现空白等待，上传/分析阶段的顶部标签切换、取消/失败/重试重置，以及 Reduce Motion 下静态进度段表现。
+- 执行记录（2026-09-02，状态文案调整）：
+  - 状态：待验证
+  - 实现摘要：保留统一的左右滑动进度条和顶部阶段标签，但将识别处理中正文改为按阶段显示“正在准备照片…”、“正在上传照片…”和“正在分析照片…”，避免所有阶段重复显示同一文案。
+  - 涉及范围：`ios/Features/Result/ResultView.swift`。
+  - 验证：`git diff --check`、目标 Swift 文件语法解析和完整 iOS 源码 `swiftc -typecheck` 通过；iOS 测试仍受当前环境没有可用 Simulator runtime 阻断。
+  - 后续事项：确认正文与顶部标签的切换时机一致，完成/失败/取消文案保持不变。
+- 执行记录（2026-09-02，完成态揭示动画）：
+  - 状态：待验证
+  - 实现摘要：对上一版 UI 方案继续做局部调整：仅在 `recognizing → complete` 时显示私有完成态页脚，顶部切换为 `COMPLETE`，Coral 进度线约 320ms 填充到满宽，约 80ms 后底部现有详情以约 240ms 淡入；照片和识别标签保持可见。历史详情首次以 `.complete` 打开时直接显示详情；取消、失败、重试和再次识别会清理完成揭示状态；Reduce Motion 下按相同顺序但跳过填充与淡入动画。
+  - 涉及范围：`ios/Features/Result/ResultView.swift`。
+  - 验证：`git diff --check`、目标 Swift 文件语法解析和使用可写临时模块缓存的完整 iOS 源码 `swiftc -typecheck` 通过；Xcode 构建已进入 Swift 编译准备，但资源编译因当前环境没有可用的 iOS Simulator runtime 失败，尚未完成运行时验证。
+  - 后续事项：在可用 Simulator 或真机上检查普通动画、Reduce Motion、小屏、长详情、极快上传、取消、失败、重试以及结果页重新识别的状态顺序。
+- 执行记录（2026-09-02，完成态切换平滑化）：
+  - 状态：待验证
+  - 实现摘要：修正“正在分析照片…”切换到“识别完成”时的视觉跳变：完成态页脚复用相同的尺寸、边距和滑动条占位，先只更新文案并保持滑动约 80ms，再从当前滑块位置连续扩展至满宽约 320ms，避免进度线从 0 重新出现造成卡顿感。
+  - 涉及范围：`ios/Features/Result/ResultView.swift`。
+  - 验证：目标 Swift 文件语法解析、完整 iOS 源码 `swiftc -typecheck` 和 `git diff --check` 通过；运行时验证仍受当前环境没有可用的 iOS Simulator runtime 阻断。
+  - 后续事项：在 Simulator 或真机确认文案切换无跳变、满宽进度线与详情淡入的衔接，以及 Reduce Motion 行为。
+- 执行记录（2026-09-02，进度线重构）：
+  - 状态：待验证
+  - 实现摘要：将识别页脚的进度线、滑块尺寸、往返相位和动画时长抽取为共享私有实现，统一完成态与处理中页脚的视觉参数；完成填充继续从当前相位平滑收满，收满后停止时间线刷新，Reduce Motion 下全程使用静态进度线。
+  - 涉及范围：`ios/Features/Result/ResultView.swift`。
+  - 验证：目标 Swift 文件语法解析、完整 iOS 源码 `swiftc -typecheck` 和 `git diff --check` 通过；运行时验证仍受当前环境没有可用的 iOS Simulator runtime 阻断。
+  - 后续事项：在 Simulator 或真机确认共享进度线在普通动画、Reduce Motion、重试和再次识别场景下无视觉回归。
+
+

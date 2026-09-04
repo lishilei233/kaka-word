@@ -145,6 +145,13 @@ struct AnnotatedImageView: View {
                             .frame(width: 17, height: 17)
                             .background(Color.ink, in: Circle())
                             .offset(x: 4, y: -5)
+                    } else if placement.object.needsConfirmation {
+                        Image(systemName: "questionmark")
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(Color.paperLight)
+                            .frame(width: 18, height: 18)
+                            .background(Color.coral, in: Circle())
+                            .offset(x: 4, y: -5)
                     }
                 }
                 .contentShape(Capsule())
@@ -166,6 +173,7 @@ struct AnnotatedImageView: View {
                     in: imageFrame
                 ))
                 .transition(.scale(scale: 0.72).combined(with: .opacity))
+                .accessibilityHint(placement.object.needsConfirmation ? "名称待确认，点击选择正确单词" : "点击查看单词详情")
                 .scaleEffect(revealsAnnotations ? 1 : 0.72)
                 .opacity(revealsAnnotations ? 1 : 0)
                 .animation(

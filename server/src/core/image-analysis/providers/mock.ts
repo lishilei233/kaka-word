@@ -54,6 +54,12 @@ function mockResult(input: VisionInput): AnalyzeResult {
         anchor: { x: 0.69, y: 0.57 },
         example: "This is a mug.",
         exampleChinese: "这是一个杯子。",
+        confirmationStatus: "needsConfirmation",
+        candidates: [
+          { english: "mug", chinese: "杯子", ipa: "/mʌɡ/", example: "This is a mug.", exampleChinese: "这是一个杯子。" },
+          { english: "vase", chinese: "花瓶", ipa: "/veɪs/", example: "The vase has flowers.", exampleChinese: "花瓶里有花。" },
+          { english: "jar", chinese: "罐子", ipa: "/dʒɑːr/", example: "The jar is empty.", exampleChinese: "罐子是空的。" },
+        ],
       },
       {
         id: "obj_02",
@@ -65,6 +71,7 @@ function mockResult(input: VisionInput): AnalyzeResult {
         anchor: { x: 0.27, y: 0.67 },
         example: "I am reading a book.",
         exampleChinese: "我正在读一本书。",
+        confirmationStatus: "confirmed",
       },
       {
         id: "obj_03",
@@ -76,6 +83,7 @@ function mockResult(input: VisionInput): AnalyzeResult {
         anchor: { x: 0.19, y: 0.29 },
         example: "The plant is green.",
         exampleChinese: "这株植物是绿色的。",
+        confirmationStatus: "confirmed",
       },
     ],
   };

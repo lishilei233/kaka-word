@@ -4,6 +4,28 @@ import XCTest
 
 @MainActor
 final class AnalysisViewModelTests: XCTestCase {
+    func testDecodesLegacyObjectAsConfirmedWithoutCandidates() throws {
+        let data = Data(#"{"id":"legacy","english":"cup","chinese":"杯子","ipa":"/kʌp/","confidence":0.9,"box":{"x":0.1,"y":0.1,"width":0.2,"height":0.2},"example":"This is a cup."}"#.utf8)
+        let object = try JSONDecoder().decode(LearningObject.self, from: data)
+
+        XCTAssertNil(object.confirmationStatus)
+        XCTAssertFalse(object.needsConfirmation)
+        XCTAssertNil(object.candidates)
+    }
+
+    func testChoosingCandidateUpdatesVocabularyAndConfirmationStatus() throws {
+        let data = Data(#"{"id":"uncertain","english":"mug","chinese":"杯子","ipa":"/mʌɡ/","confidence":0.6,"box":{"x":0.1,"y":0.1,"width":0.2,"height":0.2},"example":"This is a mug.","candidates":[{"english":"mug","chinese":"杯子","ipa":"/mʌɡ/","example":"This is a mug."},{"english":"vase","chinese":"花瓶","ipa":"/veɪs/","example":"The vase has flowers.","exampleChinese":"花瓶里有花。"}],"confirmationStatus":"needsConfirmation"}"#.utf8)
+        let object = try JSONDecoder().decode(LearningObject.self, from: data)
+        let candidate = try XCTUnwrap(object.candidates?.last)
+
+        XCTAssertTrue(object.needsConfirmation)
+        let updated = object.choosingCandidate(candidate)
+        XCTAssertEqual(updated.english, "vase")
+        XCTAssertEqual(updated.chinese, "花瓶")
+        XCTAssertEqual(updated.confirmationStatus, .userConfirmed)
+        XCTAssertFalse(updated.needsConfirmation)
+    }
+
     func testUploadProgressIsMonotonic() async throws {
         let client = ProgressAnalysisClient(
             progressValues: [0, 0.6, 0.6, 0.2],
