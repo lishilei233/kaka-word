@@ -514,7 +514,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.1.2;
-				PICTURE_WORD_API_BASE_URL = "http://192.168.64.92:8787";
+				PICTURE_WORD_API_BASE_URL = "http://192.168.0.106:8787";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

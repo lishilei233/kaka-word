@@ -8,6 +8,7 @@ import { registerAccessRoutes } from "./routes/access.js";
 import { registerAnalyzeRoute } from "./routes/analyze.js";
 import { registerContentRoute } from "./routes/content.js";
 import { registerMetricsRoute } from "./routes/metrics.js";
+import { registerMembershipRoute } from "./routes/membership.js";
 import { registerStoreRoutes } from "./routes/store.js";
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
 import { errorFields, type LogLevel, type Logger } from "./utils/logger.js";
@@ -38,6 +39,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
 
   app.get("/health", (c) => c.json({ ok: true, provider: config.vision.name }));
   registerContentRoute(app, config.access);
+  registerMembershipRoute(app, config.access);
   registerAccessRoutes(app, { accessService, logger });
   registerStoreRoutes(app, { accessService, logger });
   registerMetricsRoute(app, { accessService, logger });

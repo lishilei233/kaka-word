@@ -68,64 +68,108 @@ struct SettingsView: View {
     }
 
     private var membershipSection: some View {
-        SettingsCard(index: "00", title: "会员") {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: membership.isMember ? "sparkles" : "camera.viewfinder")
-                        .font(.system(.title3, design: .rounded, weight: .bold))
-                        .foregroundStyle(Color.ink)
-                        .frame(width: 46, height: 46)
-                        .background(membership.isMember ? Color.sun : Color.sky, in: Circle())
-                    VStack(alignment: .leading, spacing: 4) {
-                        if membershipDisplayState == .failedWithoutCachedValue {
-                            membershipRefreshStatus
-                        } else {
-                            Text(membershipPlanName)
-                                .font(.system(.headline, design: .rounded, weight: .heavy))
-                            Text(membershipQuotaText)
-                                .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                                .foregroundStyle(Color.ink.opacity(0.58))
-                            membershipRefreshStatus
-                            if let membershipResetText {
-                                Text(membershipResetText)
-                                    .font(.system(.caption2, design: .monospaced, weight: .bold))
-                                    .foregroundStyle(Color.coral)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .layoutPriority(1)
-                    membershipRefreshButton
-                }
-
-                if !membership.isMember && membershipDisplayState != .failedWithoutCachedValue {
-                    PictureWordButton(
-                        membership.isRestoring ? "正在恢复购买…" : "开通会员",
-                        systemImage: "sparkles",
-                        isLoading: membership.isRestoring
-                    ) {
-                        paywallPresented = true
-                    }
-                    .disabled(!membership.canPurchase)
-                }
-
-                if !membership.isMember {
-                    Button {
-                        Task { _ = await membership.restorePurchases() }
-                    } label: {
-                        HStack(spacing: 8) {
-                            if membership.isRestoring {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-                            Text(membership.isRestoring ? "正在恢复购买…" : "恢复购买")
-                        }
-                    }
-                    .font(.system(.caption, design: .rounded, weight: .bold))
-                    .foregroundStyle(Color.ink.opacity(0.62))
-                    .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("00")
+                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                    .tracking(1.6)
+                    .foregroundStyle(Color.coral)
+                Text("MEMBERSHIP")
+                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                    .tracking(1.3)
+                    .foregroundStyle(Color.ink.opacity(0.42))
+                Spacer()
+                Text(membership.isMember ? "已开通" : "升级会员")
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundStyle(Color.ink)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(membership.isMember ? Color.mint.opacity(0.72) : Color.sun, in: Capsule())
             }
+            .padding(.bottom, 14)
+
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: membership.isMember ? "crown.fill" : "camera.fill")
+                    .font(.system(size: 23, weight: .black))
+                    .foregroundStyle(Color.ink)
+                    .frame(width: 52, height: 52)
+                    .background(Color.sun.opacity(membership.isMember ? 0.95 : 0.7), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 5) {
+                    if membershipDisplayState == .failedWithoutCachedValue {
+                        Text("会员状态")
+                            .font(.system(.title3, design: .rounded, weight: .black))
+                        membershipRefreshStatus
+                    } else {
+                        Text(membershipPlanName)
+                            .font(.system(.title3, design: .rounded, weight: .black))
+                        Text(membershipQuotaText)
+                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .foregroundStyle(Color.ink.opacity(0.66))
+                        membershipRefreshStatus
+                        if let membershipResetText {
+                            Text(membershipResetText)
+                                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                                .foregroundStyle(Color.coral)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+                membershipRefreshButton
+            }
+
+            Divider()
+                .overlay(Color.ink.opacity(0.1))
+                .padding(.vertical, 16)
+
+            if membership.isMember {
+                PictureWordButton("管理订阅", systemImage: "gearshape", style: .secondary) {
+                    Task { await membership.showManageSubscriptions() }
+                }
+                .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
+            } else {
+                PictureWordButton(
+                    membership.isRestoring ? "正在恢复购买…" : "开通咔咔会员",
+                    systemImage: "sparkles",
+                    isLoading: membership.isRestoring
+                ) {
+                    paywallPresented = true
+                }
+                .disabled(!membership.canPurchase)
+
+                Button {
+                    Task { _ = await membership.restorePurchases() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if membership.isRestoring {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(membership.isRestoring ? "正在恢复购买…" : "恢复购买")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 13)
+                }
+                .font(.system(.caption, design: .rounded, weight: .bold))
+                .foregroundStyle(Color.ink.opacity(0.62))
+                .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
+            }
+        }
+        .padding(20)
+        .background {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.paperLight, Color.sun.opacity(0.16), Color.mint.opacity(0.12)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .shadow(color: Color.ink.opacity(0.12), radius: 0, x: 3, y: 4)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(Color.sun.opacity(0.46), lineWidth: 1)
         }
     }
 

@@ -37,6 +37,45 @@ struct EntitlementSummary: Codable, Equatable, Sendable {
     private static let dateFormatter = ISO8601DateFormatter()
 }
 
+struct MembershipPlanConfig: Codable, Equatable, Sendable {
+    let limit: Int
+    let unlimited: Bool
+
+    var paywallBenefitText: String {
+        unlimited ? "每月无限次完整拍照识词" : "每月 \(limit) 次完整拍照识词"
+    }
+}
+
+private struct MembershipConfigResponse: Decodable {
+    let quota: MembershipPlanConfig
+}
+
+struct MembershipPlanConfigClient: Sendable {
+    private let baseURL: URL
+    private let session: URLSession
+
+    init(
+        baseURL: URL = AppEnvironment.current.apiBaseURL,
+        session: URLSession = .shared
+    ) {
+        self.baseURL = baseURL
+        self.session = session
+    }
+
+    func fetch() async throws -> MembershipPlanConfig {
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/membership/config"))
+        request.timeoutInterval = 15
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
+              let payload = try? JSONDecoder().decode(MembershipConfigResponse.self, from: data),
+              payload.quota.limit >= 0 else {
+            throw AccessCredentialError.invalidResponse
+        }
+        return payload.quota
+    }
+}
+
 enum EntitlementLoadState: Equatable, Sendable {
     case idle
     case loading(hasCachedValue: Bool)
@@ -640,9 +679,12 @@ final class MembershipStore: ObservableObject {
     static let monthlyProductId = "com.kakaword.app.membership.month"
     static let annualProductId = "com.kakaword.app.membership.annual"
     private static let foregroundRefreshCooldown: TimeInterval = 3
+    private static let planConfigRefreshInterval: TimeInterval = 5 * 60
+    private static let cachedPlanConfigKey = "membership.cachedPlanConfig"
     private static let logger = Logger(subsystem: "com.kakaword.app", category: "membership")
 
     @Published private(set) var entitlement: EntitlementSummary?
+    @Published private(set) var planConfig: MembershipPlanConfig?
     @Published private(set) var entitlementLoadState: EntitlementLoadState = .idle
     @Published private(set) var lastSuccessfulRefreshAt: Date?
     @Published private(set) var products: [Product] = []
@@ -657,6 +699,7 @@ final class MembershipStore: ObservableObject {
 
     private var transactionTask: Task<Void, Never>?
     private var entitlementTask: Task<Void, Never>?
+    private var planConfigTask: Task<MembershipPlanConfig, Error>?
     private var prepareTask: Task<Void, Never>?
     private var productPrepareTask: Task<Void, Never>?
     private var entitlementSyncLoopTask: Task<Void, Error>?
@@ -665,10 +708,16 @@ final class MembershipStore: ObservableObject {
     private var pendingTransactionCandidates: [UInt64: StoreTransactionCandidate] = [:]
     private var lastEntitlementSyncFinishedAt: Date?
     private var didPrepare = false
+    private var planConfigSavedAt: Date?
+    private let planConfigClient: MembershipPlanConfigClient
 
-    init() {
+    init(planConfigClient: MembershipPlanConfigClient = MembershipPlanConfigClient()) {
+        self.planConfigClient = planConfigClient
         let cached = Self.loadCachedEntitlement()
+        let cachedPlanConfig = Self.loadCachedPlanConfig()
         entitlement = cached?.entitlement
+        planConfig = cachedPlanConfig?.config
+        planConfigSavedAt = cachedPlanConfig?.savedAt
         lastSuccessfulRefreshAt = cached?.savedAt
         transactionTask = listenForTransactions()
         entitlementTask = Task { [weak self] in
@@ -682,6 +731,7 @@ final class MembershipStore: ObservableObject {
     deinit {
         transactionTask?.cancel()
         entitlementTask?.cancel()
+        planConfigTask?.cancel()
         prepareTask?.cancel()
         productPrepareTask?.cancel()
         entitlementSyncLoopTask?.cancel()
@@ -801,6 +851,7 @@ final class MembershipStore: ObservableObject {
         defer { isLoading = false }
         productLoadFailed = false
         async let productRequest = Product.products(for: [Self.monthlyProductId, Self.annualProductId])
+        async let planConfigRequest: Void = preparePlanConfig()
         beginEntitlementLoading()
         var bootstrapConfirmedMember = false
         do {
@@ -839,6 +890,27 @@ final class MembershipStore: ObservableObject {
             productLoadFailed = true
             setMessage(error.localizedDescription, source: .products, category: .entitlementFailure)
         }
+        await planConfigRequest
+    }
+
+    func preparePlanConfig(force: Bool = false) async {
+        if !force,
+           planConfig != nil,
+           let planConfigSavedAt,
+           Date().timeIntervalSince(planConfigSavedAt) < Self.planConfigRefreshInterval {
+            return
+        }
+        if let planConfigTask {
+            _ = try? await planConfigTask.value
+            return
+        }
+        let task = Task { try await planConfigClient.fetch() }
+        planConfigTask = task
+        defer { planConfigTask = nil }
+        guard let config = try? await task.value else { return }
+        planConfig = config
+        planConfigSavedAt = Date()
+        Self.saveCachedPlanConfig(config, savedAt: planConfigSavedAt ?? Date())
     }
 
     func retryProducts() async {
@@ -876,12 +948,15 @@ final class MembershipStore: ObservableObject {
         // first request. Once prepare has begun, foreground requests join the
         // same serialized queue even if startup is still running.
         guard didPrepare else { return }
+        async let planConfigRefresh: Void = preparePlanConfig()
         if !isRefreshingEntitlements,
            let lastEntitlementSyncFinishedAt,
            Date().timeIntervalSince(lastEntitlementSyncFinishedAt) < Self.foregroundRefreshCooldown {
+            await planConfigRefresh
             return
         }
         await refreshCurrentEntitlements(source: .foreground)
+        await planConfigRefresh
     }
 
     func refreshForSettingsPresentation() async {
@@ -1482,6 +1557,17 @@ final class MembershipStore: ObservableObject {
         return CachedEntitlement(entitlement: legacy, savedAt: .distantPast)
     }
 
+    private static func loadCachedPlanConfig() -> CachedMembershipPlanConfig? {
+        guard let data = UserDefaults.standard.data(forKey: cachedPlanConfigKey) else { return nil }
+        return try? JSONDecoder().decode(CachedMembershipPlanConfig.self, from: data)
+    }
+
+    private static func saveCachedPlanConfig(_ config: MembershipPlanConfig, savedAt: Date) {
+        let cached = CachedMembershipPlanConfig(config: config, savedAt: savedAt)
+        guard let data = try? JSONEncoder().encode(cached) else { return }
+        UserDefaults.standard.set(data, forKey: cachedPlanConfigKey)
+    }
+
 #if DEBUG
     private static func localFreeEntitlement() -> EntitlementSummary {
         EntitlementSummary(
@@ -1524,6 +1610,11 @@ private struct BootstrapRequest: Encodable {
 
 private struct CachedEntitlement: Codable {
     let entitlement: EntitlementSummary
+    let savedAt: Date
+}
+
+private struct CachedMembershipPlanConfig: Codable {
+    let config: MembershipPlanConfig
     let savedAt: Date
 }
 

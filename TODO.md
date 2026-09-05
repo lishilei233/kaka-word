@@ -26,6 +26,9 @@
 | ID | 类型 | 优先级 | 状态 | 标题 | 详细记录 |
 | --- | --- | --- | --- | --- | --- |
 | TODO-004 | feature | P1 | 待验证 | 提升物体识别准确率，降低相似物体误识别 | [TODO-004](./todos/active/TODO-004.md) |
+| TODO-010 | feature | P2 | 待分析 | 记录匿名聚合的识别纠错与候选确认数据 | [TODO-010](./todos/active/TODO-010.md) |
+| TODO-011 | ui | P2 | 待验证 | 优化设置页与会员购买页面 UI | [TODO-011](./todos/active/TODO-011.md) |
+| TODO-012 | feature | P2 | 待分析 | 首次启动时引导用户选择英语等级 | [TODO-012](./todos/active/TODO-012.md) |
 
 ## 工作规则
 

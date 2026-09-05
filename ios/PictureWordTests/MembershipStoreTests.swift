@@ -447,6 +447,36 @@ final class MembershipStoreTests: XCTestCase {
         XCTAssertNil(discount(monthly: 100, annual: 1199, currency: "USD"))
     }
 
+    func testMembershipPlanConfigBuildsFiniteQuotaCopy() {
+        let config = MembershipPlanConfig(limit: 240, unlimited: false)
+
+        XCTAssertEqual(config.paywallBenefitText, "每月 240 次完整拍照识词")
+    }
+
+    func testMembershipPlanConfigBuildsUnlimitedQuotaCopy() {
+        let config = MembershipPlanConfig(limit: 240, unlimited: true)
+
+        XCTAssertEqual(config.paywallBenefitText, "每月无限次完整拍照识词")
+    }
+
+    func testMembershipPlanConfigClientLoadsPublicConfiguration() async throws {
+        let host = "membership-config.picture-word.test"
+        MembershipMockURLProtocol.setHandler(for: host) { request in
+            XCTAssertEqual(request.url?.path, "/v1/membership/config")
+            return .json(status: 200, body: Data("""
+            {"quota":{"limit":180,"unlimited":false}}
+            """.utf8))
+        }
+        let client = MembershipPlanConfigClient(
+            baseURL: try XCTUnwrap(URL(string: "https://\(host)")),
+            session: makeSession()
+        )
+
+        let config = try await client.fetch()
+
+        XCTAssertEqual(config, MembershipPlanConfig(limit: 180, unlimited: false))
+    }
+
     private func discount(
         monthly: Decimal,
         annual: Decimal,

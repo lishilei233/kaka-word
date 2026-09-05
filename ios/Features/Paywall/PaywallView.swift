@@ -53,7 +53,7 @@ struct PaywallView: View {
             ZStack {
                 NotebookBackground()
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 24) {
+                    VStack(spacing: 20) {
                         hero
                         benefits
                         if membership.isMember {
@@ -65,24 +65,17 @@ struct PaywallView: View {
                         }
                         footer
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 22)
-                    .padding(.bottom, 34)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 30)
+                    .padding(.bottom, 30)
                 }
+                // .overlay(alignment: .topTrailing) {
+                //     closeButton
+                //         .padding(.top, 16)
+                //         .padding(.trailing, 18)
+                // }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .black))
-                            .foregroundStyle(Color.ink)
-                            .frame(width: 42, height: 42)
-                            .background(Color.paperLight.opacity(0.9), in: Circle())
-                    }
-                    .accessibilityLabel("关闭")
-                }
-            }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
         }
         .preferredColorScheme(.light)
         .task {
@@ -91,7 +84,10 @@ struct PaywallView: View {
             await Task.yield()
             canPresentMembershipAlert = true
             membership.recordMetric("paywall_exposure")
-            await membership.prepareProducts()
+            async let products: Void = membership.prepareProducts()
+            async let planConfig: Void = membership.preparePlanConfig()
+            await products
+            await planConfig
         }
         .alert("会员", isPresented: Binding(
             get: { canPresentMembershipAlert && membership.message != nil },
@@ -112,29 +108,71 @@ struct PaywallView: View {
     }
 
     private var hero: some View {
-        VStack(spacing: 14) {
-            StickerSeal(symbol: "sparkles", color: .coral)
-            Text("把生活继续变成\n孩子的英语单词册")
-                .font(.system(size: 30, weight: .black, design: .serif))
+        VStack(spacing: 16) {
+            Image("ChatGPT Image 2026年8月25日 15_22_44")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 120, height: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 34, style: .continuous)
+                        .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                }
+                .shadow(color: Color.ink.opacity(0.08), radius: 16, y: 8)
+                .accessibilityHidden(true)
+
+            Text("把生活变成英语单词册")
+                .font(.system(size: 31, weight: .black, design: .rounded))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Color.ink)
-                .lineSpacing(2)
-            Text("会员额度以服务端实时显示为准")
-                .font(.system(.subheadline, design: .rounded, weight: .bold))
-                .foregroundStyle(Color.ink.opacity(0.58))
+                .lineSpacing(4)
+                .minimumScaleFactor(0.78)
+
+            HStack(spacing: 9) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Color.sun)
+                Text("开通会员，解锁完整拍照识词体验")
+                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .foregroundStyle(Color.ink.opacity(0.72))
+                    .multilineTextAlignment(.center)
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Color.sun)
+            }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var benefits: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            benefit("camera.viewfinder", "每个额度月享有完整拍照识词额度")
-            benefit("pencil.and.outline", "AI 修改单词并补全音标、释义和例句")
-            benefit("books.vertical.fill", "历史、发音、分享和亲子寻宝持续保留")
+        VStack(alignment: .leading, spacing: 0) {
+            benefit("camera.fill", quotaBenefitText)
+            benefitDivider
+            benefit("Aa", "AI 优化单词，补全音标、释义和例句", usesTextIcon: true)
+            benefitDivider
+            benefit("archivebox.fill", "历史记录、发音、分享和亲子寻宝持续保留")
         }
-        .padding(20)
+        .padding(.horizontal, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.mint.opacity(0.62), in: RoundedRectangle(cornerRadius: 25, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 25).stroke(Color.ink.opacity(0.07)) }
+        .background(Color.mint.opacity(0.18), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 24).stroke(Color.mint.opacity(0.42)) }
+    }
+
+    private var closeButton: some View {
+        Button { dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 18, weight: .black))
+                .foregroundStyle(Color.ink)
+                .frame(width: 48, height: 48)
+                .background(Color.paperLight.opacity(0.92), in: Circle())
+                .overlay { Circle().stroke(Color.white.opacity(0.9), lineWidth: 1) }
+                .shadow(color: Color.ink.opacity(0.1), radius: 10, y: 5)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("关闭会员购买页面")
+    }
+
+    private var quotaBenefitText: String {
+        guard let config = membership.planConfig else { return "每月享有完整拍照识词额度" }
+        return config.paywallBenefitText
     }
 
     @ViewBuilder
@@ -384,10 +422,33 @@ struct PaywallView: View {
         }
     }
 
-    private func benefit(_ symbol: String, _ title: String) -> some View {
-        Label(title, systemImage: symbol)
-            .font(.system(.subheadline, design: .rounded, weight: .bold))
+    private func benefit(_ symbol: String, _ title: String, usesTextIcon: Bool = false) -> some View {
+        HStack(spacing: 14) {
+            Group {
+                if usesTextIcon {
+                    Text(symbol)
+                        .font(.system(size: 17, weight: .black, design: .serif))
+                } else {
+                    Image(systemName: symbol)
+                        .font(.system(size: 18, weight: .black))
+                }
+            }
             .foregroundStyle(Color.ink)
+            .frame(width: 42, height: 42)
+            .background(Color.mint.opacity(0.42), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text(title)
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var benefitDivider: some View {
+        Divider()
+            .overlay(Color.mint.opacity(0.42))
+            .padding(.leading, 56)
     }
 
     private func planCard(_ product: Product, title: String, badge: String?, detail: String) -> some View {
@@ -396,17 +457,29 @@ struct PaywallView: View {
             selectedProductId = product.id
             membership.recordMetric("plan_selection", productId: product.id)
         } label: {
-            HStack(spacing: 14) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 23, weight: .bold))
-                    .foregroundStyle(selected ? Color.coral : Color.ink.opacity(0.28))
+            HStack(spacing: 13) {
+                ZStack {
+                    Circle()
+                        .stroke(selected ? Color.coral : Color.paperDeep, lineWidth: 2)
+                        .frame(width: 25, height: 25)
+                    if selected {
+                        Circle()
+                            .fill(Color.coral)
+                            .frame(width: 13, height: 13)
+                    }
+                }
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 8) {
                         Text(title)
                             .font(.system(.headline, design: .rounded, weight: .heavy))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                         if let badge {
                             Text(badge)
                                 .font(.system(size: 10, weight: .black, design: .rounded))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(2)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background(Color.sun, in: Capsule())
@@ -416,17 +489,23 @@ struct PaywallView: View {
                         .font(.system(.caption, design: .rounded, weight: .semibold))
                         .foregroundStyle(Color.ink.opacity(0.52))
                 }
+                .layoutPriority(2)
                 Spacer()
                 Text("\(product.displayPrice)/\(product.id == MembershipStore.annualProductId ? "年" : "月")")
                     .font(.system(.title3, design: .rounded, weight: .black))
-                    .foregroundStyle(Color.ink)
+                    .foregroundStyle(selected ? Color.coral : Color.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .allowsTightening(true)
             }
-            .padding(18)
-            .background(selected ? Color.paperLight : Color.paperLight.opacity(0.68), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 18)
+            .padding(.vertical, 17)
+            .background(Color.paperLight.opacity(selected ? 0.98 : 0.62), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(selected ? Color.coral : Color.ink.opacity(0.08), lineWidth: selected ? 2 : 1)
+                    .stroke(selected ? Color.coral : Color.paperDeep.opacity(0.78), lineWidth: selected ? 2 : 1)
             }
+            .shadow(color: selected ? Color.coral.opacity(0.08) : .clear, radius: 10, y: 5)
         }
         .buttonStyle(.plain)
     }
