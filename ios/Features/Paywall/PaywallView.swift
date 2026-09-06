@@ -109,7 +109,7 @@ struct PaywallView: View {
 
     private var hero: some View {
         VStack(spacing: 16) {
-            Image("ChatGPT Image 2026年8月25日 15_22_44")
+            Image("PaywallHeroCamera")
                 .resizable()
                 .scaledToFit()
                 .frame(width: 120, height: 120)
@@ -146,9 +146,9 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 0) {
             benefit("camera.fill", quotaBenefitText)
             benefitDivider
-            benefit("Aa", "AI 优化单词，补全音标、释义和例句", usesTextIcon: true)
+            benefit("Aa", "AI 智能优化，完善音标、释义与例句", usesTextIcon: true)
             benefitDivider
-            benefit("archivebox.fill", "历史记录、发音、分享和亲子寻宝持续保留")
+            benefit("archivebox.fill", "识词结果保存在本机，支持回顾、发音、分享与探索")
         }
         .padding(.horizontal, 18)
         .frame(maxWidth: .infinity, alignment: .leading)

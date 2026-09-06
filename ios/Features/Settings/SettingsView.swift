@@ -119,16 +119,11 @@ struct SettingsView: View {
                 membershipRefreshButton
             }
 
-            Divider()
-                .overlay(Color.ink.opacity(0.1))
-                .padding(.vertical, 16)
+            if !membership.isMember {
+                Divider()
+                    .overlay(Color.ink.opacity(0.1))
+                    .padding(.vertical, 16)
 
-            if membership.isMember {
-                PictureWordButton("管理订阅", systemImage: "gearshape", style: .secondary) {
-                    Task { await membership.showManageSubscriptions() }
-                }
-                .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
-            } else {
                 PictureWordButton(
                     membership.isRestoring ? "正在恢复购买…" : "开通咔咔会员",
                     systemImage: "sparkles",
