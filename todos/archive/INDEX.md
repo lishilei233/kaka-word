@@ -12,3 +12,4 @@
 | TODO-007 | optimization | 补充识别完成态揭示动画的 UI 状态测试 | [TODO-007](./TODO-007.md) |
 | TODO-008 | feature | 打开单词详情时自动播放单词音频，并支持设置开关 | [TODO-008](./TODO-008.md) |
 | TODO-009 | feature | 支持会员识别额度动态调整 | [TODO-009](./TODO-009.md) |
+| TODO-011 | ui | 优化设置页与会员购买页面 UI | [TODO-011](./TODO-011.md) |
