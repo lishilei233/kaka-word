@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// MVP 设置全部保存在本机，不依赖账号或网络服务。
@@ -5,14 +6,17 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var membership: MembershipStore
+    @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.automaticWordSpeechEnabled) private var automaticWordSpeechEnabled = AppSettings.defaultAutomaticWordSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
+    @AppStorage(AppSettings.Key.englishVoiceIdentifier) private var voiceIdentifier = AppSettings.defaultEnglishVoiceIdentifier
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
     @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
     @State private var confirmClearHistory = false
     @State private var paywallPresented = false
+    @State private var voicePickerPresented = false
 
     var body: some View {
         ZStack {
@@ -40,6 +44,19 @@ struct SettingsView: View {
         .task {
             await membership.refreshForSettingsPresentation()
         }
+        .onAppear {
+            speech.refreshAvailableVoices()
+            reconcileVoiceSelection()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: AVSpeechSynthesizer.availableVoicesDidChangeNotification
+        )) { _ in
+            speech.refreshAvailableVoices()
+            reconcileVoiceSelection()
+        }
+        .onDisappear {
+            speech.stop()
+        }
         .confirmationDialog("清空全部历史记录？", isPresented: $confirmClearHistory, titleVisibility: .visible) {
             Button("清空全部", role: .destructive) { historyStore.deleteAll() }
             Button("取消", role: .cancel) {}
@@ -49,6 +66,12 @@ struct SettingsView: View {
         .sheet(isPresented: $paywallPresented) {
             PaywallView()
                 .environmentObject(membership)
+        }
+        .sheet(isPresented: $voicePickerPresented, onDismiss: {
+            speech.stop()
+        }) {
+            voiceSelectionSheet
+                .pictureWordSheetPresentation(detents: [.medium, .large])
         }
         .alert("会员", isPresented: Binding(
             get: { !paywallPresented && membership.message != nil },
@@ -271,6 +294,43 @@ struct SettingsView: View {
                 Divider().overlay(Color.ink.opacity(0.12))
 
                 VStack(alignment: .leading, spacing: 10) {
+                    SettingsLabel(icon: "waveform", title: "英语音色")
+                    Button {
+                        speech.refreshAvailableVoices()
+                        reconcileVoiceSelection()
+                        voicePickerPresented = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(currentVoiceTitle)
+                                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                    .foregroundStyle(Color.ink)
+                                Text(currentVoiceDetail)
+                                    .font(.system(.caption, design: .rounded, weight: .medium))
+                                    .foregroundStyle(Color.ink.opacity(0.52))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Color.ink.opacity(0.38))
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 54)
+                        .background(Color.paperLight.opacity(0.82), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.ink.opacity(0.08), lineWidth: 1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("选择英语音色，当前为\(currentVoiceTitle)")
+                    .accessibilityHint("打开精选英语音色列表")
+                }
+
+                Divider().overlay(Color.ink.opacity(0.12))
+
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("发音语速")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
@@ -353,6 +413,140 @@ struct SettingsView: View {
         case ..<0.41: return "SLOW"
         case 0.48...: return "FAST"
         default: return "NORMAL"
+        }
+    }
+
+    private var availableEnglishVoices: [SpeechVoiceDescriptor] {
+        speech.availableEnglishVoices
+    }
+
+    private var currentVoice: SpeechVoiceDescriptor? {
+        availableEnglishVoices.first(where: { $0.identifier == voiceIdentifier })
+    }
+
+    private var currentVoiceTitle: String {
+        currentVoice?.name ?? "系统默认"
+    }
+
+    private var currentVoiceDetail: String {
+        guard let currentVoice else { return "自动选择合适的英语音色" }
+        return "\(currentVoice.accentTitle) · \(currentVoice.quality.title)"
+    }
+
+    private var voiceSelectionSheet: some View {
+        PictureWordSheet {
+            VStack(alignment: .leading, spacing: 18) {
+                PictureWordSheetHeader(eyebrow: "ENGLISH VOICE", title: "选择英语音色") {
+                    Button("完成") {
+                        speech.stop()
+                        voicePickerPresented = false
+                    }
+                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .foregroundStyle(Color.ink)
+                    .padding(.horizontal, 14)
+                    .frame(height: 40)
+                    .background(Color.sun, in: Capsule())
+                    .buttonStyle(.plain)
+                    .accessibilityHint("关闭音色选择")
+                }
+
+                Text("点击一行选择音色，点击右侧播放按钮试听。选择后会应用到所有单词和例句。")
+                    .font(.system(.subheadline, design: .rounded, weight: .medium))
+                    .foregroundStyle(Color.ink.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(spacing: 8) {
+                    voiceChoiceRow(
+                        title: "系统默认",
+                        detail: "自动选择合适的英语音色",
+                        identifier: AppSettings.defaultEnglishVoiceIdentifier
+                    )
+                    ForEach(availableEnglishVoices) { voice in
+                        voiceChoiceRow(
+                            title: voice.name,
+                            detail: "\(voice.accentTitle) · \(voice.quality.title)",
+                            identifier: voice.identifier
+                        )
+                    }
+                }
+
+                if availableEnglishVoices.isEmpty {
+                    Text("当前设备没有可供选择的常规美式或英式音色，仍可使用系统默认语音。")
+                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .foregroundStyle(Color.coral)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("精选当前设备上的 3 个美式和 2 个英式常规音色；数量不足时会自动补位。")
+                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .foregroundStyle(Color.ink.opacity(0.52))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func reconcileVoiceSelection() {
+        guard speech.isVoiceAvailable(identifier: voiceIdentifier) else {
+            speech.stop()
+            voiceIdentifier = AppSettings.defaultEnglishVoiceIdentifier
+            return
+        }
+    }
+
+    private func voiceChoiceRow(title: String, detail: String, identifier: String) -> some View {
+        let isSelected = voiceIdentifier == identifier
+        return HStack(spacing: 8) {
+            Button {
+                speech.stop()
+                voiceIdentifier = identifier
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(isSelected ? Color.coral : Color.ink.opacity(0.28))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .foregroundStyle(Color.ink)
+                        Text(detail)
+                            .font(.system(.caption, design: .rounded, weight: .medium))
+                            .foregroundStyle(Color.ink.opacity(0.52))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(title)，\(detail)")
+            .accessibilityValue(isSelected ? "已选择" : "未选择")
+            .accessibilityHint("选择此音色")
+
+            Button {
+                speech.speak(
+                    "Hello! Welcome to Kakaword.",
+                    rate: speechRate,
+                    voiceIdentifier: identifier
+                )
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.ink)
+                    .frame(width: 44, height: 44)
+                    .background(Color.sun.opacity(0.82), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("试听\(title)")
+            .accessibilityHint("播放固定英文示例句")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 7)
+        .background(Color.paperLight.opacity(isSelected ? 1 : 0.72), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(isSelected ? Color.coral.opacity(0.55) : Color.ink.opacity(0.08), lineWidth: 1)
         }
     }
 

@@ -1,0 +1,30 @@
+### TODO-018：修复历史 StoreKit 交易触发重复权益同步和启动卡顿
+
+- 类型：bug
+- 优先级：P1
+- 状态：待分析
+- Bug 描述：
+  - 触发条件：设备存在多笔历史、过期或尚会由 StoreKit 更新序列投递的订阅交易，App 冷启动或恢复到前台时执行会员权益同步。
+  - 实际结果：启动阶段同时出现 `foreground`、`startup` 和 `transactionUpdate` 同步请求；首批交易同步结束后，相同 transaction hash 又被后续 `transactionUpdate` 逐笔触发完整权益刷新，连续产生多轮 1.6～5.8 秒的同步。一次启动可能持续约一分钟处于权益刷新状态，并伴随明显界面卡顿或系统手势超时。
+  - 预期结果：同一批已处理交易在一次启动/前台周期内不会被重复提交；并发的启动、前台和交易更新请求应安全合并，会员状态及时完成刷新，且不阻塞普通页面交互和系统手势。
+- 简要分析：
+  - 用户事实：日志中 revision 1～3 的首次同步持续约 19～21 秒并处理约 10 笔过期交易；revision 4～23 随后再次同步其中多笔相同 transaction hash，单轮耗时约 1.6～5.8 秒；期间出现 `Gesture: System gesture gate timed out`。
+  - 初步分析：`Transaction.updates` 为历史交易逐条产生事件，每条事件都会调用 `refreshCurrentEntitlements`；该刷新又遍历 `Transaction.unfinished` 与 `Transaction.currentEntitlements`，可能造成事件携带交易和全量扫描之间的重复处理。
+  - 初步分析：当前 revision 队列能够合并同时到达的请求，但无法去重首批完成后继续逐条抵达的历史交易更新。`MembershipStore` 在主 actor 上持续发布刷新状态，也可能放大用户感知到的卡顿和控件禁用时间。
+  - 初步分析：`UIContextMenuInteraction` 警告不是主要原因；`IPCAUClient` 与空 `AVAudioBuffer` 更可能影响语音播放，不足以解释大量重复会员同步。
+- 影响范围：
+  - iOS `MembershipStore` 的启动准备、前台刷新、`Transaction.updates` 监听、权益同步队列、交易去重和完成策略。
+  - 会员状态卡、购买页及依赖 `isRefreshingEntitlements`、`entitlementLoadState` 的按钮和 loading 展示。
+  - StoreKit Sandbox、Xcode StoreKit 配置和真实 App Store 历史交易场景；可能需要服务端同步日志辅助确认幂等行为，但不预设必须修改服务端。
+- 验收标准：
+  - 含多笔历史或过期订阅交易的设备冷启动时，每个交易在同一同步周期内至多提交一次，不再出现相同 transaction hash 的连续重复同步风暴。
+  - `startup`、`foreground` 和 `transactionUpdate` 近同时发生时能够合并或去重，并最终发布正确的会员状态。
+  - 已成功处理并 `finish()` 的过期或撤销交易不会在后续更新事件中再次触发完整全量扫描；真正的新交易更新仍能及时同步，不能被错误去重。
+  - 无交易、有效会员、过期会员、撤销、未验证交易、网络失败和可重试服务端错误均保留正确的完成、重试与降级行为。
+  - 同步期间首页、设置页滚动、返回手势和普通学习功能保持可响应；不再出现由该同步流程引起的系统手势超时。
+  - 自动化测试覆盖并发请求合并、批次结束后迟到的重复更新、不同交易更新、失败重试及去重状态的生命周期。
+  - 真机或可复现的 StoreKit 测试环境中，对包含至少 10 笔历史交易的启动场景记录同步次数和总耗时，并确认不再产生 revision 连续增长的重复请求链。
+- 备注：
+  - 关联：TODO-002（已归档）处理购买后权益同步 loading 和错误中间态；本条聚焦启动/前台阶段的历史交易重复投递与卡顿，属于新的可独立验收问题。
+  - P1 为初步优先级：问题会在受影响设备上造成约一分钟持续同步、明显交互卡顿及手势超时，但目前没有证据表明会破坏交易或永久丢失会员权益。
+  - 待确认：该日志来自 Xcode StoreKit 配置、Sandbox 账号还是真实 App Store 环境；实施前应在对应环境复现并确认 `Transaction.updates` 的具体投递来源。

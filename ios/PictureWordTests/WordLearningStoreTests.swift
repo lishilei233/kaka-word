@@ -1,8 +1,140 @@
+import AVFoundation
 import XCTest
 @testable import PictureWord
 
 @MainActor
 final class WordLearningStoreTests: XCTestCase {
+    func testEnglishVoiceSelectionDefaultsToSystemAndPersistsIdentifier() {
+        XCTAssertEqual(AppSettings.defaultEnglishVoiceIdentifier, "")
+
+        let suiteName = "SpeechVoiceSelectionTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("voice.en-us.enhanced", forKey: AppSettings.Key.englishVoiceIdentifier)
+
+        XCTAssertEqual(defaults.string(forKey: AppSettings.Key.englishVoiceIdentifier), "voice.en-us.enhanced")
+    }
+
+    func testSpeechVoiceCatalogFiltersNoveltyAndPersonalVoicesAndSortsByQuality() {
+        let voices = [
+            makeVoice(id: "gb-standard", name: "Daniel", language: "en-GB", quality: .standard),
+            makeVoice(id: "au", name: "Karen", language: "en-AU", quality: .premium),
+            makeVoice(id: "us-standard", name: "Samantha", language: "en-US", quality: .standard),
+            makeVoice(id: "us-premium", name: "Ava", language: "en-US", quality: .premium),
+            makeVoice(id: "novelty", name: "Bubbles", language: "en-US", isNovelty: true),
+            makeVoice(id: "personal", name: "Personal", language: "en-GB", isPersonal: true)
+        ]
+
+        XCTAssertEqual(
+            SpeechVoiceCatalog.curatedVoices(from: voices).map(\.identifier),
+            ["us-premium", "us-standard", "gb-standard"]
+        )
+    }
+
+    func testSpeechVoiceCatalogUsesThreeAmericanAndTwoBritishVoices() {
+        let voices = [
+            makeVoice(id: "us-1", name: "A", language: "en-US", quality: .premium),
+            makeVoice(id: "us-2", name: "B", language: "en-US", quality: .enhanced),
+            makeVoice(id: "us-3", name: "C", language: "en-US"),
+            makeVoice(id: "us-4", name: "D", language: "en-US"),
+            makeVoice(id: "gb-1", name: "E", language: "en-GB", quality: .premium),
+            makeVoice(id: "gb-2", name: "F", language: "en-GB"),
+            makeVoice(id: "gb-3", name: "G", language: "en-GB")
+        ]
+
+        XCTAssertEqual(
+            SpeechVoiceCatalog.curatedVoices(from: voices).map(\.identifier),
+            ["us-1", "us-2", "us-3", "gb-1", "gb-2"]
+        )
+    }
+
+    func testSpeechVoiceCatalogFillsMissingAccentQuotaAndHonorsLimit() {
+        let voices = [
+            makeVoice(id: "us-1", name: "A", language: "en-US", quality: .premium),
+            makeVoice(id: "gb-1", name: "B", language: "en-GB", quality: .premium),
+            makeVoice(id: "gb-2", name: "C", language: "en-GB", quality: .enhanced),
+            makeVoice(id: "gb-3", name: "D", language: "en-GB"),
+            makeVoice(id: "gb-4", name: "E", language: "en-GB"),
+            makeVoice(id: "gb-5", name: "F", language: "en-GB")
+        ]
+
+        XCTAssertEqual(
+            SpeechVoiceCatalog.curatedVoices(from: voices).map(\.identifier),
+            ["us-1", "gb-1", "gb-2", "gb-3", "gb-4"]
+        )
+        XCTAssertEqual(SpeechVoiceCatalog.curatedVoices(from: Array(voices.prefix(2))).count, 2)
+        XCTAssertEqual(SpeechVoiceCatalog.curatedVoices(from: voices, limit: 3).count, 3)
+    }
+
+    func testSpeechVoiceCatalogResetsSelectionOutsideCuratedList() {
+        let voices = [makeVoice(id: "selected", name: "A", language: "en-US")]
+
+        XCTAssertEqual(
+            SpeechVoiceCatalog.normalizedSelection("selected", curatedVoices: voices),
+            "selected"
+        )
+        XCTAssertEqual(
+            SpeechVoiceCatalog.normalizedSelection("removed", curatedVoices: voices),
+            AppSettings.defaultEnglishVoiceIdentifier
+        )
+    }
+
+    func testSpeechVoiceCatalogPrefersSavedAvailableVoice() {
+        let voices = [
+            makeVoice(id: "us", name: "Samantha", language: "en-US"),
+            makeVoice(id: "gb", name: "Daniel", language: "en-GB")
+        ]
+
+        XCTAssertEqual(
+            SpeechVoiceCatalog.resolvedIdentifier(
+                selectedIdentifier: "gb",
+                preferredLanguage: "en-US",
+                voices: voices,
+                defaultIdentifiers: ["us"]
+            ),
+            "gb"
+        )
+    }
+
+    func testSpeechVoiceCatalogFallsBackFromUnavailableSelection() {
+        let voices = [
+            makeVoice(id: "us", name: "Samantha", language: "en-US"),
+            makeVoice(id: "gb", name: "Daniel", language: "en-GB")
+        ]
+
+        XCTAssertEqual(
+            SpeechVoiceCatalog.resolvedIdentifier(
+                selectedIdentifier: "removed",
+                preferredLanguage: "en-GB",
+                voices: voices,
+                defaultIdentifiers: ["gb"]
+            ),
+            "gb"
+        )
+        XCTAssertNil(
+            SpeechVoiceCatalog.resolvedIdentifier(
+                selectedIdentifier: "removed",
+                preferredLanguage: "en-GB",
+                voices: [],
+                defaultIdentifiers: []
+            )
+        )
+    }
+
+    func testSpeechServiceIgnoresEmptyTextAndInterruptsEachNewPlayback() {
+        let synthesizer = SpeechSynthesizerSpy()
+        let service = SpeechService(synthesizer: synthesizer, voiceProvider: { [] })
+
+        service.speak("   \n")
+        XCTAssertEqual(synthesizer.stopCallCount, 0)
+        XCTAssertTrue(synthesizer.utterances.isEmpty)
+
+        service.speak("first")
+        service.speak("second")
+        XCTAssertEqual(synthesizer.stopCallCount, 2)
+        XCTAssertEqual(synthesizer.utterances.map(\.speechString), ["first", "second"])
+    }
+
     func testWordDetailAutoPlayDefaultsToEnabled() {
         XCTAssertTrue(AppSettings.defaultAutomaticWordSpeechEnabled)
     }
@@ -206,6 +338,26 @@ final class WordLearningStoreTests: XCTestCase {
         WordLearningStore(storageDirectory: directory, now: { now })
     }
 
+    private func makeVoice(
+        id: String,
+        name: String,
+        language: String,
+        quality: SpeechVoiceDescriptor.Quality = .standard,
+        gender: SpeechVoiceDescriptor.Gender = .unspecified,
+        isNovelty: Bool = false,
+        isPersonal: Bool = false
+    ) -> SpeechVoiceDescriptor {
+        SpeechVoiceDescriptor(
+            identifier: id,
+            name: name,
+            language: language,
+            quality: quality,
+            gender: gender,
+            isNoveltyVoice: isNovelty,
+            isPersonalVoice: isPersonal
+        )
+    }
+
     private func makeRecord(word: String, chinese: String, date: Date) -> HistoryRecord {
         HistoryRecord(
             id: UUID(),
@@ -236,6 +388,20 @@ final class WordLearningStoreTests: XCTestCase {
             missionID: nil,
             earnedStickerID: nil
         )
+    }
+}
+
+private final class SpeechSynthesizerSpy: SpeechSynthesizing {
+    private(set) var stopCallCount = 0
+    private(set) var utterances: [AVSpeechUtterance] = []
+
+    func stopSpeaking(at boundary: AVSpeechBoundary) -> Bool {
+        stopCallCount += 1
+        return true
+    }
+
+    func speak(_ utterance: AVSpeechUtterance) {
+        utterances.append(utterance)
     }
 }
 

@@ -6,6 +6,7 @@ enum AppSettings {
         static let englishSpeechEnabled = "settings.englishSpeechEnabled"
         static let automaticWordSpeechEnabled = "settings.automaticWordSpeechEnabled"
         static let speechRate = "settings.speechRate"
+        static let englishVoiceIdentifier = "settings.englishVoiceIdentifier"
         static let maxObjects = "settings.maxObjects"
         static let captionStyle = "settings.captionStyle"
         static let learningMode = "experience.learningMode"
@@ -15,6 +16,7 @@ enum AppSettings {
     static let defaultEnglishSpeechEnabled = true
     static let defaultAutomaticWordSpeechEnabled = true
     static let defaultSpeechRate = 0.43
+    static let defaultEnglishVoiceIdentifier = ""
     static let defaultMaxObjects = 10
     static let defaultCaptionStyle = CaptionStyle.serious.rawValue
     static let defaultLearningMode = LearningMode.selfExplore.rawValue
