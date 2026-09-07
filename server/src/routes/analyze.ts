@@ -281,6 +281,9 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             provider: providerName,
             model: providerModel,
             objectCount: result.objects.length,
+            masteredObjectCount: result.objects.filter((object) =>
+              masteredWords.includes(object.english.trim().toLocaleLowerCase("en-US")),
+            ).length,
             durationMs: Math.round(performance.now() - providerStartedAt),
           });
         } catch (error) {
