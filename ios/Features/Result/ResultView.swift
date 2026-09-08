@@ -308,6 +308,7 @@ struct PhotoWordCardDetailView: View {
                 object: object,
                 onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil,
                 onDelete: status.isComplete && onResultChange != nil ? deleteObject : nil,
+                onManualCorrection: status.isComplete && onResultChange != nil ? reportRecognitionFeedback : nil,
                 onEditingChanged: { isEditing in
                     wordDetailDetent = isEditing ? .large : .medium
                 }
@@ -638,12 +639,47 @@ struct PhotoWordCardDetailView: View {
     }
 
     private func confirmObject(_ object: LearningObject) -> String? {
+        let original = result.objects.first { $0.id == object.id }
         if let error = updateObject(object) {
             return error
+        }
+        if let original {
+            reportRecognitionFeedback(from: original, to: object)
         }
         handledConfirmationIDs.insert(object.id)
         confirmationObject = nil
         return nil
+    }
+
+    private func reportRecognitionFeedback(from original: LearningObject, to updated: LearningObject) {
+        let selection: RecognitionFeedbackSelection
+        if updated.candidates != nil,
+           let candidateIndex = original.candidates?.firstIndex(where: {
+               $0.english == updated.english && $0.chinese == updated.chinese
+           }) {
+            switch candidateIndex {
+            case 0: selection = .first
+            case 1: selection = .second
+            case 2: selection = .third
+            default: selection = .other
+            }
+        } else {
+            selection = .other
+        }
+
+        let originalEnglish = original.english
+        let originalChinese = original.chinese
+        let selectedEnglish = updated.english
+        let selectedChinese = updated.chinese
+        Task {
+            await AccessCredentialStore.shared.recordRecognitionFeedback(
+                originalEnglish: originalEnglish,
+                originalChinese: originalChinese,
+                selectedEnglish: selectedEnglish,
+                selectedChinese: selectedChinese,
+                selection: selection
+            )
+        }
     }
 
     private func finishConfirmationPresentation() {

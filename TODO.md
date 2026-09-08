@@ -26,7 +26,7 @@
 | ID | 类型 | 优先级 | 状态 | 标题 | 详细记录 |
 | --- | --- | --- | --- | --- | --- |
 | TODO-004 | feature | P1 | 待验证 | 提升物体识别准确率，降低相似物体误识别 | [TODO-004](./todos/active/TODO-004.md) |
-| TODO-010 | feature | P2 | 待分析 | 记录匿名聚合的识别纠错与候选确认数据 | [TODO-010](./todos/active/TODO-010.md) |
+| TODO-010 | feature | P2 | 已完成 | 记录匿名聚合的识别纠错与候选确认数据 | [TODO-010](./todos/active/TODO-010.md) |
 | TODO-012 | feature | P2 | 已完成 | 基于已掌握词的自动个性化推荐 | [TODO-012](./todos/active/TODO-012.md) |
 | TODO-013 | ui | P2 | 待分析 | 统一并优化 App 整体 UI 风格 | [TODO-013](./todos/active/TODO-013.md) |
 | TODO-014 | feature | P2 | 待分析 | 在单词详情 Sheet 中展示物体图片 | [TODO-014](./todos/active/TODO-014.md) |

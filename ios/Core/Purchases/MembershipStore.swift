@@ -515,6 +515,27 @@ actor AccessCredentialStore {
         _ = try? await session.data(for: request)
     }
 
+    func recordRecognitionFeedback(
+        originalEnglish: String,
+        originalChinese: String,
+        selectedEnglish: String,
+        selectedChinese: String,
+        selection: RecognitionFeedbackSelection
+    ) async {
+        guard let token = try? await authorizationToken() else { return }
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/recognition-feedback"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try? JSONEncoder().encode(RecognitionFeedbackRequest(
+            original: RecognitionFeedbackWordRequest(english: originalEnglish, chinese: originalChinese),
+            selected: RecognitionFeedbackWordRequest(english: selectedEnglish, chinese: selectedChinese),
+            selection: selection
+        ))
+        _ = try? await session.data(for: request)
+    }
+
     func credentialsForAnalyze() async throws -> AccessCredentials {
         AccessCredentials(
             accessToken: try await authorizationToken(),
@@ -1641,6 +1662,17 @@ private struct MetricRequest: Encodable {
     let eventName: String
     let productId: String?
     let outcome: String?
+}
+
+private struct RecognitionFeedbackWordRequest: Encodable {
+    let english: String
+    let chinese: String
+}
+
+private struct RecognitionFeedbackRequest: Encodable {
+    let original: RecognitionFeedbackWordRequest
+    let selected: RecognitionFeedbackWordRequest
+    let selection: RecognitionFeedbackSelection
 }
 
 private struct AccessServerError: Decodable {

@@ -25,6 +25,13 @@ enum APIError: LocalizedError {
     }
 }
 
+enum RecognitionFeedbackSelection: String, Codable, Sendable {
+    case first
+    case second
+    case third
+    case other
+}
+
 /// 业务层依赖识别能力而非具体客户端，使 Preview 和后续单元测试无需连接真实服务器。
 protocol AnalysisProviding {
     func analyze(

@@ -4,6 +4,7 @@ struct WordDetailSheet: View {
     let object: LearningObject
     var onUpdate: ((LearningObject) -> String?)?
     var onDelete: ((LearningObject) -> String?)?
+    var onManualCorrection: ((LearningObject, LearningObject) -> Void)?
     var onEditingChanged: ((Bool) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -26,11 +27,13 @@ struct WordDetailSheet: View {
         object: LearningObject,
         onUpdate: ((LearningObject) -> String?)? = nil,
         onDelete: ((LearningObject) -> String?)? = nil,
+        onManualCorrection: ((LearningObject, LearningObject) -> Void)? = nil,
         onEditingChanged: ((Bool) -> Void)? = nil
     ) {
         self.object = object
         self.onUpdate = onUpdate
         self.onDelete = onDelete
+        self.onManualCorrection = onManualCorrection
         self.onEditingChanged = onEditingChanged
         _displayedObject = State(initialValue: object)
     }
@@ -246,6 +249,7 @@ struct WordDetailSheet: View {
                 if let persistenceError = onUpdate?(updated) {
                     errorMessage = persistenceError
                 } else {
+                    onManualCorrection?(displayedObject, updated)
                     displayedObject = updated
                     isEditing = false
                     onEditingChanged?(false)

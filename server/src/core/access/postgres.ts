@@ -14,6 +14,7 @@ import type {
   DeviceChecking,
   EntitlementSummary,
   QuotaReservation,
+  RecognitionFeedbackInput,
   StoreNotification,
   StoreSignedDataVerifying,
   StoreSyncResult,
@@ -261,6 +262,46 @@ export class PostgresAccessService implements AccessService {
            updated_at = clock_timestamp()`,
       [eventName, productId, outcome],
     );
+  }
+
+  async recordRecognitionFeedback(input: RecognitionFeedbackInput): Promise<void> {
+    const original = normalizeRecognitionWord(input.original);
+    const selected = normalizeRecognitionWord(input.selected);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO picture_word_recognition_confirmations_daily
+          (metric_date, original_english, original_chinese,
+           selected_english, selected_chinese, selection, confirmation_count)
+         VALUES ((clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date, $1, $2, $3, $4, $5, 1)
+         ON CONFLICT (metric_date, original_english, original_chinese,
+                      selected_english, selected_chinese, selection) DO UPDATE
+         SET confirmation_count = picture_word_recognition_confirmations_daily.confirmation_count + 1,
+             updated_at = clock_timestamp()`,
+        [original.english, original.chinese, selected.english, selected.chinese, input.selection],
+      );
+
+      if (input.selection !== "first") {
+        await client.query(
+          `INSERT INTO picture_word_recognition_corrections_daily
+            (metric_date, original_english, original_chinese,
+             corrected_english, corrected_chinese, correction_count)
+           VALUES ((clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date, $1, $2, $3, $4, 1)
+           ON CONFLICT (metric_date, original_english, original_chinese,
+                        corrected_english, corrected_chinese) DO UPDATE
+           SET correction_count = picture_word_recognition_corrections_daily.correction_count + 1,
+               updated_at = clock_timestamp()`,
+          [original.english, original.chinese, selected.english, selected.chinese],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async reserveAnalyze(
@@ -844,6 +885,13 @@ function effectiveState(subscription: SubscriptionRow): Exclude<SubscriptionStat
 function isActiveMemberEntitlement(entitlement: EntitlementSummary): boolean {
   return entitlement.tier === "member"
     && (entitlement.subscriptionState === "active" || entitlement.subscriptionState === "grace");
+}
+
+function normalizeRecognitionWord(word: RecognitionFeedbackInput["original"]): RecognitionFeedbackInput["original"] {
+  return {
+    english: word.english.trim().toLowerCase(),
+    chinese: word.chinese.trim(),
+  };
 }
 
 function notificationState(

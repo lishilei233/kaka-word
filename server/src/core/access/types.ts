@@ -46,6 +46,19 @@ export type AggregateMetricInput = {
   outcome?: string | null;
 };
 
+export type RecognitionFeedbackSelection = "first" | "second" | "third" | "other";
+
+export type RecognitionFeedbackWord = {
+  english: string;
+  chinese: string;
+};
+
+export type RecognitionFeedbackInput = {
+  original: RecognitionFeedbackWord;
+  selected: RecognitionFeedbackWord;
+  selection: RecognitionFeedbackSelection;
+};
+
 export type SubscriptionTransaction = {
   environment: AccessEnvironment;
   originalTransactionId: string;
@@ -109,6 +122,7 @@ export interface AccessService {
   ): Promise<StoreSyncResult>;
   processStoreNotification(signedPayload: string, requestId?: string): Promise<void>;
   recordMetric(input: AggregateMetricInput): Promise<void>;
+  recordRecognitionFeedback(input: RecognitionFeedbackInput): Promise<void>;
   reserveAnalyze(principal: AccessPrincipal, operationId: string, deviceToken?: string): Promise<QuotaReservation>;
   commitAnalyze(reservationId: string, deviceToken?: string): Promise<EntitlementSummary>;
   releaseAnalyze(reservationId: string): Promise<void>;

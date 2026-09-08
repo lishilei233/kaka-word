@@ -9,6 +9,7 @@ import { registerAnalyzeRoute } from "./routes/analyze.js";
 import { registerContentRoute } from "./routes/content.js";
 import { registerMetricsRoute } from "./routes/metrics.js";
 import { registerMembershipRoute } from "./routes/membership.js";
+import { registerRecognitionFeedbackRoute } from "./routes/recognition-feedback.js";
 import { registerStoreRoutes } from "./routes/store.js";
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
 import { errorFields, type LogLevel, type Logger } from "./utils/logger.js";
@@ -43,6 +44,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
   registerAccessRoutes(app, { accessService, logger });
   registerStoreRoutes(app, { accessService, logger });
   registerMetricsRoute(app, { accessService, logger });
+  registerRecognitionFeedbackRoute(app, { accessService, logger });
   registerAnalyzeRoute(app, {
     provider,
     providerName: config.vision.name,
@@ -71,15 +73,16 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
 function requestLogger(logger: Logger, logLevel: LogLevel): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const requestId = c.req.header("x-request-id")?.slice(0, 128) || crypto.randomUUID();
+    const privacySensitive = c.req.path === "/v1/recognition-feedback";
     const startedAt = performance.now();
     c.set("requestId", requestId);
-    c.header("x-request-id", requestId);
+    if (!privacySensitive) c.header("x-request-id", requestId);
 
     try {
       await next();
     } catch (error) {
       logger.error("request.unhandled_error", {
-        requestId,
+        ...(privacySensitive ? {} : { requestId }),
         method: c.req.method,
         path: c.req.path,
         ...errorFields(error, logLevel === "debug"),
@@ -87,7 +90,7 @@ function requestLogger(logger: Logger, logLevel: LogLevel): MiddlewareHandler<Ap
       throw error;
     } finally {
       logger.info("request.completed", {
-        requestId,
+        ...(privacySensitive ? {} : { requestId }),
         method: c.req.method,
         path: c.req.path,
         status: c.res.status,

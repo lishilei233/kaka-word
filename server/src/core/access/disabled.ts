@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
   disabledEntitlement,
   type AccessPrincipal,
+  type AggregateMetricInput,
   type AccessService,
   type BootstrapInput,
   type BootstrapResult,
   type EntitlementSummary,
   type QuotaReservation,
+  type RecognitionFeedbackInput,
   type StoreSyncResult,
 } from "./types.js";
 
@@ -15,7 +17,7 @@ export class DisabledAccessService implements AccessService {
     return { accessToken: "access-control-disabled", entitlement: disabledEntitlement() };
   }
 
-  async authenticate(): Promise<AccessPrincipal> {
+  async authenticate(_rawToken: string | undefined): Promise<AccessPrincipal | null> {
     return {
       accessTokenHash: "disabled",
       installationId: "disabled",
@@ -35,8 +37,9 @@ export class DisabledAccessService implements AccessService {
     };
   }
 
-  async processStoreNotification(): Promise<void> {}
-  async recordMetric(): Promise<void> {}
+  async processStoreNotification(_signedPayload: string, _requestId?: string): Promise<void> {}
+  async recordMetric(_input: AggregateMetricInput): Promise<void> {}
+  async recordRecognitionFeedback(_input: RecognitionFeedbackInput): Promise<void> {}
 
   async reserveAnalyze(): Promise<QuotaReservation> {
     return { allowed: true, reservationId: randomUUID(), entitlement: disabledEntitlement() };

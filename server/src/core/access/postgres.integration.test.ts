@@ -34,6 +34,7 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
   const migration = [
     await readFile(new URL("../../../migrations/002_subscriptions.sql", import.meta.url), "utf8"),
     await readFile(new URL("../../../migrations/003_subscription_transactions.sql", import.meta.url), "utf8"),
+    await readFile(new URL("../../../migrations/004_recognition_feedback.sql", import.meta.url), "utf8"),
   ].join("\n");
   const setupPool = new Pool({ connectionString: isolatedURL.toString() });
   await setupPool.query(migration);
@@ -47,6 +48,34 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
     await service.close();
     await setupPool.end();
   });
+
+  await service.recordRecognitionFeedback({
+    original: { english: " Mug ", chinese: " 杯子 " },
+    selected: { english: "VASE", chinese: " 花瓶 " },
+    selection: "second",
+  });
+  await service.recordRecognitionFeedback({
+    original: { english: "mug", chinese: "杯子" },
+    selected: { english: "vase", chinese: "花瓶" },
+    selection: "second",
+  });
+  const confirmation = await setupPool.query(
+    `SELECT confirmation_count
+       FROM picture_word_recognition_confirmations_daily
+      WHERE metric_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date
+        AND original_english = 'mug'
+        AND selected_english = 'vase'
+        AND selection = 'second'`,
+  );
+  assert.equal(confirmation.rows[0]?.confirmation_count, "2");
+  const correction = await setupPool.query(
+    `SELECT correction_count
+       FROM picture_word_recognition_corrections_daily
+      WHERE metric_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date
+        AND original_english = 'mug'
+        AND corrected_english = 'vase'`,
+  );
+  assert.equal(correction.rows[0]?.correction_count, "2");
 
   const firstBootstrap = await service.bootstrap({ installationId: randomUUID(), deviceToken: "device-a-token-value" });
   const firstPrincipal = await service.authenticate(`Bearer ${firstBootstrap.accessToken}`);

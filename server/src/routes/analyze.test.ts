@@ -514,6 +514,7 @@ class FakeAccessService implements AccessService {
   }
   async processStoreNotification(): Promise<void> {}
   async recordMetric(): Promise<void> {}
+  async recordRecognitionFeedback(): Promise<void> {}
   async reserveAnalyze(): Promise<QuotaReservation> {
     this.reserveCalls += 1;
     return this.reservation;

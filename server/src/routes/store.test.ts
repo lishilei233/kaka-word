@@ -203,6 +203,7 @@ class FakeAccessService implements AccessService {
   }
   async processStoreNotification(): Promise<void> {}
   async recordMetric(): Promise<void> {}
+  async recordRecognitionFeedback(): Promise<void> {}
   async reserveAnalyze(): Promise<QuotaReservation> { throw new Error("not used"); }
   async commitAnalyze(): Promise<EntitlementSummary> { throw new Error("not used"); }
   async releaseAnalyze(): Promise<void> {}
