@@ -33,7 +33,7 @@
 | TODO-015 | feature | P2 | 待分析 | 建立仅支持 Apple 登录的用户系统 | [TODO-015](./todos/active/TODO-015.md) |
 | TODO-016 | feature | P2 | 待分析 | 支持通过 iCloud 跨设备同步学习数据 | [TODO-016](./todos/active/TODO-016.md) |
 | TODO-017 | feature | P2 | 已完成 | 评估并支持英语发音音色选择 | [TODO-017](./todos/active/TODO-017.md) |
-| TODO-018 | bug | P1 | 待分析 | 修复历史 StoreKit 交易触发重复权益同步和启动卡顿 | [TODO-018](./todos/active/TODO-018.md) |
+| TODO-018 | bug | P1 | 已完成 | 修复历史 StoreKit 交易触发重复权益同步和启动卡顿 | [TODO-018](./todos/active/TODO-018.md) |
 
 ## 工作规则
 

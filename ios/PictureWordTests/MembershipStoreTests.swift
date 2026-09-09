@@ -1,4 +1,5 @@
 import Foundation
+import StoreKit
 import XCTest
 @testable import PictureWord
 
@@ -272,55 +273,33 @@ final class MembershipStoreTests: XCTestCase {
         )
     }
 
-    func testSettingsRefreshSkipsActiveSyncAndRecentCompletion() {
+    func testForegroundRefreshPolicyUsesFiveMinuteStatusWindow() {
         let now = Date(timeIntervalSince1970: 10_000)
-        let loaded = EntitlementLoadState.loaded
 
-        XCTAssertFalse(
-            MembershipStore.shouldRefreshForSettingsPresentation(
-                loadState: loaded,
-                isRefreshing: true,
-                lastFinishedAt: nil,
-                now: now,
-                cooldown: 3
-            )
-        )
-        XCTAssertFalse(
-            MembershipStore.shouldRefreshForSettingsPresentation(
-                loadState: loaded,
-                isRefreshing: false,
-                lastFinishedAt: now.addingTimeInterval(-1),
-                now: now,
-                cooldown: 3
-            )
-        )
-        XCTAssertTrue(
-            MembershipStore.shouldRefreshForSettingsPresentation(
-                loadState: loaded,
-                isRefreshing: false,
-                lastFinishedAt: now.addingTimeInterval(-3),
-                now: now,
-                cooldown: 3
-            )
-        )
-        XCTAssertTrue(
-            MembershipStore.shouldRefreshForSettingsPresentation(
-                loadState: loaded,
-                isRefreshing: false,
-                lastFinishedAt: nil,
-                now: now,
-                cooldown: 3
-            )
-        )
-        XCTAssertFalse(
-            MembershipStore.shouldRefreshForSettingsPresentation(
-                loadState: .loading(hasCachedValue: true),
-                isRefreshing: false,
-                lastFinishedAt: nil,
-                now: now,
-                cooldown: 3
-            )
-        )
+        XCTAssertFalse(MembershipLifecycleRefreshPolicy.shouldRefreshAfterForeground(
+            lastSuccessfulRefreshAt: now.addingTimeInterval(-299),
+            now: now
+        ))
+        XCTAssertTrue(MembershipLifecycleRefreshPolicy.shouldRefreshAfterForeground(
+            lastSuccessfulRefreshAt: now.addingTimeInterval(-300),
+            now: now
+        ))
+        XCTAssertTrue(MembershipLifecycleRefreshPolicy.shouldRefreshAfterForeground(
+            lastSuccessfulRefreshAt: nil,
+            now: now
+        ))
+    }
+
+    func testSettingsRefreshPolicyRetriesOnlyFailedStartup() {
+        XCTAssertFalse(MembershipLifecycleRefreshPolicy.shouldRetryAfterSettingsPresentation(
+            loadState: .loaded
+        ))
+        XCTAssertFalse(MembershipLifecycleRefreshPolicy.shouldRetryAfterSettingsPresentation(
+            loadState: .loading(hasCachedValue: true)
+        ))
+        XCTAssertTrue(MembershipLifecycleRefreshPolicy.shouldRetryAfterSettingsPresentation(
+            loadState: .failed(message: "offline", hasCachedValue: true, requestID: nil)
+        ))
     }
 
     func testPaywallDoesNotShowExhaustedWhileEntitlementIsBeingSynced() {
@@ -377,50 +356,338 @@ final class MembershipStoreTests: XCTestCase {
         )
     }
 
-    func testTransactionOrderingIsDeterministic() {
-        let purchase = Date(timeIntervalSince1970: 1_000)
-        let keys = [
-            TransactionOrderingKey(purchaseDate: purchase, expirationDate: nil, transactionID: 4),
-            TransactionOrderingKey(purchaseDate: purchase.addingTimeInterval(-1), expirationDate: nil, transactionID: 9),
-            TransactionOrderingKey(purchaseDate: purchase, expirationDate: purchase.addingTimeInterval(10), transactionID: 3),
-            TransactionOrderingKey(purchaseDate: purchase, expirationDate: purchase.addingTimeInterval(10), transactionID: 2),
+    func testNineRenewalsInOneChainProduceOneServerSyncPlan() {
+        let now = Date(timeIntervalSince1970: 20_000)
+        var observations: [StoreTransactionObservation] = []
+        for index in 1...9 {
+            let purchaseOffset = TimeInterval(index - 9) * 2_000
+            observations.append(makeObservation(
+                id: UInt64(index),
+                originalID: 1,
+                purchaseDate: now.addingTimeInterval(purchaseOffset),
+                expirationDate: index == 9 ? now.addingTimeInterval(2_000) : now.addingTimeInterval(-1)
+            ))
+        }
+
+        let plan = SubscriptionReconciliationPlanner.makePlan(
+            observations: observations,
+            handledFingerprints: [],
+            now: now
+        )
+
+        XCTAssertEqual(plan.chainCount, 1)
+        XCTAssertEqual(plan.chainsToSync.count, 1)
+        XCTAssertEqual(plan.chainsToSync.first?.representative.id, 9)
+        XCTAssertEqual(plan.chainsToSync.first?.transactionsToFinish.count, 9)
+    }
+
+    func testTwoIndependentActiveChainsProduceAtMostOneSyncEach() {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let observations = [
+            makeObservation(
+                id: 10,
+                originalID: 1,
+                purchaseDate: now,
+                expirationDate: now.addingTimeInterval(1_000)
+            ),
+            makeObservation(
+                id: 20,
+                originalID: 2,
+                purchaseDate: now,
+                expirationDate: now.addingTimeInterval(1_000)
+            ),
         ]
 
-        XCTAssertEqual(keys.sorted().map(\.transactionID), [9, 4, 2, 3])
+        let plan = SubscriptionReconciliationPlanner.makePlan(
+            observations: observations,
+            handledFingerprints: [],
+            now: now
+        )
+
+        XCTAssertEqual(plan.chainCount, 2)
+        XCTAssertEqual(plan.chainsToSync.count, 2)
     }
 
-    func testEntitlementSyncQueueCoalescesRequestsIntoNextBatch() {
-        var queue = EntitlementSyncQueueState()
+    func testExpiredHistoryAcrossMultipleChainsFinishesLocallyWithoutSync() {
+        let now = Date(timeIntervalSince1970: 20_000)
+        var observations: [StoreTransactionObservation] = []
+        for index in 1...9 {
+            let purchaseOffset = TimeInterval(index - 10) * 1_000
+            observations.append(makeObservation(
+                id: UInt64(index),
+                originalID: index < 5 ? 1 : 2,
+                purchaseDate: now.addingTimeInterval(purchaseOffset),
+                expirationDate: now.addingTimeInterval(-100)
+            ))
+        }
 
-        let first = queue.enqueue()
-        XCTAssertEqual(queue.nextBatchRevision, first)
+        let plan = SubscriptionReconciliationPlanner.makePlan(
+            observations: observations,
+            handledFingerprints: [],
+            now: now
+        )
 
-        let second = queue.enqueue()
-        let third = queue.enqueue()
-        XCTAssertEqual(queue.nextBatchRevision, third)
-        XCTAssertFalse(queue.isSatisfied(second))
-
-        queue.complete(first)
-        XCTAssertEqual(queue.nextBatchRevision, third)
-        XCTAssertFalse(queue.isSatisfied(second))
-
-        queue.complete(third)
-        XCTAssertTrue(queue.isSatisfied(second))
-        XCTAssertTrue(queue.isSatisfied(third))
-        XCTAssertNil(queue.nextBatchRevision)
+        XCTAssertEqual(plan.chainCount, 2)
+        XCTAssertTrue(plan.chainsToSync.isEmpty)
+        XCTAssertEqual(plan.transactionsToFinishLocally.count, 9)
     }
 
-    func testEntitlementSyncQueueCompletionCannotRegress() {
-        var queue = EntitlementSyncQueueState()
-        let first = queue.enqueue()
-        let second = queue.enqueue()
+    func testRevokedLatestTransactionProducesOneServerSyncPlan() {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let revoked = makeObservation(
+            id: 9,
+            originalID: 1,
+            purchaseDate: now,
+            expirationDate: now.addingTimeInterval(-1),
+            revocationDate: now
+        )
 
-        queue.complete(second)
-        queue.complete(first)
+        let plan = SubscriptionReconciliationPlanner.makePlan(
+            observations: [revoked],
+            handledFingerprints: [],
+            now: now
+        )
 
-        XCTAssertTrue(queue.isSatisfied(first))
-        XCTAssertTrue(queue.isSatisfied(second))
-        XCTAssertNil(queue.nextBatchRevision)
+        XCTAssertEqual(plan.chainsToSync.count, 1)
+        XCTAssertEqual(plan.chainsToSync.first?.representative.id, 9)
+    }
+
+    func testRevokedLatestTransactionSyncsOnceThenFinishes() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let recorder = FinishRecorder()
+        let revoked = makeObservation(
+            id: 9,
+            purchaseDate: now,
+            expirationDate: now.addingTimeInterval(-1),
+            revocationDate: now,
+            recorder: recorder
+        )
+        let gateway = FakeStoreKitTransactionGateway(observations: [revoked])
+        let api = FakeMembershipEntitlementAPI(
+            syncedState: .revoked,
+            returnsMember: false
+        )
+        let coordinator = makeCoordinator(gateway: gateway, api: api, now: now)
+
+        _ = try await result(from: await coordinator.submitReconciliation(reason: .startup))
+
+        let syncCallCount = await api.syncCallCount()
+        let finishedIDs = await recorder.finishedIDs()
+        XCTAssertEqual(syncCallCount, 1)
+        XCTAssertEqual(finishedIDs, [9])
+    }
+
+    func testSameTransactionUsesChangedJWSButKeepsRevocationPriority() {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let original = makeObservation(
+            id: 9,
+            purchaseDate: now,
+            expirationDate: now.addingTimeInterval(1_000),
+            signedTransaction: "jws-original"
+        )
+        let revoked = makeObservation(
+            id: 9,
+            purchaseDate: now,
+            expirationDate: now.addingTimeInterval(1_000),
+            revocationDate: now,
+            signedTransaction: "jws-revoked"
+        )
+        let stale = makeObservation(
+            id: 9,
+            purchaseDate: now,
+            expirationDate: now.addingTimeInterval(1_000),
+            signedTransaction: "jws-stale"
+        )
+
+        let plan = SubscriptionReconciliationPlanner.makePlan(
+            observations: [original, revoked, stale],
+            handledFingerprints: [],
+            now: now
+        )
+
+        XCTAssertEqual(plan.duplicateCount, 2)
+        XCTAssertEqual(plan.chainsToSync.first?.representative.signedTransaction, "jws-revoked")
+    }
+
+    func testStartupBuffersUpdateAndCoalescesConcurrentLifecycleRequests() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let recorder = FinishRecorder()
+        let snapshotTransaction = makeObservation(
+            id: 8,
+            originalID: 1,
+            purchaseDate: now.addingTimeInterval(-1_000),
+            expirationDate: now.addingTimeInterval(-1),
+            recorder: recorder
+        )
+        let latestUpdate = makeObservation(
+            id: 9,
+            originalID: 1,
+            purchaseDate: now,
+            expirationDate: now.addingTimeInterval(1_000),
+            source: .update,
+            recorder: recorder
+        )
+        let gateway = FakeStoreKitTransactionGateway(observations: [snapshotTransaction])
+        let api = FakeMembershipEntitlementAPI()
+        let coordinator = makeCoordinator(gateway: gateway, api: api, now: now)
+
+        let buffered = await coordinator.submit(event: .verified(latestUpdate), reason: .transactionUpdate)
+        guard case .buffered = buffered else { return XCTFail("Expected buffered update") }
+        let startup = await coordinator.submitReconciliation(reason: .startup)
+        let foreground = await coordinator.submitStatusRefresh(reason: .foreground)
+        guard case .joined = foreground else { return XCTFail("Expected lifecycle request to join startup") }
+        let result = try await result(from: startup)
+
+        XCTAssertEqual(result.statistics.chainCount, 1)
+        let syncCallCount = await api.syncCallCount()
+        let statusCallCount = await api.statusCallCount()
+        let finishedIDs = await recorder.finishedIDs()
+        XCTAssertEqual(syncCallCount, 1)
+        XCTAssertEqual(statusCallCount, 1)
+        XCTAssertEqual(Set(finishedIDs), Set([8, 9]))
+    }
+
+    func testNineRenewalsCoordinatorSyncsOnceAndFinishesAll() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let recorder = FinishRecorder()
+        var observations: [StoreTransactionObservation] = []
+        for index in 1...9 {
+            observations.append(makeObservation(
+                id: UInt64(index),
+                originalID: 1,
+                purchaseDate: now.addingTimeInterval(TimeInterval(index)),
+                expirationDate: index == 9
+                    ? now.addingTimeInterval(1_000)
+                    : now.addingTimeInterval(-1_000),
+                recorder: recorder
+            ))
+        }
+        let gateway = FakeStoreKitTransactionGateway(observations: observations)
+        let api = FakeMembershipEntitlementAPI()
+        let coordinator = makeCoordinator(gateway: gateway, api: api, now: now)
+
+        let result = try await result(from: await coordinator.submitReconciliation(reason: .startup))
+
+        let syncCallCount = await api.syncCallCount()
+        let statusCallCount = await api.statusCallCount()
+        let finishedIDs = await recorder.finishedIDs()
+        XCTAssertEqual(result.statistics.chainCount, 1)
+        XCTAssertEqual(syncCallCount, 1)
+        XCTAssertEqual(statusCallCount, 1)
+        XCTAssertEqual(Set(finishedIDs), Set((1...9).map { UInt64($0) }))
+    }
+
+    func testSuccessfulFingerprintIsIgnoredButChangedJWSIsProcessed() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let initial = makeObservation(
+            id: 9,
+            purchaseDate: now,
+            expirationDate: now.addingTimeInterval(1_000),
+            signedTransaction: "jws-a"
+        )
+        let gateway = FakeStoreKitTransactionGateway(observations: [initial])
+        let api = FakeMembershipEntitlementAPI()
+        let coordinator = makeCoordinator(gateway: gateway, api: api, now: now)
+        _ = try await result(from: await coordinator.submitReconciliation(reason: .startup))
+
+        let duplicate = await coordinator.submit(
+            event: .verified(makeObservation(
+                id: 9,
+                purchaseDate: now,
+                expirationDate: now.addingTimeInterval(1_000),
+                source: .update,
+                signedTransaction: "jws-a"
+            )),
+            reason: .transactionUpdate
+        )
+        guard case .ignored = duplicate else { return XCTFail("Expected duplicate to be ignored") }
+        let changed = await coordinator.submit(
+            event: .verified(makeObservation(
+                id: 9,
+                purchaseDate: now,
+                expirationDate: now.addingTimeInterval(1_000),
+                source: .update,
+                signedTransaction: "jws-b"
+            )),
+            reason: .transactionUpdate
+        )
+        _ = try await result(from: changed)
+
+        let syncCallCount = await api.syncCallCount()
+        XCTAssertEqual(syncCallCount, 2)
+    }
+
+    func testFailedSyncDoesNotFinishAndCanRetry() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let recorder = FinishRecorder()
+        let observation = makeObservation(
+            id: 9,
+            purchaseDate: now,
+            expirationDate: now.addingTimeInterval(1_000),
+            recorder: recorder
+        )
+        let gateway = FakeStoreKitTransactionGateway(observations: [observation])
+        let api = FakeMembershipEntitlementAPI(failuresRemaining: 1)
+        let coordinator = makeCoordinator(gateway: gateway, api: api, now: now)
+
+        do {
+            _ = try await result(from: await coordinator.submitReconciliation(reason: .startup))
+            XCTFail("Expected a retryable sync error")
+        } catch {
+            let finishedIDs = await recorder.finishedIDs()
+            XCTAssertTrue(finishedIDs.isEmpty)
+        }
+
+        _ = try await result(from: await coordinator.submitReconciliation(reason: .manual))
+        let syncCallCount = await api.syncCallCount()
+        let finishedIDs = await recorder.finishedIDs()
+        XCTAssertEqual(syncCallCount, 2)
+        XCTAssertEqual(finishedIDs, [9])
+    }
+
+    func testUnverifiedTransactionDoesNotBlockVerifiedChain() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let recorder = FinishRecorder()
+        let gateway = FakeStoreKitTransactionGateway(
+            observations: [makeObservation(
+                id: 9,
+                purchaseDate: now,
+                expirationDate: now.addingTimeInterval(1_000),
+                recorder: recorder
+            )],
+            unverifiedCount: 1
+        )
+        let api = FakeMembershipEntitlementAPI()
+        let coordinator = makeCoordinator(gateway: gateway, api: api, now: now)
+
+        let result = try await result(from: await coordinator.submitReconciliation(reason: .startup))
+
+        let syncCallCount = await api.syncCallCount()
+        let finishedIDs = await recorder.finishedIDs()
+        XCTAssertEqual(result.statistics.unverifiedCount, 1)
+        XCTAssertEqual(syncCallCount, 1)
+        XCTAssertEqual(finishedIDs, [9])
+    }
+
+    func testStatusRefreshDoesNotRescanStoreKitOrCallStoreSync() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let gateway = FakeStoreKitTransactionGateway(observations: [makeObservation(
+            id: 9,
+            purchaseDate: now.addingTimeInterval(-2_000),
+            expirationDate: now.addingTimeInterval(-1_000)
+        )])
+        let api = FakeMembershipEntitlementAPI()
+        let coordinator = makeCoordinator(gateway: gateway, api: api, now: now)
+        _ = try await result(from: await coordinator.submitReconciliation(reason: .startup))
+
+        _ = try await result(from: await coordinator.submitStatusRefresh(reason: .foreground))
+
+        let snapshotCount = await gateway.snapshotCallCount()
+        let syncCallCount = await api.syncCallCount()
+        let statusCallCount = await api.statusCallCount()
+        XCTAssertEqual(snapshotCount, 1)
+        XCTAssertEqual(syncCallCount, 0)
+        XCTAssertEqual(statusCallCount, 2)
     }
 
     func testSubscriptionDiscountUsesLocalPricesAndCurrency() {
@@ -475,6 +742,64 @@ final class MembershipStoreTests: XCTestCase {
         let config = try await client.fetch()
 
         XCTAssertEqual(config, MembershipPlanConfig(limit: 180, unlimited: false))
+    }
+
+    private func makeObservation(
+        id: UInt64,
+        originalID: UInt64 = 1,
+        purchaseDate: Date,
+        expirationDate: Date?,
+        revocationDate: Date? = nil,
+        isUpgraded: Bool = false,
+        source: StoreTransactionSource = .unfinished,
+        signedTransaction: String? = nil,
+        recorder: FinishRecorder? = nil
+    ) -> StoreTransactionObservation {
+        StoreTransactionObservation(
+            id: id,
+            originalID: originalID,
+            productID: MembershipStore.monthlyProductId,
+            purchaseDate: purchaseDate,
+            expirationDate: expirationDate,
+            revocationDate: revocationDate,
+            isUpgraded: isUpgraded,
+            isXcodeEnvironment: false,
+            signedTransaction: signedTransaction ?? "jws-\(id)",
+            source: source,
+            requiresFinish: source != .currentEntitlement,
+            finishOperation: { await recorder?.record(id) }
+        )
+    }
+
+    private func makeCoordinator(
+        gateway: any StoreKitTransactionProviding,
+        api: any MembershipEntitlementAPI,
+        now: Date
+    ) -> EntitlementSyncCoordinator {
+        EntitlementSyncCoordinator(
+            gateway: gateway,
+            api: api,
+            supportedProductIDs: [
+                MembershipStore.monthlyProductId,
+                MembershipStore.annualProductId,
+            ],
+            clock: MembershipSyncClock(now: { now })
+        )
+    }
+
+    private func result(
+        from submission: EntitlementSyncSubmission
+    ) async throws -> EntitlementSyncResult {
+        switch submission {
+        case .started(let task), .joined(let task):
+            return try await task.value
+        case .buffered:
+            throw TestFailure.unexpectedSubmission("buffered")
+        case .ignored:
+            throw TestFailure.unexpectedSubmission("ignored")
+        case .unverified:
+            throw TestFailure.unexpectedSubmission("unverified")
+        }
     }
 
     private func discount(
@@ -537,6 +862,152 @@ final class MembershipStoreTests: XCTestCase {
     }
 }
 
+private enum TestFailure: Error {
+    case unexpectedSubmission(String)
+}
+
+private actor FinishRecorder {
+    private var storage: [UInt64] = []
+
+    func record(_ id: UInt64) {
+        storage.append(id)
+    }
+
+    func finishedIDs() -> [UInt64] {
+        storage
+    }
+}
+
+private actor FakeStoreKitTransactionGateway: StoreKitTransactionProviding {
+    private let snapshotValue: StoreTransactionSnapshot
+    private var snapshotRequests = 0
+
+    init(
+        observations: [StoreTransactionObservation],
+        unverifiedCount: Int = 0
+    ) {
+        let unverified = (0..<unverifiedCount).map { index in
+            UnverifiedStoreTransaction(
+                transactionID: UInt64(10_000 + index),
+                productID: MembershipStore.monthlyProductId,
+                source: .unfinished
+            )
+        }
+        snapshotValue = StoreTransactionSnapshot(
+            observations: observations,
+            unverified: unverified,
+            currentCount: observations.filter { $0.source == .currentEntitlement }.count,
+            unfinishedCount: observations.filter { $0.source == .unfinished }.count
+        )
+    }
+
+    func snapshot(supportedProductIDs: Set<String>) -> StoreTransactionSnapshot {
+        snapshotRequests += 1
+        return snapshotValue
+    }
+
+    func updates(supportedProductIDs: Set<String>) -> AsyncStream<StoreTransactionEvent> {
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
+
+    func signedRenewalInfo(for observation: StoreTransactionObservation) -> String? {
+        "renewal-\(observation.originalID)"
+    }
+
+    func register(products: [Product]) {}
+
+    func snapshotCallCount() -> Int {
+        snapshotRequests
+    }
+}
+
+private actor FakeMembershipEntitlementAPI: MembershipEntitlementAPI {
+    private var failuresRemaining: Int
+    private let syncedState: SyncedTransactionState
+    private let entitlement: EntitlementSummary
+    private var syncRequests: [(signedTransaction: String, requestID: String)] = []
+    private var statusRequests = 0
+
+    init(
+        failuresRemaining: Int = 0,
+        syncedState: SyncedTransactionState = .active,
+        returnsMember: Bool = true
+    ) {
+        self.failuresRemaining = failuresRemaining
+        self.syncedState = syncedState
+        entitlement = returnsMember ? Self.memberEntitlement : Self.freeEntitlement
+    }
+
+    func loadEntitlementStatus() -> EntitlementSummary {
+        statusRequests += 1
+        return entitlement
+    }
+
+    func syncSubscription(
+        signedTransaction: String,
+        signedRenewalInfo: String?,
+        requestID: String
+    ) throws -> StoreSyncReceipt {
+        syncRequests.append((signedTransaction, requestID))
+        if failuresRemaining > 0 {
+            failuresRemaining -= 1
+            throw AccessCredentialError.server(
+                code: "STORE_SYNC_UNAVAILABLE",
+                message: "temporary",
+                requestID: requestID,
+                retryable: true
+            )
+        }
+        return StoreSyncReceipt(
+            entitlement: entitlement,
+            syncedTransactionState: syncedState,
+            requestID: requestID
+        )
+    }
+
+    func syncCallCount() -> Int {
+        syncRequests.count
+    }
+
+    func statusCallCount() -> Int {
+        statusRequests
+    }
+
+    private static let memberEntitlement = EntitlementSummary(
+        tier: "member",
+        productId: MembershipStore.monthlyProductId,
+        subscriptionState: "active",
+        limit: 100,
+        used: 0,
+        reserved: 0,
+        remaining: 100,
+        unlimited: false,
+        periodStart: nil,
+        resetAt: nil,
+        expiresAt: nil,
+        autoRenewEnabled: true,
+        vocabularyCorrectionEnabled: true
+    )
+
+    private static let freeEntitlement = EntitlementSummary(
+        tier: "free",
+        productId: nil,
+        subscriptionState: "none",
+        limit: 3,
+        used: 0,
+        reserved: 0,
+        remaining: 3,
+        unlimited: false,
+        periodStart: nil,
+        resetAt: nil,
+        expiresAt: nil,
+        autoRenewEnabled: nil,
+        vocabularyCorrectionEnabled: false
+    )
+}
+
 private final class FakeKeychain: KeychainStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: String]
@@ -554,7 +1025,7 @@ private final class FakeKeychain: KeychainStoring, @unchecked Sendable {
     }
 
     func delete(_ account: String) {
-        lock.withLock { values.removeValue(forKey: account) }
+        _ = lock.withLock { values.removeValue(forKey: account) }
     }
 }
 

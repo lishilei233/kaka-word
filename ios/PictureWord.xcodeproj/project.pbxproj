@@ -37,6 +37,8 @@
 		11111111111111111111111C /* PictureWordButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222224 /* PictureWordButton.swift */; };
 		11111111111111111111111D /* PictureWordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222225 /* PictureWordSheet.swift */; };
 		11111111111111111111111E /* MembershipStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222226 /* MembershipStore.swift */; };
+		111111111111111111111125 /* StoreKitTransactionGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222E /* StoreKitTransactionGateway.swift */; };
+		111111111111111111111126 /* EntitlementSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222F /* EntitlementSyncCoordinator.swift */; };
 		11111111111111111111111F /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222227 /* PaywallView.swift */; };
 		111111111111111111111120 /* WordLearningModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222228 /* WordLearningModels.swift */; };
 		111111111111111111111121 /* WordLearningStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222229 /* WordLearningStore.swift */; };
@@ -102,6 +104,8 @@
 		22222222222222222222222B /* WordFilterControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordFilterControls.swift; sourceTree = "<group>"; };
 		22222222222222222222222C /* PictureWordTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordTextField.swift; sourceTree = "<group>"; };
 		22222222222222222222222D /* Info-Debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-Debug.plist"; sourceTree = "<group>"; };
+		22222222222222222222222E /* StoreKitTransactionGateway.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitTransactionGateway.swift; sourceTree = "<group>"; };
+		22222222222222222222222F /* EntitlementSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntitlementSyncCoordinator.swift; sourceTree = "<group>"; };
 		A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = KakawordSubscriptions.storekit; sourceTree = "<group>"; };
 		A931C8BF30407ED6002F4806 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/StoreKit.framework; sourceTree = DEVELOPER_DIR; };
 		A96C244B303D79F8009BAAFD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -307,7 +311,9 @@
 		444444444444444444444412 /* Purchases */ = {
 			isa = PBXGroup;
 			children = (
+				22222222222222222222222F /* EntitlementSyncCoordinator.swift */,
 				222222222222222222222226 /* MembershipStore.swift */,
+				22222222222222222222222E /* StoreKitTransactionGateway.swift */,
 			);
 			path = Purchases;
 			sourceTree = "<group>";
@@ -466,6 +472,8 @@
 				11111111111111111111111C /* PictureWordButton.swift in Sources */,
 				11111111111111111111111D /* PictureWordSheet.swift in Sources */,
 				11111111111111111111111E /* MembershipStore.swift in Sources */,
+				111111111111111111111125 /* StoreKitTransactionGateway.swift in Sources */,
+				111111111111111111111126 /* EntitlementSyncCoordinator.swift in Sources */,
 				11111111111111111111111F /* PaywallView.swift in Sources */,
 				111111111111111111111120 /* WordLearningModels.swift in Sources */,
 				111111111111111111111121 /* WordLearningStore.swift in Sources */,

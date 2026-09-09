@@ -1,4 +1,3 @@
-import CryptoKit
 import DeviceCheck
 import Foundation
 import OSLog
@@ -96,6 +95,24 @@ enum EntitlementLoadState: Equatable, Sendable {
         case .idle:
             return false
         }
+    }
+}
+
+enum MembershipLifecycleRefreshPolicy {
+    static func shouldRefreshAfterForeground(
+        lastSuccessfulRefreshAt: Date?,
+        now: Date,
+        refreshInterval: TimeInterval = 5 * 60
+    ) -> Bool {
+        guard let lastSuccessfulRefreshAt else { return true }
+        return now.timeIntervalSince(lastSuccessfulRefreshAt) >= refreshInterval
+    }
+
+    static func shouldRetryAfterSettingsPresentation(
+        loadState: EntitlementLoadState
+    ) -> Bool {
+        if case .failed = loadState { return true }
+        return false
     }
 }
 
@@ -261,66 +278,6 @@ struct MembershipNotice: Equatable, Sendable {
     }
 }
 
-private enum TransactionDeliveryOutcome {
-    case activated(requestID: String?)
-    case processedInactive(state: SyncedTransactionState, requestID: String?)
-    case awaitingSync(TransactionSyncDeferredError)
-}
-
-private struct StoreTransactionCandidate {
-    let transaction: Transaction
-    let signedTransaction: String
-
-    var orderingKey: TransactionOrderingKey {
-        TransactionOrderingKey(
-            purchaseDate: transaction.purchaseDate,
-            expirationDate: transaction.expirationDate,
-            transactionID: transaction.id
-        )
-    }
-}
-
-struct TransactionOrderingKey: Comparable, Sendable {
-    let purchaseDate: Date
-    let expirationDate: Date?
-    let transactionID: UInt64
-
-    static func < (left: TransactionOrderingKey, right: TransactionOrderingKey) -> Bool {
-        if left.purchaseDate != right.purchaseDate {
-            return left.purchaseDate < right.purchaseDate
-        }
-        let leftExpiration = left.expirationDate ?? .distantPast
-        let rightExpiration = right.expirationDate ?? .distantPast
-        if leftExpiration != rightExpiration { return leftExpiration < rightExpiration }
-        return left.transactionID < right.transactionID
-    }
-}
-
-/// A small, deterministic state machine for coalescing entitlement-sync
-/// requests. Requests that arrive while a batch is running advance the target
-/// revision and are picked up by the next loop iteration instead of being lost.
-struct EntitlementSyncQueueState: Equatable, Sendable {
-    private(set) var requestedRevision: UInt64 = 0
-    private(set) var completedRevision: UInt64 = 0
-
-    mutating func enqueue() -> UInt64 {
-        requestedRevision &+= 1
-        return requestedRevision
-    }
-
-    var nextBatchRevision: UInt64? {
-        completedRevision < requestedRevision ? requestedRevision : nil
-    }
-
-    mutating func complete(_ revision: UInt64) {
-        completedRevision = max(completedRevision, min(revision, requestedRevision))
-    }
-
-    func isSatisfied(_ revision: UInt64) -> Bool {
-        completedRevision >= revision
-    }
-}
-
 struct AccessCredentials: Sendable {
     let accessToken: String
     let deviceCheckToken: String
@@ -371,16 +328,12 @@ enum AccessCredentialError: LocalizedError, Sendable {
     }
 }
 
-private struct TransactionSyncDeferredError: LocalizedError, Sendable {
-    let underlying: AccessCredentialError
-    let syncAttemptID: UUID
-    let requestID: String
-
-    var errorDescription: String? { underlying.errorDescription }
-}
-
 actor AccessCredentialStore {
     static let shared = AccessCredentialStore()
+    private static let logger = Logger(
+        subsystem: "com.kakaword.app",
+        category: "membership-network"
+    )
 
     private let baseURL: URL
     private let keychain: any KeychainStoring
@@ -588,17 +541,24 @@ actor AccessCredentialStore {
     ) async throws -> Response {
         var remainingRetries = max(0, retryCount)
         var retryDelayNanoseconds: UInt64 = 500_000_000
+        var attemptNumber = 0
         let deadline = Date().addingTimeInterval(max(1, deadlineSeconds))
         while true {
             guard deadline.timeIntervalSinceNow > 0 else {
                 throw AccessCredentialError.transport("会员服务响应超时，请稍后重试")
             }
             do {
+                attemptNumber += 1
                 var attemptRequest = request
                 attemptRequest.timeoutInterval = min(
                     max(1, deadline.timeIntervalSinceNow),
                     request.timeoutInterval
                 )
+                if attemptRequest.url?.path == "/v1/store/sync" {
+                    Self.logger.info(
+                        "store sync HTTP attempt request_id=\(attemptRequest.value(forHTTPHeaderField: "X-Request-ID") ?? "missing", privacy: .public) attempt=\(attemptNumber, privacy: .public)"
+                    )
+                }
                 let (data, response) = try await session.data(for: attemptRequest)
                 guard let http = response as? HTTPURLResponse else {
                     throw AccessCredentialError.invalidResponse
@@ -697,12 +657,14 @@ actor AccessCredentialStore {
 
 @MainActor
 final class MembershipStore: ObservableObject {
-    static let monthlyProductId = "com.kakaword.app.membership.month"
-    static let annualProductId = "com.kakaword.app.membership.annual"
-    private static let foregroundRefreshCooldown: TimeInterval = 3
+    nonisolated static let monthlyProductId = "com.kakaword.app.membership.month"
+    nonisolated static let annualProductId = "com.kakaword.app.membership.annual"
+    private static let foregroundStatusRefreshInterval: TimeInterval = 5 * 60
+    private static let failedSettingsRetryCooldown: TimeInterval = 3
     private static let planConfigRefreshInterval: TimeInterval = 5 * 60
     private static let cachedPlanConfigKey = "membership.cachedPlanConfig"
     private static let logger = Logger(subsystem: "com.kakaword.app", category: "membership")
+    private static let supportedProductIDs: Set<String> = [monthlyProductId, annualProductId]
 
     @Published private(set) var entitlement: EntitlementSummary?
     @Published private(set) var planConfig: MembershipPlanConfig?
@@ -723,17 +685,29 @@ final class MembershipStore: ObservableObject {
     private var planConfigTask: Task<MembershipPlanConfig, Error>?
     private var prepareTask: Task<Void, Never>?
     private var productPrepareTask: Task<Void, Never>?
-    private var entitlementSyncLoopTask: Task<Void, Error>?
-    private var entitlementSyncLoopID: UUID?
-    private var entitlementSyncQueue = EntitlementSyncQueueState()
-    private var pendingTransactionCandidates: [UInt64: StoreTransactionCandidate] = [:]
     private var lastEntitlementSyncFinishedAt: Date?
+    private var lastAppliedEntitlementWorkID: UUID?
     private var didPrepare = false
     private var planConfigSavedAt: Date?
     private let planConfigClient: MembershipPlanConfigClient
+    private let storeKitGateway: any StoreKitTransactionProviding
+    private let entitlementSyncCoordinator: EntitlementSyncCoordinator
 
-    init(planConfigClient: MembershipPlanConfigClient = MembershipPlanConfigClient()) {
+    init(
+        planConfigClient: MembershipPlanConfigClient = MembershipPlanConfigClient(),
+        storeKitGateway: (any StoreKitTransactionProviding)? = nil,
+        entitlementAPI: any MembershipEntitlementAPI = AccessCredentialStore.shared,
+        syncClock: MembershipSyncClock = .live
+    ) {
+        let resolvedGateway = storeKitGateway ?? LiveStoreKitTransactionGateway()
         self.planConfigClient = planConfigClient
+        self.storeKitGateway = resolvedGateway
+        entitlementSyncCoordinator = EntitlementSyncCoordinator(
+            gateway: resolvedGateway,
+            api: entitlementAPI,
+            supportedProductIDs: Self.supportedProductIDs,
+            clock: syncClock
+        )
         let cached = Self.loadCachedEntitlement()
         let cachedPlanConfig = Self.loadCachedPlanConfig()
         entitlement = cached?.entitlement
@@ -755,7 +729,6 @@ final class MembershipStore: ObservableObject {
         planConfigTask?.cancel()
         prepareTask?.cancel()
         productPrepareTask?.cancel()
-        entitlementSyncLoopTask?.cancel()
     }
 
     var canStartRecognition: Bool { entitlement?.hasUnlimitedQuota == true || (entitlement?.remaining ?? 0) > 0 }
@@ -786,7 +759,7 @@ final class MembershipStore: ObservableObject {
     var annualProduct: Product? { products.first { $0.id == Self.annualProductId } }
     var monthlyProduct: Product? { products.first { $0.id == Self.monthlyProductId } }
 
-    static func membershipPaywallState(
+    nonisolated static func membershipPaywallState(
         entitlement: EntitlementSummary?,
         loadState: EntitlementLoadState,
         isRefreshing: Bool
@@ -853,6 +826,7 @@ final class MembershipStore: ObservableObject {
                 Self.monthlyProductId,
                 Self.annualProductId
             ]))
+            await storeKitGateway.register(products: products)
             productLoadFailed = products.isEmpty
             if productLoadFailed {
                 setMessage(
@@ -867,39 +841,25 @@ final class MembershipStore: ObservableObject {
     }
 
     private func performPrepare() async {
-        didPrepare = true
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            didPrepare = true
+            isLoading = false
+        }
         productLoadFailed = false
         async let productRequest = Product.products(for: [Self.monthlyProductId, Self.annualProductId])
         async let planConfigRequest: Void = preparePlanConfig()
-        beginEntitlementLoading()
-        var bootstrapConfirmedMember = false
         do {
-            let bootstrapEntitlement = try await AccessCredentialStore.shared.bootstrapIfNeeded()
-            // An existing installation may already be bound on the server even when
-            // this process has no UserDefaults cache. Preserve that known-good member
-            // value if StoreKit refresh is temporarily unavailable.
-            if bootstrapEntitlement.isMember {
-                bootstrapConfirmedMember = true
-                setEntitlement(bootstrapEntitlement)
-            }
-            try await requestEntitlementSync(source: .startup)
+            _ = try await performReconciliation(source: .startup, reason: .startup)
         } catch {
-            if bootstrapConfirmedMember, Self.isRetryable(error) {
-                // The server has already confirmed this token is bound to an
-                // active subscription. A transient StoreKit audit failure must
-                // not replace that fresh result with a contradictory error.
-                entitlementLoadState = .loaded
-            } else {
-                // Startup failures are represented by entitlementLoadState and the
-                // inline retry UI. Avoid presenting a modal alert for a transient
-                // local-network permission race.
-                setEntitlementFailure(error, source: .startup, publishMessage: false)
-            }
+            // Startup failures are represented by entitlementLoadState and the
+            // inline retry UI. Avoid presenting a modal alert for a transient
+            // local-network permission race.
+            setEntitlementFailure(error, source: .startup, publishMessage: false)
         }
         do {
             products = sortProducts(try await productRequest)
+            await storeKitGateway.register(products: products)
             productLoadFailed = products.isEmpty
             if productLoadFailed {
                 setMessage(
@@ -943,17 +903,12 @@ final class MembershipStore: ObservableObject {
         await refreshCurrentEntitlements(source: .manual)
     }
 
-    func refreshCurrentEntitlements(source: MembershipNoticeSource = .foreground) async {
-        await refreshCurrentEntitlements(source: source, candidate: nil)
-    }
-
-    private func refreshCurrentEntitlements(
-        source: MembershipNoticeSource,
-        candidate: StoreTransactionCandidate?
-    ) async {
-        beginEntitlementLoading()
+    func refreshCurrentEntitlements(source: MembershipNoticeSource = .manual) async {
         do {
-            try await requestEntitlementSync(source: source, candidate: candidate)
+            _ = try await performReconciliation(
+                source: source,
+                reason: Self.syncReason(for: source)
+            )
         } catch {
             setEntitlementFailure(
                 error,
@@ -965,25 +920,34 @@ final class MembershipStore: ObservableObject {
     }
 
     func refreshAfterForegroundActivation() async {
-        // A cold-launch active callback may precede prepare(); startup owns that
-        // first request. Once prepare has begun, foreground requests join the
-        // same serialized queue even if startup is still running.
+        if let prepareTask {
+            await prepareTask.value
+            return
+        }
         guard didPrepare else { return }
         async let planConfigRefresh: Void = preparePlanConfig()
-        if !isRefreshingEntitlements,
-           let lastEntitlementSyncFinishedAt,
-           Date().timeIntervalSince(lastEntitlementSyncFinishedAt) < Self.foregroundRefreshCooldown {
+        if !MembershipLifecycleRefreshPolicy.shouldRefreshAfterForeground(
+            lastSuccessfulRefreshAt: lastSuccessfulRefreshAt,
+            now: Date(),
+            refreshInterval: Self.foregroundStatusRefreshInterval
+        ) {
             await planConfigRefresh
             return
         }
-        await refreshCurrentEntitlements(source: .foreground)
+        do {
+            _ = try await performStatusRefresh(source: .foreground, reason: .foreground)
+        } catch {
+            setEntitlementFailure(
+                error,
+                prefix: "会员状态同步失败",
+                source: .foreground,
+                publishMessage: false
+            )
+        }
         await planConfigRefresh
     }
 
     func refreshForSettingsPresentation() async {
-        // Settings can be opened while the root startup task is still waiting for
-        // the local-network permission decision. Share that work before deciding
-        // whether a fresh settings request is needed.
         if let prepareTask {
             await prepareTask.value
         } else if !didPrepare {
@@ -992,37 +956,17 @@ final class MembershipStore: ObservableObject {
         guard !Task.isCancelled else { return }
         guard !isRefreshingEntitlements else { return }
 
-        if case .failed = entitlementLoadState {
+        if MembershipLifecycleRefreshPolicy.shouldRetryAfterSettingsPresentation(
+            loadState: entitlementLoadState
+        ) {
             await retryFailedEntitlementAfterCooldown()
-            return
         }
-
-        guard Self.shouldRefreshForSettingsPresentation(
-            loadState: entitlementLoadState,
-            isRefreshing: isRefreshingEntitlements,
-            lastFinishedAt: lastEntitlementSyncFinishedAt,
-            now: Date()
-        ) else { return }
-        await refreshCurrentEntitlements(source: .settings)
-    }
-
-    static func shouldRefreshForSettingsPresentation(
-        loadState: EntitlementLoadState,
-        isRefreshing: Bool,
-        lastFinishedAt: Date?,
-        now: Date,
-        cooldown: TimeInterval = 3
-    ) -> Bool {
-        guard !isRefreshing else { return false }
-        if case .loading = loadState { return false }
-        guard let lastFinishedAt else { return true }
-        return now.timeIntervalSince(lastFinishedAt) >= cooldown
     }
 
     private func retryFailedEntitlementAfterCooldown() async {
         guard case .failed = entitlementLoadState else { return }
         if let lastEntitlementSyncFinishedAt {
-            let remaining = Self.foregroundRefreshCooldown
+            let remaining = Self.failedSettingsRetryCooldown
                 - Date().timeIntervalSince(lastEntitlementSyncFinishedAt)
             if remaining > 0 {
                 do {
@@ -1033,7 +977,16 @@ final class MembershipStore: ObservableObject {
             }
         }
         guard !Task.isCancelled, case .failed = entitlementLoadState else { return }
-        await refreshCurrentEntitlements(source: .settings)
+        do {
+            _ = try await performReconciliation(source: .settings, reason: .settings)
+        } catch {
+            setEntitlementFailure(
+                error,
+                prefix: "会员状态同步失败",
+                source: .settings,
+                publishMessage: false
+            )
+        }
     }
 
     func purchase(_ product: Product) async -> MembershipActionOutcome {
@@ -1055,9 +1008,11 @@ final class MembershipStore: ObservableObject {
             // Re-read StoreKit and server state immediately before presenting Apple's
             // purchase sheet. This prevents a stale free cache on a new device from
             // initiating a plan change for an already-active subscriber.
-            beginEntitlementLoading()
             let preflightStartedAt = Date()
-            try await requestEntitlementSync(source: .purchase)
+            _ = try await performReconciliation(
+                source: .purchase,
+                reason: .purchasePreflight
+            )
             let preflightDuration = Int(max(0, Date().timeIntervalSince(preflightStartedAt)) * 1_000)
             Self.logger.info("purchase phase=preflight_sync_completed product_id=\(product.id, privacy: .public) duration_ms=\(preflightDuration, privacy: .public)")
             guard !isMember else {
@@ -1079,12 +1034,13 @@ final class MembershipStore: ObservableObject {
                 applePurchaseCompleted = true
                 purchasePhase = .syncingEntitlement
                 let entitlementSyncStartedAt = Date()
-                try await requestEntitlementSync(
-                    source: .purchase,
-                    candidate: StoreTransactionCandidate(
+                _ = try await performTransactionEvent(
+                    .verified(StoreTransactionObservation(
                         transaction: transaction,
-                        signedTransaction: result.jwsRepresentation
-                    )
+                        signedTransaction: result.jwsRepresentation,
+                        source: .purchase
+                    )),
+                    source: .purchase
                 )
                 let entitlementSyncDuration = Int(max(0, Date().timeIntervalSince(entitlementSyncStartedAt)) * 1_000)
                 Self.logger.info("purchase phase=post_apple_sync_completed product_id=\(product.id, privacy: .public) duration_ms=\(entitlementSyncDuration, privacy: .public)")
@@ -1139,7 +1095,7 @@ final class MembershipStore: ObservableObject {
         do {
             beginEntitlementLoading()
             try await AppStore.sync()
-            try await requestEntitlementSync(source: .restore)
+            _ = try await performReconciliation(source: .restore, reason: .restore)
             setMessage(isMember ? "购买记录已恢复" : "没有找到可恢复的有效会员", source: .restore)
             recordMetric("restore_result", outcome: isMember ? "success" : "not_found")
             return isMember ? .active : .notFound
@@ -1175,147 +1131,84 @@ final class MembershipStore: ObservableObject {
         }
     }
 
-    private func requestEntitlementSync(
+    private func performReconciliation(
         source: MembershipNoticeSource,
-        candidate: StoreTransactionCandidate? = nil
-    ) async throws {
-        let syncStartedAt = Date()
-        if let candidate {
-            pendingTransactionCandidates[candidate.transaction.id] = candidate
-        }
-        let requestedRevision = entitlementSyncQueue.enqueue()
-        Self.logger.debug(
-            "entitlement sync requested source=\(source.rawValue, privacy: .public) revision=\(requestedRevision, privacy: .public)"
+        reason: EntitlementSyncReason
+    ) async throws -> EntitlementSyncResult? {
+        let submission = await entitlementSyncCoordinator.submitReconciliation(reason: reason)
+        return try await perform(submission, source: source)
+    }
+
+    private func performStatusRefresh(
+        source: MembershipNoticeSource,
+        reason: EntitlementSyncReason
+    ) async throws -> EntitlementSyncResult? {
+        let submission = await entitlementSyncCoordinator.submitStatusRefresh(reason: reason)
+        return try await perform(submission, source: source)
+    }
+
+    private func performTransactionEvent(
+        _ event: StoreTransactionEvent,
+        source: MembershipNoticeSource
+    ) async throws -> EntitlementSyncResult? {
+        let submission = await entitlementSyncCoordinator.submit(
+            event: event,
+            reason: Self.syncReason(for: source)
         )
+        return try await perform(submission, source: source)
+    }
 
-        while !entitlementSyncQueue.isSatisfied(requestedRevision) {
-            let (loopID, task) = ensureEntitlementSyncLoop()
-            do {
-                try await task.value
-                finishEntitlementSyncLoop(loopID)
-            } catch {
-                finishEntitlementSyncLoop(loopID)
-                // A caller only depends on the batch containing its own
-                // revision. A later coalesced batch may fail without changing
-                // an earlier request that already completed successfully.
-                if entitlementSyncQueue.isSatisfied(requestedRevision) { return }
-                let duration = Int(max(0, Date().timeIntervalSince(syncStartedAt)) * 1_000)
-                Self.logger.error("entitlement sync failed source=\(source.rawValue, privacy: .public) revision=\(requestedRevision, privacy: .public) duration_ms=\(duration, privacy: .public)")
-                throw error
+    private func perform(
+        _ submission: EntitlementSyncSubmission,
+        source: MembershipNoticeSource
+    ) async throws -> EntitlementSyncResult? {
+        switch submission {
+        case .buffered, .ignored:
+            return nil
+        case .unverified:
+            setMessage(
+                "App Store 无法验证这笔购买，会员权益尚未生效",
+                source: source,
+                category: .entitlementFailure
+            )
+            return nil
+        case .started(let task):
+            beginEntitlementLoading()
+            isRefreshingEntitlements = true
+            defer {
+                isRefreshingEntitlements = false
+                lastEntitlementSyncFinishedAt = Date()
             }
+            let result = try await task.value
+            applySyncResultIfNeeded(result)
+            return result
+        case .joined(let task):
+            let result = try await task.value
+            applySyncResultIfNeeded(result)
+            return result
         }
-        let duration = Int(max(0, Date().timeIntervalSince(syncStartedAt)) * 1_000)
-        Self.logger.info("entitlement sync completed source=\(source.rawValue, privacy: .public) revision=\(requestedRevision, privacy: .public) duration_ms=\(duration, privacy: .public)")
     }
 
-    private func ensureEntitlementSyncLoop() -> (UUID, Task<Void, Error>) {
-        if let entitlementSyncLoopID, let entitlementSyncLoopTask {
-            return (entitlementSyncLoopID, entitlementSyncLoopTask)
-        }
-
-        let loopID = UUID()
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try await self.runEntitlementSyncLoop()
-        }
-        entitlementSyncLoopID = loopID
-        entitlementSyncLoopTask = task
-        isRefreshingEntitlements = true
-        return (loopID, task)
-    }
-
-    private func finishEntitlementSyncLoop(_ loopID: UUID) {
-        guard entitlementSyncLoopID == loopID else { return }
-        entitlementSyncLoopTask = nil
-        entitlementSyncLoopID = nil
-        isRefreshingEntitlements = false
-        lastEntitlementSyncFinishedAt = Date()
-    }
-
-    private func runEntitlementSyncLoop() async throws {
-        // Finish only the batch that was ready when this task started. Requests
-        // arriving during the batch get a new task, so purchase callers don't
-        // wait for unrelated foreground or transaction-update refreshes.
-        guard let batchRevision = entitlementSyncQueue.nextBatchRevision else { return }
-        try Task.checkCancellation()
-        try await performCurrentEntitlementSync()
-        entitlementSyncQueue.complete(batchRevision)
-        Self.logger.debug(
-            "entitlement sync batch completed revision=\(batchRevision, privacy: .public)"
-        )
-    }
-
-    private func performCurrentEntitlementSync() async throws {
-        // Explicit StoreKit updates and purchase results seed the batch so a
-        // revoked or otherwise no-longer-current transaction is still audited.
-        // The StoreKit sequences then fill in every other unfinished/current
-        // transaction, with transaction ID providing idempotent de-duplication.
-        var transactionsByID = pendingTransactionCandidates
-        for await result in Transaction.unfinished {
-            try appendCandidate(result, to: &transactionsByID)
-        }
-        for await result in Transaction.currentEntitlements {
-            try appendCandidate(result, to: &transactionsByID)
-        }
-        let transactions = transactionsByID.values.sorted { $0.orderingKey < $1.orderingKey }
-        if transactions.isEmpty {
-            setEntitlement(try await loadStatus())
-            return
-        }
-        for item in transactions {
-            switch try await deliver(item.transaction, signedTransaction: item.signedTransaction) {
-            case .activated, .processedInactive:
-                if pendingTransactionCandidates[item.transaction.id]?.signedTransaction
-                    == item.signedTransaction {
-                    pendingTransactionCandidates[item.transaction.id] = nil
-                }
-                continue
-            case .awaitingSync(let deferred):
-                throw deferred
-            }
-        }
-        // Every submitted transaction response describes its subscription chain.
-        // Reload once after the deterministic batch so the published value reflects
-        // the token's final binding rather than an intermediate transaction.
-        setEntitlement(try await loadStatus())
-    }
-
-    private func appendCandidate(
-        _ result: VerificationResult<Transaction>,
-        to transactionsByID: inout [UInt64: StoreTransactionCandidate]
-    ) throws {
-        switch result {
-        case .verified(let transaction):
-            guard Self.isSupported(transaction) else { return }
-            if transactionsByID[transaction.id] == nil {
-                transactionsByID[transaction.id] = StoreTransactionCandidate(
-                    transaction: transaction,
-                    signedTransaction: result.jwsRepresentation
-                )
-            }
-        case .unverified(let transaction, _):
-            guard Self.isSupported(transaction) else { return }
-            throw AccessCredentialError.server(
-                code: "UNVERIFIED_APP_STORE_TRANSACTION",
-                message: "发现一笔无法验证的购买，请稍后重试或联系 Apple 支持",
-                requestID: nil,
-                retryable: false
+    private func applySyncResultIfNeeded(_ result: EntitlementSyncResult) {
+        guard lastAppliedEntitlementWorkID != result.workID else { return }
+        lastAppliedEntitlementWorkID = result.workID
+        setEntitlement(result.entitlement)
+        if result.statistics.unverifiedCount > 0 {
+            Self.logger.error(
+                "entitlement reconciliation contained unverified transactions count=\(result.statistics.unverifiedCount, privacy: .public)"
             )
         }
     }
 
-    private static func isSupported(_ transaction: Transaction) -> Bool {
-        transaction.productID == monthlyProductId || transaction.productID == annualProductId
-    }
-
-    private func loadStatus() async throws -> EntitlementSummary {
-        do {
-            return try await AccessCredentialStore.shared.status()
-        } catch let error as AccessCredentialError {
-            if error.isUnauthorized {
-                return try await AccessCredentialStore.shared.bootstrapIfNeeded(force: true)
-            }
-            throw error
+    private static func syncReason(for source: MembershipNoticeSource) -> EntitlementSyncReason {
+        switch source {
+        case .startup: return .startup
+        case .foreground: return .foreground
+        case .settings: return .settings
+        case .purchase: return .purchase
+        case .restore: return .restore
+        case .transactionUpdate: return .transactionUpdate
+        case .products, .manual: return .manual
         }
     }
 
@@ -1348,112 +1241,24 @@ final class MembershipStore: ObservableObject {
         return false
     }
 
-    private func deliver(
-        _ transaction: Transaction,
-        signedTransaction: String
-    ) async throws -> TransactionDeliveryOutcome {
-        let syncAttemptID = UUID()
-        let syncStartedAt = Date()
-#if DEBUG
-        if transaction.environment == .xcode {
-            let updated = await localEntitlement(for: transaction)
-            setEntitlement(updated)
-            if updated.isMember {
-                await transaction.finish()
-                return .activated(requestID: nil)
-            }
-            await transaction.finish()
-            let state: SyncedTransactionState = transaction.revocationDate == nil ? .expired : .revoked
-            return .processedInactive(state: state, requestID: nil)
-        }
-#endif
-        let renewalInfo = await signedRenewalInfo(for: transaction)
-        let requestID = syncAttemptID.uuidString.lowercased()
-        do {
-            let receipt = try await AccessCredentialStore.shared.syncSubscription(
-                signedTransaction: signedTransaction,
-                signedRenewalInfo: renewalInfo,
-                requestID: requestID
-            )
-            let transactionHash = Self.hashedTransactionID(transaction.id)
-            Self.logger.info(
-                "store sync completed category=success state=\(receipt.syncedTransactionState.rawValue, privacy: .public) request_id=\(receipt.requestID, privacy: .public) transaction_hash=\(transactionHash, privacy: .public) duration_ms=\(Int(max(0, Date().timeIntervalSince(syncStartedAt)) * 1_000), privacy: .public)"
-            )
-            switch receipt.syncedTransactionState {
-            case .active, .grace:
-                guard receipt.entitlement.isMember else {
-                    let error = AccessCredentialError.server(
-                        code: "STORE_SYNC_UNAVAILABLE",
-                        message: "服务器返回的交易状态与会员权益不一致",
-                        requestID: receipt.requestID,
-                        retryable: true
-                    )
-                    return .awaitingSync(TransactionSyncDeferredError(
-                        underlying: error,
-                        syncAttemptID: syncAttemptID,
-                        requestID: receipt.requestID
-                    ))
-                }
-                setEntitlement(receipt.entitlement)
-                await transaction.finish()
-                return .activated(requestID: receipt.requestID)
-            case .expired, .revoked:
-                setEntitlement(receipt.entitlement)
-                await transaction.finish()
-                return .processedInactive(
-                    state: receipt.syncedTransactionState,
-                    requestID: receipt.requestID
-                )
-            }
-        } catch let error as AccessCredentialError where error.isRetryable {
-            let transactionHash = Self.hashedTransactionID(transaction.id)
-            Self.logger.error(
-                "store sync deferred category=\(error.categoryCode, privacy: .public) request_id=\(error.requestID ?? requestID, privacy: .public) transaction_hash=\(transactionHash, privacy: .public) duration_ms=\(Int(max(0, Date().timeIntervalSince(syncStartedAt)) * 1_000), privacy: .public)"
-            )
-            return .awaitingSync(TransactionSyncDeferredError(
-                underlying: error,
-                syncAttemptID: syncAttemptID,
-                requestID: error.requestID ?? requestID
-            ))
-        }
-    }
-
-    private func signedRenewalInfo(for transaction: Transaction) async -> String? {
-        guard let product = products.first(where: { $0.id == transaction.productID }),
-              let subscription = product.subscription,
-              let statuses = try? await subscription.status else { return nil }
-        for status in statuses {
-            guard case .verified(let statusTransaction) = status.transaction,
-                  statusTransaction.originalID == transaction.originalID,
-                  case .verified = status.renewalInfo else { continue }
-            return status.renewalInfo.jwsRepresentation
-        }
-        return nil
-    }
-
     private func listenForTransactions() -> Task<Void, Never> {
-        Task { [weak self] in
-            for await result in Transaction.updates {
+        let gateway = storeKitGateway
+        return Task { @MainActor [weak self] in
+            let updates = await gateway.updates(
+                supportedProductIDs: Self.supportedProductIDs
+            )
+            for await event in updates {
                 guard !Task.isCancelled else { return }
-                switch result {
-                case .verified(let transaction):
-                    guard transaction.productID == Self.monthlyProductId || transaction.productID == Self.annualProductId else { continue }
-                    // Carry the exact update into the serialized sync pipeline.
-                    // A plain full refresh could miss this event when another
-                    // refresh was already running; the candidate is retained
-                    // until its server result is successfully processed.
-                    await self?.refreshCurrentEntitlements(
-                        source: .transactionUpdate,
-                        candidate: StoreTransactionCandidate(
-                            transaction: transaction,
-                            signedTransaction: result.jwsRepresentation
-                        )
+                do {
+                    _ = try await self?.performTransactionEvent(
+                        event,
+                        source: .transactionUpdate
                     )
-                case .unverified:
-                    self?.setMessage(
-                        "App Store 无法验证这笔购买，会员权益尚未生效",
+                } catch {
+                    self?.setEntitlementFailure(
+                        error,
                         source: .transactionUpdate,
-                        category: .entitlementFailure
+                        publishMessage: true
                     )
                 }
             }
@@ -1552,13 +1357,6 @@ final class MembershipStore: ObservableObject {
         return (nil, nil)
     }
 
-    private static func hashedTransactionID(_ transactionID: UInt64) -> String {
-        SHA256.hash(data: Data(String(transactionID).utf8))
-            .prefix(8)
-            .map { String(format: "%02x", $0) }
-            .joined()
-    }
-
     func recordMetric(_ eventName: String, productId: String? = nil, outcome: String? = nil) {
         Task {
             await AccessCredentialStore.shared.recordMetric(
@@ -1589,39 +1387,6 @@ final class MembershipStore: ObservableObject {
         UserDefaults.standard.set(data, forKey: cachedPlanConfigKey)
     }
 
-#if DEBUG
-    private static func localFreeEntitlement() -> EntitlementSummary {
-        EntitlementSummary(
-            tier: "free", productId: nil, subscriptionState: "none",
-            limit: 3, used: 0, reserved: 0, remaining: 3,
-            unlimited: false,
-            periodStart: nil, resetAt: nil, expiresAt: nil,
-            autoRenewEnabled: nil, vocabularyCorrectionEnabled: false
-        )
-    }
-
-    private func localEntitlement(for transaction: Transaction) async -> EntitlementSummary {
-        guard transaction.revocationDate == nil,
-              let expiration = transaction.expirationDate,
-              expiration > Date() else {
-            return Self.localFreeEntitlement()
-        }
-
-        let formatter = ISO8601DateFormatter()
-        let now = Date()
-        let nextMonth = Calendar(identifier: .gregorian).date(byAdding: .month, value: 1, to: now) ?? expiration
-        let reset = min(nextMonth, expiration)
-        return EntitlementSummary(
-            tier: "member", productId: transaction.productID, subscriptionState: "active",
-            limit: 100, used: 0, reserved: 0, remaining: 100,
-            unlimited: false,
-            periodStart: formatter.string(from: now),
-            resetAt: formatter.string(from: reset),
-            expiresAt: formatter.string(from: expiration),
-            autoRenewEnabled: true, vocabularyCorrectionEnabled: true
-        )
-    }
-#endif
 }
 
 private struct BootstrapRequest: Encodable {
