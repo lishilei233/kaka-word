@@ -29,7 +29,7 @@
 | TODO-010 | feature | P2 | 已完成 | 记录匿名聚合的识别纠错与候选确认数据 | [TODO-010](./todos/active/TODO-010.md) |
 | TODO-012 | feature | P2 | 已完成 | 基于已掌握词的自动个性化推荐 | [TODO-012](./todos/active/TODO-012.md) |
 | TODO-013 | ui | P2 | 待分析 | 统一并优化 App 整体 UI 风格 | [TODO-013](./todos/active/TODO-013.md) |
-| TODO-014 | feature | P2 | 待分析 | 在单词详情 Sheet 中展示物体图片 | [TODO-014](./todos/active/TODO-014.md) |
+| TODO-014 | feature | P2 | 已完成 | 在单词详情 Sheet 中展示物体图片 | [TODO-014](./todos/active/TODO-014.md) |
 | TODO-015 | feature | P2 | 待分析 | 建立仅支持 Apple 登录的用户系统 | [TODO-015](./todos/active/TODO-015.md) |
 | TODO-016 | feature | P2 | 待分析 | 支持通过 iCloud 跨设备同步学习数据 | [TODO-016](./todos/active/TODO-016.md) |
 | TODO-017 | feature | P2 | 已完成 | 评估并支持英语发音音色选择 | [TODO-017](./todos/active/TODO-017.md) |

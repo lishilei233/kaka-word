@@ -532,10 +532,15 @@ private struct MyWordsDashboard: View {
             dismissSearch()
         }
         .sheet(item: $selectedWord) { entry in
-            WordDetailSheet(object: entry.object)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(Color.paper)
+            WordDetailSheet(
+                object: entry.object,
+                objects: filteredWords.map(\.object),
+                imageProvider: { object in
+                    filteredWords.first(where: { $0.object.id == object.id }).flatMap {
+                        WordImageCropper.image(for: $0, historyStore: historyStore)
+                    }
+                }
+            )
         }
     }
 

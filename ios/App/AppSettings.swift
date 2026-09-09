@@ -11,6 +11,7 @@ enum AppSettings {
         static let captionStyle = "settings.captionStyle"
         static let learningMode = "experience.learningMode"
         static let didCompleteOnboarding = "experience.didCompleteOnboarding"
+        static let didShowWordDetailSwipeHint = "experience.didShowWordDetailSwipeHintV3"
     }
 
     static let defaultEnglishSpeechEnabled = true

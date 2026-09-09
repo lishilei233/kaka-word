@@ -260,7 +260,6 @@ struct PhotoWordCardDetailView: View {
     @State private var showTips = false
     @State private var showAddWord = false
     @State private var showVocabularyPaywall = false
-    @State private var wordDetailDetent: PresentationDetent = .medium
     @State private var editingObjectID: String?
     @State private var suppressPageDismissUntil = Date.distantPast
     @State private var isRevealingCompletion = false
@@ -306,17 +305,12 @@ struct PhotoWordCardDetailView: View {
         .sheet(item: $selectedObject) { object in
             WordDetailSheet(
                 object: object,
+                objects: displayedObjects,
+                imageProvider: { image.cropped(to: $0.box) },
                 onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil,
                 onDelete: status.isComplete && onResultChange != nil ? deleteObject : nil,
-                onManualCorrection: status.isComplete && onResultChange != nil ? reportRecognitionFeedback : nil,
-                onEditingChanged: { isEditing in
-                    wordDetailDetent = isEditing ? .large : .medium
-                }
+                onManualCorrection: status.isComplete && onResultChange != nil ? reportRecognitionFeedback : nil
             )
-                .presentationDetents([.medium, .large], selection: $wordDetailDetent)
-                .presentationContentInteraction(.scrolls)
-                .presentationDragIndicator(.visible)
-                .presentationBackground(Color.paper)
         }
         .sheet(item: $confirmationObject, onDismiss: finishConfirmationPresentation) { object in
             ObjectConfirmationSheet(
@@ -550,7 +544,6 @@ struct PhotoWordCardDetailView: View {
                 handledConfirmationIDs.remove(object.id)
                 confirmationObject = object
             } else {
-                wordDetailDetent = .medium
                 selectedObject = object
             }
         } onUpdate: { object in
