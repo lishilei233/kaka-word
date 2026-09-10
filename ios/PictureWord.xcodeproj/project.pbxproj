@@ -37,14 +37,14 @@
 		11111111111111111111111C /* PictureWordButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222224 /* PictureWordButton.swift */; };
 		11111111111111111111111D /* PictureWordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222225 /* PictureWordSheet.swift */; };
 		11111111111111111111111E /* MembershipStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222226 /* MembershipStore.swift */; };
-		111111111111111111111125 /* StoreKitTransactionGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222E /* StoreKitTransactionGateway.swift */; };
-		111111111111111111111126 /* EntitlementSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222F /* EntitlementSyncCoordinator.swift */; };
 		11111111111111111111111F /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222227 /* PaywallView.swift */; };
 		111111111111111111111120 /* WordLearningModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222228 /* WordLearningModels.swift */; };
 		111111111111111111111121 /* WordLearningStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222229 /* WordLearningStore.swift */; };
 		111111111111111111111122 /* WordLearningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222A /* WordLearningViews.swift */; };
 		111111111111111111111123 /* WordFilterControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222B /* WordFilterControls.swift */; };
 		111111111111111111111124 /* PictureWordTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222C /* PictureWordTextField.swift */; };
+		111111111111111111111125 /* StoreKitTransactionGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222E /* StoreKitTransactionGateway.swift */; };
+		111111111111111111111126 /* EntitlementSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222F /* EntitlementSyncCoordinator.swift */; };
 		A931C8C030407ED6002F4806 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A931C8BF30407ED6002F4806 /* StoreKit.framework */; };
 		A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96C244B303D79F8009BAAFD /* Assets.xcassets */; };
 		D00000000000000000000001 /* WordLearningStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* WordLearningStoreTests.swift */; };
@@ -512,7 +512,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_TESTABILITY = YES;
@@ -521,8 +521,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词Test";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.3;
-				PICTURE_WORD_API_BASE_URL = "http://192.168.0.104:8787";
+				MARKETING_VERSION = 0.1.4;
+				PICTURE_WORD_API_BASE_URL = "http://192.168.0.106:8787";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -542,7 +542,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -550,7 +550,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.3;
+				MARKETING_VERSION = 0.1.4;
 				PICTURE_WORD_API_BASE_URL = "https://api.kakaword.com";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

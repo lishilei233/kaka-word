@@ -136,10 +136,8 @@ struct HomeView: View {
     }
 
     private func requestCamera() {
-        if membership.canStartRecognition {
+        if membership.canStartRecognition || !membership.hasFreshEntitlement {
             cameraPresented = true
-        } else if !membership.hasFreshEntitlement {
-            membershipUnavailableMessage = membership.entitlementFailureMessage ?? "会员状态仍在读取，请稍后重试。"
         } else {
             paywallPresented = true
         }

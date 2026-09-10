@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import StoreKit
+import UIKit
 
 enum StoreTransactionSource: String, Hashable, Sendable {
     case currentEntitlement
@@ -125,6 +126,13 @@ protocol StoreKitTransactionProviding: Sendable {
     func updates(supportedProductIDs: Set<String>) async -> AsyncStream<StoreTransactionEvent>
     func signedRenewalInfo(for observation: StoreTransactionObservation) async -> String?
     func register(products: [Product]) async
+    func beginRefundRequest() async throws
+}
+
+extension StoreKitTransactionProviding {
+    func beginRefundRequest() async throws {
+        throw StoreKitRefundError.noActiveSubscription
+    }
 }
 
 actor LiveStoreKitTransactionGateway: StoreKitTransactionProviding {
@@ -134,6 +142,23 @@ actor LiveStoreKitTransactionGateway: StoreKitTransactionProviding {
         for product in products {
             productsByID[product.id] = product
         }
+    }
+
+    func beginRefundRequest() async throws {
+        guard let scene = await MainActor.run(body: {
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }
+        }) else {
+            throw StoreKitRefundError.noActiveScene
+        }
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result,
+                  ["com.kakaword.app.membership.month", "com.kakaword.app.membership.annual"].contains(transaction.productID) else { continue }
+            try await transaction.beginRefundRequest(in: scene)
+            return
+        }
+        throw StoreKitRefundError.noActiveSubscription
     }
 
     func snapshot(supportedProductIDs: Set<String>) async -> StoreTransactionSnapshot {
@@ -242,6 +267,18 @@ actor LiveStoreKitTransactionGateway: StoreKitTransactionProviding {
             observations.append(observation)
         case .unverified(let transaction):
             unverified.append(transaction)
+        }
+    }
+}
+
+enum StoreKitRefundError: LocalizedError {
+    case noActiveScene
+    case noActiveSubscription
+
+    var errorDescription: String? {
+        switch self {
+        case .noActiveScene: return "暂时无法打开退款页面"
+        case .noActiveSubscription: return "没有找到可申请退款的会员交易"
         }
     }
 }

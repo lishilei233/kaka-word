@@ -172,6 +172,22 @@ struct SettingsView: View {
                 .foregroundStyle(Color.ink.opacity(0.62))
                 .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
             }
+
+            #if DEBUG
+            Divider()
+                .overlay(Color.ink.opacity(0.1))
+                .padding(.vertical, 12)
+
+            Button {
+                Task { await membership.requestRefundForDebug() }
+            } label: {
+                Label("申请沙盒退款", systemImage: "arrow.uturn.backward.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .font(.system(.caption, design: .rounded, weight: .bold))
+            .foregroundStyle(Color.coral)
+            .accessibilityHint("仅用于 Debug 沙盒测试")
+            #endif
         }
         .padding(20)
         .background {

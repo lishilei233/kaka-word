@@ -731,7 +731,13 @@ final class MembershipStore: ObservableObject {
         productPrepareTask?.cancel()
     }
 
-    var canStartRecognition: Bool { entitlement?.hasUnlimitedQuota == true || (entitlement?.remaining ?? 0) > 0 }
+    // An unknown entitlement must not block the first-run experience. The API
+    // remains the source of truth and will enforce the free/member quota when
+    // the recognition request is submitted.
+    var canStartRecognition: Bool {
+        guard let entitlement else { return true }
+        return entitlement.hasUnlimitedQuota || entitlement.remaining > 0
+    }
     var isMember: Bool { entitlement?.isMember == true }
     var hasFreshEntitlement: Bool { entitlementLoadState.hasFreshValue }
     var hasUnavailableEntitlement: Bool {
@@ -1130,6 +1136,17 @@ final class MembershipStore: ObservableObject {
             setMessage(error.localizedDescription, source: .manual, category: .entitlementFailure)
         }
     }
+
+    #if DEBUG
+    func requestRefundForDebug() async {
+        do {
+            try await storeKitGateway.beginRefundRequest()
+            await refreshCurrentEntitlements(source: .manual)
+        } catch {
+            setMessage(error.localizedDescription, source: .manual, category: .entitlementFailure)
+        }
+    }
+    #endif
 
     private func performReconciliation(
         source: MembershipNoticeSource,
