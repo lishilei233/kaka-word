@@ -5,6 +5,7 @@ import { DisabledAccessService, type AccessService } from "./core/access/index.j
 import type { VisionProvider } from "./core/image-analysis/types.js";
 import type { AnalyzeUsageLimiter } from "./core/usage-limits/index.js";
 import { registerAccessRoutes } from "./routes/access.js";
+import { registerAppVersionRoute } from "./routes/app-version.js";
 import { registerAnalyzeRoute } from "./routes/analyze.js";
 import { registerContentRoute } from "./routes/content.js";
 import { registerMetricsRoute } from "./routes/metrics.js";
@@ -39,6 +40,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
   app.use("*", requestLogger(logger, config.logLevel));
 
   app.get("/health", (c) => c.json({ ok: true, provider: config.vision.name }));
+  if (config.appVersion) registerAppVersionRoute(app, config.appVersion);
   registerContentRoute(app, config.access);
   registerMembershipRoute(app, config.access);
   registerAccessRoutes(app, { accessService, logger });
@@ -52,6 +54,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
     maxUploadBytes: config.maxUploadBytes,
     usageLimiter,
     accessService,
+    videoStudioAccessToken: config.videoStudioAccessToken,
     trustProxy: config.usageLimits.trustProxy,
     logLevel: config.logLevel,
     logger,

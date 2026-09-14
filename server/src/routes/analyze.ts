@@ -4,6 +4,7 @@ import type { Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
   DeviceAttestationRequiredError,
+  disabledEntitlement,
   isValidOperationId,
   type AccessPrincipal,
   type AccessService,
@@ -18,7 +19,7 @@ import type { AnalyzeUsageLimiter, UsageLimitDecision } from "../core/usage-limi
 import { getImageDimensions } from "../utils/image-dimensions.js";
 import { errorFields, type LogLevel, type Logger } from "../utils/logger.js";
 import type { AppEnv } from "../app.js";
-import { authenticateAccess, unauthorized } from "./access-auth.js";
+import { authenticateAccess, authenticateVideoStudio, unauthorized } from "./access-auth.js";
 
 type AnalyzeRouteDependencies = {
   provider: VisionProvider;
@@ -30,6 +31,7 @@ type AnalyzeRouteDependencies = {
   trustProxy: boolean;
   logLevel: LogLevel;
   logger: Logger;
+  videoStudioAccessToken?: string;
 };
 
 export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRouteDependencies): void {
@@ -43,6 +45,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
     trustProxy,
     logLevel,
     logger,
+    videoStudioAccessToken,
   } = dependencies;
 
   app.post("/v1/analyze", async (c) => {
@@ -52,8 +55,9 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
 
     try {
       stage = "authenticate";
-      const principal = await authenticateAccess(c, accessService);
-      if (!principal) return unauthorized(c);
+      const videoStudioRequest = authenticateVideoStudio(c.req.header("authorization"), videoStudioAccessToken);
+      const principal = videoStudioRequest ? null : await authenticateAccess(c, accessService);
+      if (!videoStudioRequest && !principal) return unauthorized(c);
       const operationId = c.req.header("x-operation-id");
       if (!isValidOperationId(operationId)) {
         return c.json({ error: "INVALID_OPERATION_ID", message: "识别请求标识无效" }, 400);
@@ -138,13 +142,28 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
       });
 
       stage = "quota_reservation";
-      let reservation;
+      let reservation: Extract<import("../core/access/index.js").QuotaReservation, { allowed: true }> | undefined;
       try {
-        reservation = await accessService.reserveAnalyze(
-          principal,
-          operationId,
-          c.req.header("x-devicecheck-token"),
+        const quotaReservation = videoStudioRequest ? undefined : await accessService.reserveAnalyze(
+          principal!, operationId, c.req.header("x-devicecheck-token"),
         );
+        if (quotaReservation?.allowed) reservation = quotaReservation;
+        if (quotaReservation && !quotaReservation.allowed && "conflict" in quotaReservation && quotaReservation.conflict) {
+          return c.json({
+            error: "OPERATION_ALREADY_USED",
+            message: "这次识别请求已经处理过，请重新操作",
+            entitlement: quotaReservation.entitlement,
+          }, 409);
+        } else if (quotaReservation && !quotaReservation.allowed) {
+          await recordMetricSafely(accessService, logger, "quota_exhausted", quotaReservation.entitlement);
+          return c.json({
+            error: "QUOTA_EXHAUSTED",
+            message: quotaReservation.entitlement.tier === "member"
+              ? "本月识别额度已用完，请在下个额度周期继续使用"
+              : "免费识别次数已用完，开通会员后可继续识别",
+            entitlement: quotaReservation.entitlement,
+          }, 402);
+        }
       } catch (error) {
         if (error instanceof DeviceAttestationRequiredError) {
           return c.json({
@@ -158,31 +177,14 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         });
         return c.json({ error: "QUOTA_UNAVAILABLE", message: "暂时无法读取识别额度，请稍后重试" }, 503);
       }
-      if (!reservation.allowed) {
-        if ("conflict" in reservation && reservation.conflict) {
-          return c.json({
-            error: "OPERATION_ALREADY_USED",
-            message: "这次识别请求已经处理过，请重新操作",
-            entitlement: reservation.entitlement,
-          }, 409);
-        }
-        await recordMetricSafely(accessService, logger, "quota_exhausted", reservation.entitlement);
-        return c.json({
-          error: "QUOTA_EXHAUSTED",
-          message: reservation.entitlement.tier === "member"
-            ? "本月识别额度已用完，请在下个额度周期继续使用"
-            : "免费识别次数已用完，开通会员后可继续识别",
-          entitlement: reservation.entitlement,
-        }, 402);
-      }
-      await recordMetricSafely(accessService, logger, "recognition_attempt", reservation.entitlement);
+      if (reservation) await recordMetricSafely(accessService, logger, "recognition_attempt", reservation.entitlement);
 
       stage = "daily_limit";
       let dailyDecision: UsageLimitDecision;
       try {
         dailyDecision = await usageLimiter.consumeDaily();
       } catch (error) {
-        await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
+        if (reservation) await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
         logger.error("usage_limit.unavailable", {
           requestId,
           scope: "daily",
@@ -194,7 +196,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         }, 503);
       }
       if (!dailyDecision.allowed) {
-        await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
+        if (reservation) await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
         logger.warn("usage_limit.rejected", {
           requestId,
           scope: "daily",
@@ -265,9 +267,11 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
 
           stage = "serialize_response";
           await stream.writeSSE({ event: "complete", data: JSON.stringify(result) });
-          const entitlement = result.objects.length > 0
-            ? await accessService.commitAnalyze(reservation.reservationId, c.req.header("x-devicecheck-token"))
-            : await releaseAndReadEntitlement(accessService, reservation.reservationId, principal);
+          const entitlement = videoStudioRequest
+            ? disabledEntitlement()
+            : result.objects.length > 0
+              ? await accessService.commitAnalyze(reservation!.reservationId, c.req.header("x-devicecheck-token"))
+              : await releaseAndReadEntitlement(accessService, reservation!.reservationId, principal!);
           await stream.writeSSE({ event: "quota", data: JSON.stringify(entitlement) });
           await recordMetricSafely(
             accessService,
@@ -287,7 +291,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             durationMs: Math.round(performance.now() - providerStartedAt),
           });
         } catch (error) {
-          await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
+          if (reservation) await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
           if (abortController.signal.aborted) {
             await accessService.recordMetric({ eventName: "recognition_result", outcome: "cancelled" }).catch(() => undefined);
             logger.info("vision.request_cancelled", {

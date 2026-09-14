@@ -116,6 +116,40 @@ test("streams validated mock objects before the complete result", async () => {
   assert.equal(limiter.lastClientIP, "203.0.113.10");
 });
 
+test("accepts the dedicated video-studio token without consuming App quota", async () => {
+  const token = "video-studio-test-token-with-at-least-32-characters";
+  const limiter = new FakeUsageLimiter();
+  const access = new FakeAccessService(freeEntitlement(3), false);
+  const app = createApp({
+    config: { ...config, videoStudioAccessToken: token },
+    provider: new MockVisionProvider(), usageLimiter: limiter, accessService: access, logger,
+  });
+  const request = analyzeRequest();
+  request.headers = { ...(request.headers as Record<string, string>), Authorization: `Bearer ${token}` };
+
+  const response = await app.request("/v1/analyze", request);
+  const responseBody = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(responseBody, /event: complete/);
+  assert.equal(access.reserveCalls, 0);
+  assert.equal(access.commitCalls, 0);
+  assert.equal(limiter.minuteCalls, 1);
+  assert.equal(limiter.dailyCalls, 1);
+});
+
+test("rejects an invalid video-studio token when no App token authenticates", async () => {
+  const access = new FakeAccessService(freeEntitlement(0), false);
+  const app = createApp({
+    config: { ...config, videoStudioAccessToken: "correct-video-studio-token-with-at-least-32-characters" },
+    provider: new MockVisionProvider(), usageLimiter: new FakeUsageLimiter(), accessService: access, logger,
+  });
+  const request = analyzeRequest();
+  request.headers = { ...(request.headers as Record<string, string>), Authorization: "Bearer wrong-token" };
+  const response = await app.request("/v1/analyze", request);
+  assert.equal(response.status, 401);
+});
+
 test("uses the requested caption style and resolves random to an actual style", async () => {
   const app = makeApp(new FakeUsageLimiter());
   const funnyResponse = await app.request("/v1/analyze", analyzeRequest("203.0.113.20", "funny"));
@@ -500,14 +534,14 @@ class FakeAccessService implements AccessService {
     originalTransactionId: null,
   };
 
-  constructor(private entitlement: EntitlementSummary) {
+  constructor(private entitlement: EntitlementSummary, private authenticates = true) {
     this.reservation = { allowed: true, reservationId: randomUUID(), entitlement };
   }
 
   async bootstrap(_input: BootstrapInput): Promise<BootstrapResult> {
     return { accessToken: "test", entitlement: this.entitlement };
   }
-  async authenticate(): Promise<AccessPrincipal> { return this.principal; }
+  async authenticate(): Promise<AccessPrincipal | null> { return this.authenticates ? this.principal : null; }
   async status(): Promise<EntitlementSummary> { return this.entitlement; }
   async syncSubscription(): Promise<import("../core/access/types.js").StoreSyncResult> {
     return { entitlement: this.entitlement, syncedTransactionState: "active" };

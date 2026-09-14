@@ -62,7 +62,7 @@ final class AnnotationLayoutEngineTests: XCTestCase {
         assertNoOverlap(placements)
     }
 
-    func testDraggedLabelMovesInsteadOfDisplacingExistingManualLabel() throws {
+    func testDraggedLabelKeepsProposedPositionAndDisplacesCollidingLabel() throws {
         let fixedCenter = ObjectAnchor(x: 0.25, y: 0.5)
         let objects = [
             makeObject(
@@ -84,9 +84,11 @@ final class AnnotationLayoutEngineTests: XCTestCase {
             movableObjectID: "moving"
         ).placements(in: regularFrame)
 
-        let fixed = try XCTUnwrap(placements.first { $0.id == "fixed" })
-        XCTAssertEqual(fixed.labelCenter.x, regularFrame.width * 0.25, accuracy: 0.5)
-        XCTAssertEqual(fixed.labelCenter.y, regularFrame.height * 0.5, accuracy: 0.5)
+        let moving = try XCTUnwrap(placements.first { $0.id == "moving" })
+        let displaced = try XCTUnwrap(placements.first { $0.id == "fixed" })
+        XCTAssertEqual(moving.labelCenter.x, regularFrame.width * 0.25, accuracy: 0.5)
+        XCTAssertEqual(moving.labelCenter.y, regularFrame.height * 0.5, accuracy: 0.5)
+        XCTAssertNotEqual(displaced.labelCenter, moving.labelCenter)
         assertNoOverlap(placements)
     }
 
@@ -134,6 +136,71 @@ final class AnnotationLayoutEngineTests: XCTestCase {
                 1
             )
         }
+    }
+
+    func testLeaderLineTargetsBoxCenterAndIgnoresLegacyAnchors() throws {
+        let object = LearningObject(
+            id: "centered",
+            english: "pin",
+            chinese: "别针",
+            ipa: "/pɪn/",
+            confidence: 0.99,
+            box: ObjectBox(x: 0.2, y: 0.3, width: 0.1, height: 0.2),
+            anchor: ObjectAnchor(x: 0.9, y: 0.9),
+            example: "This is a pin.",
+            exampleChinese: "这是一枚别针。",
+            labelCenterOverride: nil,
+            targetOverride: ObjectAnchor(x: 0.8, y: 0.8)
+        )
+
+        let route = try XCTUnwrap(
+            AnnotationLayoutEngine(objects: [object]).layout(in: regularFrame).routes.first
+        )
+
+        XCTAssertEqual(route.target.x, regularFrame.width * 0.25, accuracy: 0.001)
+        XCTAssertEqual(route.target.y, regularFrame.height * 0.4, accuracy: 0.001)
+    }
+
+    func testTranslatingObjectBoxPreservesSizeAndClampsInsideImage() {
+        let box = ObjectBox(x: 0.4, y: 0.4, width: 0.2, height: 0.1)
+
+        let centered = box.translated(centeredAt: ObjectAnchor(x: 0.7, y: 0.6))
+        XCTAssertEqual(centered.x, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(centered.y, 0.55, accuracy: 0.0001)
+        XCTAssertEqual(centered.width, box.width, accuracy: 0.0001)
+        XCTAssertEqual(centered.height, box.height, accuracy: 0.0001)
+
+        let topLeft = box.translated(centeredAt: ObjectAnchor(x: 0, y: 0))
+        XCTAssertEqual(topLeft.x, 0, accuracy: 0.0001)
+        XCTAssertEqual(topLeft.y, 0, accuracy: 0.0001)
+
+        let bottomRight = box.translated(centeredAt: ObjectAnchor(x: 1, y: 1))
+        XCTAssertEqual(bottomRight.x + bottomRight.width, 1, accuracy: 0.0001)
+        XCTAssertEqual(bottomRight.y + bottomRight.height, 1, accuracy: 0.0001)
+    }
+
+    func testReplacingBoxClearsLegacyTargetAndKeepsManualLabelPosition() {
+        let labelCenter = ObjectAnchor(x: 0.25, y: 0.2)
+        let object = LearningObject(
+            id: "legacy",
+            english: "button",
+            chinese: "纽扣",
+            ipa: "/ˈbʌtən/",
+            confidence: 0.9,
+            box: ObjectBox(x: 0.1, y: 0.1, width: 0.05, height: 0.05),
+            anchor: ObjectAnchor(x: 0.12, y: 0.12),
+            example: "This is a button.",
+            exampleChinese: "这是一颗纽扣。",
+            labelCenterOverride: labelCenter,
+            targetOverride: ObjectAnchor(x: 0.8, y: 0.8)
+        )
+        let updatedBox = ObjectBox(x: 0.5, y: 0.6, width: 0.05, height: 0.05)
+
+        let updated = object.replacingBox(updatedBox)
+
+        XCTAssertEqual(updated.box, updatedBox)
+        XCTAssertEqual(updated.labelCenterOverride, labelCenter)
+        XCTAssertNil(updated.targetOverride)
     }
 
     private func assertNoOverlap(

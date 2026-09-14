@@ -31,4 +31,4 @@ export type {
   SubscriptionTransaction,
 } from "./types.js";
 export { StoreSyncUnavailableError, StoreTransactionInvalidError } from "./types.js";
-export { isValidOperationId } from "./types.js";
+export { disabledEntitlement, isValidOperationId } from "./types.js";

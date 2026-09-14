@@ -8,6 +8,25 @@ export type ServerConfig = {
   vision: VisionProviderConfig;
   usageLimits: UsageLimitConfig;
   access: AccessConfig;
+  videoStudioAccessToken?: string;
+  appVersion?: AppVersionConfig;
+};
+
+export type AppVersionConfig = {
+  minimumSupportedVersion: string;
+  latestVersion: string;
+  forceUpgradeEffectiveAt?: string;
+  configuredAt?: string;
+  appStoreURL: string;
+  updateTitle: string;
+  updateMessage: string;
+  releaseNotes: Record<string, AppReleaseNotes>;
+};
+
+export type AppReleaseNotes = {
+  title: string;
+  summary: string;
+  items: string[];
 };
 
 export type AccessConfig = {
@@ -47,14 +66,131 @@ const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 export function readServerConfig(environment: NodeJS.ProcessEnv = process.env): ServerConfig {
   const vision = readVisionConfig(environment);
+  const access = readAccessConfig(environment, vision.name !== "mock");
+  const videoStudioAccessToken = environment.VIDEO_STUDIO_ACCESS_TOKEN?.trim() || undefined;
+  if (videoStudioAccessToken && videoStudioAccessToken.length < 32) {
+    throw new Error("VIDEO_STUDIO_ACCESS_TOKEN must contain at least 32 characters");
+  }
   return {
     port: Number(environment.PORT ?? 8787),
     maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
     logLevel: readLogLevel(environment.LOG_LEVEL),
     vision,
     usageLimits: readUsageLimitConfig(environment),
-    access: readAccessConfig(environment, vision.name !== "mock"),
+    access,
+    videoStudioAccessToken,
+    appVersion: readAppVersionConfig(environment, access.appAppleId, access.enabled),
   };
+}
+
+function readAppVersionConfig(environment: NodeJS.ProcessEnv, appAppleId: number | undefined, requireStoreURL: boolean): AppVersionConfig {
+  const minimumSupportedVersion = environment.APP_MINIMUM_SUPPORTED_VERSION?.trim() || "0.1.0";
+  const latestVersion = environment.APP_LATEST_VERSION?.trim() || "0.1.5";
+  assertAppVersion(minimumSupportedVersion, "APP_MINIMUM_SUPPORTED_VERSION");
+  assertAppVersion(latestVersion, "APP_LATEST_VERSION");
+  if (compareAppVersions(minimumSupportedVersion, latestVersion) > 0) {
+    throw new Error("APP_MINIMUM_SUPPORTED_VERSION must not exceed APP_LATEST_VERSION");
+  }
+
+  const configuredAt = readOptionalISODate(environment.APP_VERSION_CONFIGURED_AT, "APP_VERSION_CONFIGURED_AT");
+  const forceUpgradeEffectiveAt = readOptionalISODate(
+    environment.APP_FORCE_UPGRADE_EFFECTIVE_AT,
+    "APP_FORCE_UPGRADE_EFFECTIVE_AT",
+  );
+  if (forceUpgradeEffectiveAt && (!configuredAt || Date.parse(forceUpgradeEffectiveAt) <= Date.parse(configuredAt))) {
+    throw new Error("APP_FORCE_UPGRADE_EFFECTIVE_AT requires an earlier APP_VERSION_CONFIGURED_AT");
+  }
+
+  const configuredURL = environment.APP_STORE_URL?.trim();
+  const appStoreURL = configuredURL || (appAppleId ? `https://apps.apple.com/app/id${appAppleId}` : "https://apps.apple.com/");
+  if ((requireStoreURL && !configuredURL && !appAppleId) || !isHTTPSURL(appStoreURL)) {
+    throw new Error("APP_STORE_URL or APPLE_APP_ID is required and must produce an HTTPS URL");
+  }
+
+  return {
+    minimumSupportedVersion,
+    latestVersion,
+    forceUpgradeEffectiveAt,
+    configuredAt,
+    appStoreURL,
+    updateTitle: readBoundedText(environment.APP_UPDATE_TITLE, "发现新版本", "APP_UPDATE_TITLE", 80),
+    updateMessage: readBoundedText(
+      environment.APP_UPDATE_MESSAGE,
+      "更新后即可体验最新功能。",
+      "APP_UPDATE_MESSAGE",
+      300,
+    ),
+    releaseNotes: readReleaseNotes(environment.APP_RELEASE_NOTES_JSON),
+  };
+}
+
+function readReleaseNotes(value: string | undefined): Record<string, AppReleaseNotes> {
+  if (!value?.trim()) return {};
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(value);
+  } catch {
+    throw new Error("APP_RELEASE_NOTES_JSON must be valid JSON");
+  }
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
+    throw new Error("APP_RELEASE_NOTES_JSON must be an object keyed by app version");
+  }
+
+  const notes: Record<string, AppReleaseNotes> = {};
+  for (const [version, raw] of Object.entries(decoded)) {
+    assertAppVersion(version, "APP_RELEASE_NOTES_JSON version key");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`Invalid release notes for ${version}`);
+    const entry = raw as Record<string, unknown>;
+    if (typeof entry.title !== "string" || entry.title.trim().length === 0 || entry.title.length > 80
+      || typeof entry.summary !== "string" || entry.summary.length > 300
+      || !Array.isArray(entry.items) || entry.items.length > 12
+      || entry.items.some((item) => typeof item !== "string" || item.trim().length === 0 || item.length > 160)) {
+      throw new Error(`Invalid release notes for ${version}`);
+    }
+    notes[version] = {
+      title: entry.title.trim(),
+      summary: entry.summary.trim(),
+      items: (entry.items as string[]).map((item) => item.trim()),
+    };
+  }
+  return notes;
+}
+
+function assertAppVersion(value: string, name: string): void {
+  if (!/^\d+(?:\.\d+){1,3}$/.test(value)) throw new Error(`${name} must be a numeric dotted version`);
+}
+
+function compareAppVersions(lhs: string, rhs: string): number {
+  const left = lhs.split(".").map(Number);
+  const right = rhs.split(".").map(Number);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function readOptionalISODate(value: string | undefined, name: string): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(normalized) || Number.isNaN(Date.parse(normalized))) {
+    throw new Error(`${name} must be an ISO 8601 UTC timestamp`);
+  }
+  return normalized;
+}
+
+function readBoundedText(value: string | undefined, fallback: string, name: string, maximumLength: number): string {
+  const normalized = value?.trim() || fallback;
+  if (normalized.length > maximumLength) throw new Error(`${name} must not exceed ${maximumLength} characters`);
+  return normalized;
+}
+
+function isHTTPSURL(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function readAccessConfig(environment: NodeJS.ProcessEnv, defaultEnabled: boolean): AccessConfig {

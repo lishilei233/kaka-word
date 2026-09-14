@@ -52,6 +52,7 @@
 		D00000000000000000000010 /* MembershipStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* MembershipStoreTests.swift */; };
 		D00000000000000000000012 /* AnnotationLayoutEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */; };
 		D00000000000000000000015 /* AnalysisViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000014 /* AnalysisViewModelTests.swift */; };
+		D00000000000000000000016 /* AppVersionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000017 /* AppVersionCoordinatorTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -115,6 +116,7 @@
 		D00000000000000000000011 /* MembershipStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembershipStoreTests.swift; sourceTree = "<group>"; };
 		D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationLayoutEngineTests.swift; sourceTree = "<group>"; };
 		D00000000000000000000014 /* AnalysisViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisViewModelTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000017 /* AppVersionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersionCoordinatorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -349,6 +351,7 @@
 				D00000000000000000000011 /* MembershipStoreTests.swift */,
 				D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */,
 				D00000000000000000000014 /* AnalysisViewModelTests.swift */,
+				D00000000000000000000017 /* AppVersionCoordinatorTests.swift */,
 			);
 			path = PictureWordTests;
 			sourceTree = "<group>";
@@ -491,6 +494,7 @@
 				D00000000000000000000010 /* MembershipStoreTests.swift in Sources */,
 				D00000000000000000000012 /* AnnotationLayoutEngineTests.swift in Sources */,
 				D00000000000000000000015 /* AnalysisViewModelTests.swift in Sources */,
+				D00000000000000000000016 /* AppVersionCoordinatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

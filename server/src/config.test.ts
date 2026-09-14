@@ -28,6 +28,17 @@ test("keeps access control disabled by default for the mock provider", () => {
   assert.equal(config.access.enabled, false);
 });
 
+test("reads a strong dedicated video-studio credential", () => {
+  const token = "video-studio-test-token-with-at-least-32-characters";
+  const config = readServerConfig({
+    VISION_PROVIDER: "mock", USAGE_LIMIT_ENABLED: "false", VIDEO_STUDIO_ACCESS_TOKEN: token,
+  });
+  assert.equal(config.videoStudioAccessToken, token);
+  assert.throws(() => readServerConfig({
+    VISION_PROVIDER: "mock", USAGE_LIMIT_ENABLED: "false", VIDEO_STUDIO_ACCESS_TOKEN: "too-short",
+  }), /VIDEO_STUDIO_ACCESS_TOKEN/);
+});
+
 test("reads a configurable non-negative member quota default", () => {
   const config = readServerConfig({
     VISION_PROVIDER: "mock",
@@ -80,4 +91,36 @@ test("requires database and HMAC secret when limits are enabled", () => {
     () => readServerConfig({ VISION_PROVIDER: "mock", DATABASE_URL: "postgres://localhost/test" }),
     /RATE_LIMIT_IP_HASH_SECRET/,
   );
+});
+
+test("reads and validates app version rollout configuration", () => {
+  const config = readServerConfig({
+    VISION_PROVIDER: "mock",
+    USAGE_LIMIT_ENABLED: "false",
+    APP_STORE_URL: "https://apps.apple.com/app/id123456789",
+    APP_MINIMUM_SUPPORTED_VERSION: "0.0.2",
+    APP_LATEST_VERSION: "0.0.3",
+    APP_VERSION_CONFIGURED_AT: "2026-09-13T00:00:00Z",
+    APP_FORCE_UPGRADE_EFFECTIVE_AT: "2026-09-14T00:00:00Z",
+    APP_RELEASE_NOTES_JSON: JSON.stringify({
+      "0.0.3": { title: "更新说明", summary: "更稳定了", items: ["修复问题"] },
+    }),
+  });
+
+  assert.equal(config.appVersion?.minimumSupportedVersion, "0.0.2");
+  assert.equal(config.appVersion?.latestVersion, "0.0.3");
+  assert.equal(config.appVersion?.releaseNotes["0.0.3"]?.items[0], "修复问题");
+
+  assert.throws(() => readServerConfig({
+    VISION_PROVIDER: "mock",
+    USAGE_LIMIT_ENABLED: "false",
+    APP_MINIMUM_SUPPORTED_VERSION: "0.0.4",
+    APP_LATEST_VERSION: "0.0.3",
+  }), /must not exceed/);
+  assert.throws(() => readServerConfig({
+    VISION_PROVIDER: "mock",
+    USAGE_LIMIT_ENABLED: "false",
+    APP_VERSION_CONFIGURED_AT: "2026-09-14T00:00:00Z",
+    APP_FORCE_UPGRADE_EFFECTIVE_AT: "2026-09-13T00:00:00Z",
+  }), /requires an earlier/);
 });

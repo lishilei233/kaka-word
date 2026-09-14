@@ -70,7 +70,7 @@ struct ResultView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(item: $sharedImage) { item in
-            SystemShareView(items: [item.url])
+            SystemShareView(items: [item.image])
         }
         .alert("无法分享图片", isPresented: Binding(
             get: { shareErrorMessage != nil },
@@ -190,7 +190,7 @@ struct ResultView: View {
 
     private func shareDecoratedPhoto() {
         do {
-            sharedImage = SharedImageFile(url: try DecoratedPhotoRenderer.render(
+            sharedImage = SharedImageFile(image: try DecoratedPhotoRenderer.render(
                 image: image,
                 result: result,
                 revealsAnnotations: revealsAnnotations
@@ -272,7 +272,7 @@ struct PhotoWordCardDetailView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let cardRatio = DecoratedPhotoLayout.cardRatio(for: image)
+            let cardRatio = originalPhotoRatio
             let photoWidth = max(proxy.size.width - 40, 1)
             let photoHeight = photoWidth / cardRatio
             let footerHeight = max(
@@ -476,13 +476,14 @@ struct PhotoWordCardDetailView: View {
                 )
             }
 
-            // 暂时隐藏分享、反馈入口，后续恢复时取消下面两段注释。
-            // resultActionButton(
-            //     "分享",
-            //     systemImage: "square.and.arrow.up",
-            //     style: .primary,
-            //     action: onShare
-            // )
+            resultActionButton(
+                "分享照片和单词",
+                systemImage: "square.and.arrow.up",
+                style: .primary,
+                action: onShare
+            )
+
+            // 暂时隐藏反馈入口，后续恢复时取消下面这段注释。
             // resultActionButton(
             //     "反馈",
             //     systemImage: "envelope",
@@ -528,7 +529,7 @@ struct PhotoWordCardDetailView: View {
     }
 
     private var decoratedPhoto: some View {
-        let cardRatio = DecoratedPhotoLayout.cardRatio(for: image)
+        let cardRatio = originalPhotoRatio
 
         return AnnotatedPhotoCard(
             image: image,
@@ -537,7 +538,8 @@ struct PhotoWordCardDetailView: View {
             isEditable: status.isComplete && onResultChange != nil,
             masteredObjectIDs: masteredObjectIDs,
             editingObjectID: annotationEditingBinding,
-            showsShadow: false
+            showsShadow: false,
+            usesOriginalAspectRatio: true
         ) { object in
             finishAnnotationEditing()
             if object.needsConfirmation {
@@ -548,11 +550,17 @@ struct PhotoWordCardDetailView: View {
             }
         } onUpdate: { object in
             updateObject(object).map { editErrorMessage = $0 }
+        } onUpdates: { objects in
+            updateObjects(objects).map { editErrorMessage = $0 }
         }
         .aspectRatio(cardRatio, contentMode: .fit)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, DecoratedPhotoLayout.horizontalPadding)
         .padding(.vertical, DecoratedPhotoLayout.verticalPadding)
+    }
+
+    private var originalPhotoRatio: CGFloat {
+        image.size.width / max(image.size.height, 1)
     }
 
     private var learningObjects: [LearningObject] {
@@ -614,6 +622,16 @@ struct PhotoWordCardDetailView: View {
 
     private func updateObject(_ object: LearningObject) -> String? {
         let updated = result.replacingObject(object)
+        if let error = onResultChange?(updated) {
+            return error
+        }
+        return nil
+    }
+
+    private func updateObjects(_ objects: [LearningObject]) -> String? {
+        let updated = objects.reduce(result) { partialResult, object in
+            partialResult.replacingObject(object)
+        }
         if let error = onResultChange?(updated) {
             return error
         }
@@ -1259,8 +1277,13 @@ private struct AnnotationTipsSheet: View {
                     )
                     tipRow(
                         number: "03",
-                        title: "拖动圆点",
-                        detail: "长按引导线末端的圆点，可以调整指向位置。"
+                        title: "移动物体范围",
+                        detail: "进入编辑后拖动中心圆点，可以整体移动矩形物体范围。"
+                    )
+                    tipRow(
+                        number: "04",
+                        title: "放大细节",
+                        detail: "双指缩放图片，放大后单指平移；双击可以放大当前位置或复位。"
                     )
                 }
 

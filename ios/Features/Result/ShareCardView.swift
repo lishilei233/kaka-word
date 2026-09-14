@@ -3,7 +3,7 @@ import UIKit
 
 struct SharedImageFile: Identifiable {
     let id = UUID()
-    let url: URL
+    let image: UIImage
 }
 
 struct SystemShareView: UIViewControllerRepresentable {

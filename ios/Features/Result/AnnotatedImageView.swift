@@ -19,20 +19,23 @@ struct AnnotatedImageView: View {
     var masteredObjectIDs: Set<String> = []
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
+    var onUpdates: (([LearningObject]) -> Void)?
     var editingObjectID: Binding<String?> = .constant(nil)
 
     @State private var draftLabelCenters: [String: ObjectAnchor] = [:]
-    @State private var draftTargets: [String: ObjectAnchor] = [:]
+    @State private var draftBoxes: [String: ObjectBox] = [:]
     @State private var dragBaselineLabelCenters: [String: ObjectAnchor] = [:]
 
     var body: some View {
         GeometryReader { proxy in
             let imageFrame = fittedImageFrame(in: proxy.size)
             let renderedObjects = objects.map { object in
-                object.withOverrides(
+                let positioned = object.withOverrides(
                     labelCenter: draftLabelCenters[object.id] ?? dragBaselineLabelCenters[object.id],
-                    target: draftTargets[object.id]
+                    target: nil
                 )
+                guard let draftBox = draftBoxes[object.id] else { return positioned }
+                return positioned.replacingBox(draftBox)
             }
             let layout = AnnotationLayoutEngine(
                 objects: renderedObjects,
@@ -64,6 +67,10 @@ struct AnnotatedImageView: View {
                 .opacity(revealsAnnotations ? 1 : 0)
                 .animation(.easeOut(duration: 0.28), value: revealsAnnotations)
 
+                if let editingPlacement = editingPlacement(in: layout) {
+                    objectRangeOutline(for: editingPlacement.object, in: imageFrame)
+                }
+
                 ForEach(Array(layout.placements.enumerated()), id: \.element.id) { index, placement in
                     annotationLabel(
                         for: placement,
@@ -73,29 +80,12 @@ struct AnnotatedImageView: View {
                     )
                 }
 
-                if isEditable, let activeEditingObjectID {
-                    ForEach(layout.placements.filter { $0.id == activeEditingObjectID }) { placement in
-                        Circle()
-                            .fill(Color.clear)
-                            .contentShape(Circle())
-                            .frame(width: Interaction.targetHitSize, height: Interaction.targetHitSize)
-                            .overlay {
-                                Circle()
-                                    .fill(Color.sun)
-                                    .frame(width: 16, height: 16)
-                                    .overlay {
-                                        Circle().stroke(Color.ink.opacity(0.82), lineWidth: 2)
-                                    }
-                            }
-                            .position(placement.target)
-                            .gesture(targetDragGesture(
-                                for: placement,
-                                allPlacements: layout.placements,
-                                in: imageFrame
-                            ))
-                            .accessibilityLabel("调整 \(placement.object.english) 的引导线终点")
-                            .accessibilityHint("拖动圆点改变引导线指向")
-                    }
+                if let editingPlacement = editingPlacement(in: layout) {
+                    objectRangeControl(
+                        for: editingPlacement,
+                        allPlacements: layout.placements,
+                        in: imageFrame
+                    )
                 }
             }
             .coordinateSpace(name: "annotation-canvas")
@@ -105,6 +95,67 @@ struct AnnotatedImageView: View {
 
     private var activeEditingObjectID: String? {
         editingObjectID.wrappedValue
+    }
+
+    private func editingPlacement(in layout: AnnotationLayout) -> AnnotationPlacement? {
+        guard isEditable, let activeEditingObjectID else { return nil }
+        return layout.placements.first { $0.id == activeEditingObjectID }
+    }
+
+    private func objectRangeOutline(
+        for object: LearningObject,
+        in imageFrame: CGRect
+    ) -> some View {
+        let frame = objectFrame(for: object.box, in: imageFrame)
+        return RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(Color.sun.opacity(0.10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(Color.sun, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            }
+            .frame(width: frame.width, height: frame.height)
+            .position(x: frame.midX, y: frame.midY)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private func objectRangeControl(
+        for placement: AnnotationPlacement,
+        allPlacements: [AnnotationPlacement],
+        in imageFrame: CGRect
+    ) -> some View {
+        return Circle()
+            .fill(Color.clear)
+            .contentShape(Circle())
+            .frame(width: Interaction.targetHitSize, height: Interaction.targetHitSize)
+            .overlay {
+                Circle()
+                    .fill(Color.sun)
+                    .frame(width: 16, height: 16)
+                    .overlay {
+                        Circle().stroke(Color.ink.opacity(0.82), lineWidth: 2)
+                    }
+            }
+            .position(placement.target)
+            .gesture(targetDragGesture(
+                for: placement,
+                allPlacements: allPlacements,
+                in: imageFrame
+            ))
+            .accessibilityLabel("移动 \(placement.object.english) 的物体范围")
+            .accessibilityHint("拖动圆点移动整个矩形范围")
+            .accessibilityAction(named: Text("向左移动")) {
+                moveObjectRange(placement.object, horizontal: -0.02, vertical: 0)
+            }
+            .accessibilityAction(named: Text("向右移动")) {
+                moveObjectRange(placement.object, horizontal: 0.02, vertical: 0)
+            }
+            .accessibilityAction(named: Text("向上移动")) {
+                moveObjectRange(placement.object, horizontal: 0, vertical: -0.02)
+            }
+            .accessibilityAction(named: Text("向下移动")) {
+                moveObjectRange(placement.object, horizontal: 0, vertical: 0.02)
+            }
     }
 
     private func annotationLabel(
@@ -249,14 +300,22 @@ struct AnnotatedImageView: View {
                     labelHeight: placement.labelHeight,
                     in: imageFrame
                 )
-                let center = resolvedLabelCenter(
+                let placements = resolvedLabelPlacements(
                     proposed,
                     for: placement.id,
-                    fallback: placement.labelCenter,
                     baselineCenters: baseline,
                     in: imageFrame
                 )
-                onUpdate?(placement.object.withOverrides(labelCenter: center))
+                let updates = placements.map { resolved in
+                    resolved.object.withOverrides(
+                        labelCenter: normalizedPoint(resolved.labelCenter, in: imageFrame)
+                    )
+                }
+                if let onUpdates {
+                    onUpdates(updates)
+                } else if let moved = updates.first(where: { $0.id == placement.id }) {
+                    onUpdate?(moved)
+                }
                 draftLabelCenters[placement.id] = nil
                 dragBaselineLabelCenters.removeAll()
             }
@@ -275,14 +334,38 @@ struct AnnotatedImageView: View {
                         in: imageFrame
                     )
                 }
-                draftTargets[placement.id] = normalizedPoint(drag.location, in: imageFrame)
+                let center = normalizedPoint(drag.location, in: imageFrame)
+                draftBoxes[placement.id] = placement.object.box.translated(centeredAt: center)
             }
             .onEnded { drag in
-                let target = normalizedPoint(drag.location, in: imageFrame)
-                onUpdate?(placement.object.withOverrides(target: target))
-                draftTargets[placement.id] = nil
+                let center = normalizedPoint(drag.location, in: imageFrame)
+                let box = placement.object.box.translated(centeredAt: center)
+                onUpdate?(placement.object.replacingBox(box))
+                draftBoxes[placement.id] = nil
                 dragBaselineLabelCenters.removeAll()
             }
+    }
+
+    private func moveObjectRange(
+        _ object: LearningObject,
+        horizontal: Double,
+        vertical: Double
+    ) {
+        let center = object.box.center
+        let box = object.box.translated(centeredAt: ObjectAnchor(
+            x: center.x + horizontal,
+            y: center.y + vertical
+        ))
+        onUpdate?(object.replacingBox(box))
+    }
+
+    private func objectFrame(for box: ObjectBox, in imageFrame: CGRect) -> CGRect {
+        CGRect(
+            x: imageFrame.minX + imageFrame.width * box.x,
+            y: imageFrame.minY + imageFrame.height * box.y,
+            width: imageFrame.width * box.width,
+            height: imageFrame.height * box.height
+        )
     }
 
     private func beginEditing(_ objectID: String) {
@@ -292,6 +375,7 @@ struct AnnotatedImageView: View {
 
     private func finishEditing() {
         draftLabelCenters.removeAll()
+        draftBoxes.removeAll()
         dragBaselineLabelCenters.removeAll()
         editingObjectID.wrappedValue = nil
     }
@@ -323,18 +407,32 @@ struct AnnotatedImageView: View {
         baselineCenters: [String: ObjectAnchor],
         in imageFrame: CGRect
     ) -> ObjectAnchor {
+        let resolved = resolvedLabelPlacements(
+            proposed,
+            for: objectID,
+            baselineCenters: baselineCenters,
+            in: imageFrame
+        ).first { $0.id == objectID }?.labelCenter ?? fallback
+        return normalizedPoint(resolved, in: imageFrame)
+    }
+
+    private func resolvedLabelPlacements(
+        _ proposed: ObjectAnchor,
+        for objectID: String,
+        baselineCenters: [String: ObjectAnchor],
+        in imageFrame: CGRect
+    ) -> [AnnotationPlacement] {
         let proposedObjects = objects.map { object in
             let draftCenter = object.id == objectID ? proposed : baselineCenters[object.id]
             return object.withOverrides(
                 labelCenter: draftCenter,
-                target: draftTargets[object.id]
+                target: nil
             )
         }
-        let resolved = AnnotationLayoutEngine(
+        return AnnotationLayoutEngine(
             objects: proposedObjects,
             movableObjectID: objectID
-        ).placements(in: imageFrame).first { $0.id == objectID }?.labelCenter ?? fallback
-        return normalizedPoint(resolved, in: imageFrame)
+        ).placements(in: imageFrame)
     }
 
     private func normalizedCenters(
@@ -421,25 +519,39 @@ struct AnnotatedPhotoCard: View {
     var editingObjectID: Binding<String?> = .constant(nil)
     var showsShadow = true
     var usesOriginalAspectRatio = false
+    var supportsZoom = true
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
+    var onUpdates: (([LearningObject]) -> Void)?
 
     var body: some View {
         GeometryReader { proxy in
             let contentSize = fittedContentSize(in: proxy.size)
+            let annotatedImage = AnnotatedImageView(
+                image: image,
+                objects: objects,
+                revealsAnnotations: revealsAnnotations,
+                isEditable: isEditable,
+                masteredObjectIDs: masteredObjectIDs,
+                onSelect: onSelect,
+                onUpdate: onUpdate,
+                onUpdates: onUpdates,
+                editingObjectID: editingObjectID
+            )
 
             NotebookPhotoFrame(showsShadow: showsShadow) {
-                AnnotatedImageView(
-                    image: image,
-                    objects: objects,
-                    revealsAnnotations: revealsAnnotations,
-                    isEditable: isEditable,
-                    masteredObjectIDs: masteredObjectIDs,
-                    onSelect: onSelect,
-                    onUpdate: onUpdate,
-                    editingObjectID: editingObjectID
-                )
+                Group {
+                    if supportsZoom {
+                        ZoomableAnnotatedImage(
+                            resetID: ObjectIdentifier(image),
+                            rootView: annotatedImage
+                        )
+                    } else {
+                        annotatedImage
+                    }
+                }
                 .frame(width: contentSize.width, height: contentSize.height)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
             .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
         }
@@ -455,5 +567,127 @@ struct AnnotatedPhotoCard: View {
             return CGSize(width: availableWidth, height: availableWidth / cardRatio)
         }
         return CGSize(width: availableHeight * cardRatio, height: availableHeight)
+    }
+}
+
+private struct ZoomableAnnotatedImage: UIViewControllerRepresentable {
+    let resetID: ObjectIdentifier
+    let rootView: AnnotatedImageView
+
+    func makeUIViewController(context: Context) -> AnnotationZoomViewController {
+        AnnotationZoomViewController(rootView: rootView, resetID: resetID)
+    }
+
+    func updateUIViewController(
+        _ viewController: AnnotationZoomViewController,
+        context: Context
+    ) {
+        viewController.update(rootView: rootView, resetID: resetID)
+    }
+}
+
+private final class AnnotationZoomViewController: UIViewController, UIScrollViewDelegate {
+    private let scrollView = UIScrollView()
+    private let hostingController: UIHostingController<AnnotatedImageView>
+    private var resetID: ObjectIdentifier
+
+    init(rootView: AnnotatedImageView, resetID: ObjectIdentifier) {
+        hostingController = UIHostingController(rootView: rootView)
+        self.resetID = resetID
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 4
+        scrollView.bouncesZoom = true
+        scrollView.alwaysBounceHorizontal = false
+        scrollView.alwaysBounceVertical = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.delaysContentTouches = false
+        scrollView.clipsToBounds = true
+        scrollView.delegate = self
+        scrollView.isAccessibilityElement = false
+        view.addSubview(scrollView)
+
+        addChild(hostingController)
+        hostingController.view.backgroundColor = .clear
+        scrollView.addSubview(hostingController.view)
+        hostingController.didMove(toParent: self)
+
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        scrollView.addGestureRecognizer(doubleTap)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        scrollView.frame = view.bounds
+        guard scrollView.bounds.width > 0, scrollView.bounds.height > 0 else { return }
+        if hostingController.view.bounds.size != scrollView.bounds.size {
+            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: false)
+            hostingController.view.transform = .identity
+            hostingController.view.frame = CGRect(origin: .zero, size: scrollView.bounds.size)
+            scrollView.contentSize = scrollView.bounds.size
+        }
+        updatePanAvailability()
+    }
+
+    func update(rootView: AnnotatedImageView, resetID: ObjectIdentifier) {
+        hostingController.rootView = rootView
+        guard self.resetID != resetID else { return }
+        self.resetID = resetID
+        scrollView.setZoomScale(scrollView.minimumZoomScale, animated: false)
+        scrollView.contentOffset = .zero
+        view.setNeedsLayout()
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        hostingController.view
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        updatePanAvailability()
+    }
+
+    func scrollViewDidEndZooming(
+        _ scrollView: UIScrollView,
+        with view: UIView?,
+        atScale scale: CGFloat
+    ) {
+        updatePanAvailability()
+    }
+
+    private func updatePanAvailability() {
+        scrollView.panGestureRecognizer.isEnabled = scrollView.zoomScale > scrollView.minimumZoomScale + 0.01
+    }
+
+    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        if scrollView.zoomScale > scrollView.minimumZoomScale + 0.01 {
+            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+            return
+        }
+
+        let scale = min(2.5, scrollView.maximumZoomScale)
+        let point = gesture.location(in: hostingController.view)
+        let size = CGSize(
+            width: scrollView.bounds.width / scale,
+            height: scrollView.bounds.height / scale
+        )
+        scrollView.zoom(to: CGRect(
+            x: point.x - size.width / 2,
+            y: point.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        ), animated: true)
     }
 }
