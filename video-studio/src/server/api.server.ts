@@ -1,3 +1,4 @@
+import { coverExportReady } from '../lib/cover-layout.ts';
 import 'dotenv/config';
 import { mkdir, readFile, writeFile, stat, rename, unlink } from 'node:fs/promises';
 import { createReadStream, existsSync } from 'node:fs';
@@ -191,6 +192,17 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             const id = randomUUID(); state.rendering = true; state.jobs.set(id, { status: 'rendering', progress: 0 });
             void render(id, p, url.origin);
             return send({ id }, 202);
+        }
+        if (req.method === 'POST' && path === '/studio-api/render-cover') {
+            const { project } = z.object({ project: projectSchema }).parse(await json(req));
+            if (!coverExportReady(project)) throw new Error('请添加照片和单词，并解决封面胶囊冲突后再导出');
+            await stat(assetFile(project.image!));
+            const serveUrl = await bundle({ entryPoint: resolve('src/video/Root.tsx') });
+            const inputProps = { project: absoluteProject(project, url.origin) };
+            const composition = await selectComposition({ serveUrl, id: 'KakawordCover', inputProps, browserExecutable });
+            const id = randomUUID();
+            await renderStill({ composition, serveUrl, inputProps, browserExecutable, frame: 0, imageFormat: 'png', output: join(exportsDir, id + '.png') });
+            return send({ file: '/studio-api/exports/' + id + '.png' });
         }
         if (req.method === 'POST' && path === '/studio-api/render-still') {
             const { project: rawProject, frame } = z.object({ project: z.unknown(), frame: z.number().int().min(0) }).parse(await json(req));

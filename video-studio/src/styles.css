@@ -38,3 +38,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible { 
 .safe-band span { position:absolute;left:8px;top:6px;font-size:8px;color:#ad8657;letter-spacing:.5px;background:#fffdf8dd;padding:2px 5px;border-radius:3px; }
 .safe-toggle { display:flex;align-items:center;gap:7px;font-size:11px;margin-bottom:18px;color:#81725c; }
 .safe-toggle input { accent-color:#af8a3a; }
+
+.cover-tabs { display:flex;align-items:center;gap:8px;margin-bottom:14px; }
+.cover-tabs span { margin-left:auto;font-size:11px;color:#786d5d; }
+.cover-conflict { margin-top:16px;padding:12px;border:1px solid #c43f3560;border-radius:12px;color:#a63229;background:#fff1e8;font-size:13px;line-height:1.7; }
+
+.cover-highlight-picker { margin:20px 0; }
+.cover-highlight-list { display:flex;flex-wrap:wrap;gap:8px;margin:12px 0; }
+.cover-highlight-list label { display:flex;align-items:center;gap:7px;padding:8px 12px;border:1px solid #24211e25;border-radius:18px;font-size:13px;cursor:pointer; }
+.cover-highlight-list label:has(input:checked) { background:#24211e;color:#f4c95d; }
+.cover-highlight-list input { accent-color:#f4c95d; }

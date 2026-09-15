@@ -1,6 +1,6 @@
 export type Point = { x: number; y: number };
 export type Box = { x: number; y: number; width: number; height: number };
-export type AnnotationObject = { id: string; english: string; box: Box; labelCenterOverride?: Point; targetCenterOverride?: Point };
+export type AnnotationObject = { id: string; english: string; box: Box; labelCenterOverride?: Point; targetCenterOverride?: Point; labelScale?: number; labelWidthOverride?: number };
 export type Placement<T extends AnnotationObject = AnnotationObject> = {
     id: string; object: T; target: Point; labelCenter: Point; labelWidth: number; labelHeight: number; labelFrame: Box; anchor: Point;
 };
@@ -20,8 +20,8 @@ function contains(box: Box, p: Point) { return p.x >= box.x && p.x <= box.x + bo
 function inset(box: Box, amount: number): Box { return { x: box.x + amount, y: box.y + amount, width: box.width - amount * 2, height: box.height - amount * 2 }; }
 function intersects(a: Box, b: Box) { return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y; }
 
-function measuredTextWidth(word: string): number {
-    if (typeof document !== 'undefined') {
+function measuredTextWidth(word: string, deterministic = false): number {
+    if (!deterministic && typeof document !== 'undefined') {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
         if (context) { context.font = '900 16px "SF Pro Rounded", ui-rounded, system-ui, sans-serif'; return Math.ceil(context.measureText(word).width); }
@@ -29,8 +29,8 @@ function measuredTextWidth(word: string): number {
     return Math.ceil([...word].reduce((sum, character) => sum + (/[^\x00-\xff]/.test(character) ? 14 : /[MW@#%]/.test(character) ? 12 : /[ilI1.,' ]/.test(character) ? 4.5 : 8), 0));
 }
 
-export function wordLabelWidth(word: string, frame: Box) {
-    return Math.min(Math.max(72, measuredTextWidth(word) + 32), Math.min(180, frame.width * .5));
+export function wordLabelWidth(word: string, frame: Box, scale = 1, deterministic = false) {
+    return Math.min(Math.max(72, measuredTextWidth(word, deterministic) + 32), Math.min(180, frame.width * .5)) * scale;
 }
 
 function targetPoint(object: AnnotationObject, frame: Box): Point {
@@ -39,27 +39,29 @@ function targetPoint(object: AnnotationObject, frame: Box): Point {
 }
 
 function makePlacement<T extends AnnotationObject>(object: T, raw: Point, target: Point, width: number, frame: Box): Placement<T> {
+    const height = LABEL_HEIGHT * (object.labelScale ?? 1);
     const labelCenter = {
         x: clamp(raw.x, frame.x + EDGE_INSET + width / 2, frame.x + frame.width - EDGE_INSET - width / 2),
-        y: clamp(raw.y, frame.y + EDGE_INSET + LABEL_HEIGHT / 2, frame.y + frame.height - EDGE_INSET - LABEL_HEIGHT / 2),
+        y: clamp(raw.y, frame.y + EDGE_INSET + height / 2, frame.y + frame.height - EDGE_INSET - height / 2),
     };
-    const labelFrame = { x: labelCenter.x - width / 2, y: labelCenter.y - LABEL_HEIGHT / 2, width, height: LABEL_HEIGHT };
+    const labelFrame = { x: labelCenter.x - width / 2, y: labelCenter.y - height / 2, width, height };
     const edges = [
         { x: labelCenter.x, y: labelFrame.y }, { x: labelCenter.x, y: labelFrame.y + labelFrame.height },
         { x: labelFrame.x, y: labelCenter.y }, { x: labelFrame.x + labelFrame.width, y: labelCenter.y },
     ];
-    return { id: object.id, object, target, labelCenter, labelWidth: width, labelHeight: LABEL_HEIGHT, labelFrame, anchor: edges.sort((a, b) => distance(a, target) - distance(b, target))[0] };
+    return { id: object.id, object, target, labelCenter, labelWidth: width, labelHeight: height, labelFrame, anchor: edges.sort((a, b) => distance(a, target) - distance(b, target))[0] };
 }
 
 function placementCandidates<T extends AnnotationObject>(object: T, target: Point, frame: Box, objectCount: number, movableObjectId?: string): Placement<T>[] {
-    const width = wordLabelWidth(object.english, frame);
+    const height = LABEL_HEIGHT * (object.labelScale ?? 1);
+    const width = object.labelWidthOverride ?? wordLabelWidth(object.english, frame, object.labelScale, object.labelScale !== undefined);
     const preferred = object.labelCenterOverride
         ? { x: frame.x + frame.width * object.labelCenterOverride.x, y: frame.y + frame.height * object.labelCenterOverride.y }
         : target;
     if (object.labelCenterOverride && object.id === movableObjectId) return [makePlacement(object, preferred, target, width, frame)];
     const primary: Point[] = object.labelCenterOverride ? [preferred] : (() => {
         const objectFrame = { x: frame.x + frame.width * object.box.x, y: frame.y + frame.height * object.box.y, width: frame.width * object.box.width, height: frame.height * object.box.height };
-        const h = width / 2 + 14, v = LABEL_HEIGHT / 2 + 14;
+        const h = width / 2 + 14, v = height / 2 + 14;
         return [
             { x: objectFrame.x + objectFrame.width + h, y: objectFrame.y + objectFrame.height / 2 },
             { x: objectFrame.x - h, y: objectFrame.y + objectFrame.height / 2 },
@@ -73,14 +75,14 @@ function placementCandidates<T extends AnnotationObject>(object: T, target: Poin
             { x: target.x + h, y: target.y + v * 1.7 }, { x: target.x - h, y: target.y - v * 1.7 },
         ];
     })();
-    const hs = width + SPACING + 4, vs = LABEL_HEIGHT + SPACING + 4;
+    const hs = width + SPACING + 4, vs = height + SPACING + 4;
     const offsets = [[hs,0],[-hs,0],[0,vs],[0,-vs],[hs,vs],[-hs,vs],[hs,-vs],[-hs,-vs],[2*hs,0],[-2*hs,0],[0,2*vs],[0,-2*vs]];
     const radial = offsets.map(([x,y]) => ({ x: preferred.x + x, y: preferred.y + y }));
     const minX = frame.x + EDGE_INSET + width / 2, maxX = frame.x + frame.width - EDGE_INSET - width / 2;
-    const minY = frame.y + EDGE_INSET + LABEL_HEIGHT / 2, maxY = frame.y + frame.height - EDGE_INSET - LABEL_HEIGHT / 2;
+    const minY = frame.y + EDGE_INSET + height / 2, maxY = frame.y + frame.height - EDGE_INSET - height / 2;
     let xs = [minX, maxX, (minX + maxX) / 2];
     if (width * 3 + SPACING * 2 <= frame.width - 16) xs = [...xs, minX + (maxX-minX)/3, minX + (maxX-minX)*2/3];
-    const rows = Math.max(2, Math.ceil(objectCount / 2), Math.floor((maxY-minY) / (LABEL_HEIGHT+SPACING)) + 1);
+    const rows = Math.max(2, Math.ceil(objectCount / 2), Math.floor((maxY-minY) / (height+SPACING)) + 1);
     const ys = rows <= 1 || minY === maxY ? [(minY+maxY)/2] : Array.from({length: rows}, (_,i) => minY + (maxY-minY)*i/(rows-1));
     const grid = ys.flatMap(y => xs.map(x => ({x,y})));
     const seen = new Set<string>();
@@ -98,7 +100,7 @@ function searchedPlacements<T extends AnnotationObject>(objects: T[], frame: Box
     for (const object of ordered) {
         const target = targetPoint(object, frame);
         const candidates = placementCandidates(object, target, frame, objects.length, movableObjectId);
-        const preferred = object.labelCenterOverride ? makePlacement(object, { x: frame.x+frame.width*object.labelCenterOverride.x, y: frame.y+frame.height*object.labelCenterOverride.y }, target, wordLabelWidth(object.english, frame), frame).labelCenter : target;
+        const preferred = object.labelCenterOverride ? makePlacement(object, { x: frame.x+frame.width*object.labelCenterOverride.x, y: frame.y+frame.height*object.labelCenterOverride.y }, target, wordLabelWidth(object.english, frame, object.labelScale, object.labelScale !== undefined), frame).labelCenter : target;
         const next: typeof states = [];
         for (const state of states) {
             for (let priority=0; priority<candidates.length; priority++) {
@@ -132,7 +134,7 @@ function segmentIntersectsBox(start: Point, end: Point, box: Box) {
 }
 function polylineIntersects(points: Point[], box: Box) { return points.slice(1).some((point,index) => segmentIntersectsBox(points[index],point,box)); }
 
-function routedLeaderLines<T extends AnnotationObject>(placements: Placement<T>[], frame: Box): Route[] {
+export function routedLeaderLines<T extends AnnotationObject>(placements: Placement<T>[], frame: Box): Route[] {
     const routes: Route[]=[];
     const ordered=[...placements].sort((a,b)=>distance(b.anchor,b.target)-distance(a.anchor,a.target));
     for (const placement of ordered) {
@@ -157,4 +159,20 @@ function routedLeaderLines<T extends AnnotationObject>(placements: Placement<T>[
 export function annotationLayout<T extends AnnotationObject>(objects: T[], frame: Box, movableObjectId?: string): AnnotationLayout<T> {
     const placements=searchedPlacements(objects,frame,movableObjectId);
     return {placements,routes:routedLeaderLines(placements,frame)};
+}
+
+// Cover mode retains every label, including labels which cannot fit safely.
+export function completeAnnotationLayout<T extends AnnotationObject>(objects: T[], frame: Box): AnnotationLayout<T> {
+    const automatic = searchedPlacements(objects, frame);
+    const placements = objects.map(object => {
+        const target = targetPoint(object, frame);
+        if (!object.labelCenterOverride) {
+            const found = automatic.find(p => p.id === object.id);
+            if (found) return found;
+        }
+        const point = object.labelCenterOverride ?? { x: (target.x-frame.x)/frame.width, y: (target.y-frame.y)/frame.height };
+        return makePlacement(object, { x: frame.x + point.x*frame.width, y: frame.y + point.y*frame.height }, target,
+            object.labelWidthOverride ?? wordLabelWidth(object.english, frame, object.labelScale, true), frame);
+    });
+    return { placements, routes: routedLeaderLines(placements, frame) };
 }

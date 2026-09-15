@@ -31,7 +31,19 @@ const currentWordSchema = z.object({
 });
 const legacyWordSchema = currentWordSchema.omit({ box: true, labelCenterOverride: true, targetCenterOverride: true }).extend({ x: position, y: position, targetX: position, targetY: position });
 const imageAsset = z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.jpg$/);
+export const coverSchema = z.object({
+    template: z.literal('learning-card').default('learning-card'),
+    scale: z.number().min(.6).max(1.6).default(1),
+    words: z.record(z.object({
+        scale: z.number().min(.75).max(1.5).default(1),
+        highlighted: z.boolean().optional(),
+        labelCenterOverride: pointSchema.optional(),
+        targetCenterOverride: pointSchema.optional(),
+    })).default({}),
+});
+export type CoverConfig = z.infer<typeof coverSchema>;
 const projectFields = {
+    cover: coverSchema.optional(),
     title: z.string().max(80),
     caption: z.string().max(220).default(''), captionChinese: z.string().max(220).default(''),
     captionAudio: z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.wav$/).optional(),

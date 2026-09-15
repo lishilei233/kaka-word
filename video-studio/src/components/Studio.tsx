@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { Cover } from '../video/Cover';
+import { coverLayout, defaultCover } from '../lib/cover-layout';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
 import { ArrowDown, ArrowUp, Camera, Check, ChevronRight, Download, Film as FilmIcon, ImageDown, ImagePlus, LoaderCircle, Play, Plus, Save, Sparkles, Trash2, Volume2 } from 'lucide-react';
 import { Button } from './ui/button';
@@ -11,6 +13,7 @@ import { filmLayout } from '../lib/film-layout';
 type Analysis = { caption: string; captionChinese: string; objects: { id: string; english: string; chinese: string; ipa: string; box: { x: number; y: number; width: number; height: number } }[] };
 export function Studio() {
     const [project, setProject] = useState<Project>(emptyProject);
+    const [mode, setMode] = useState<'video' | 'cover'>('video');
     const [ready, setReady] = useState(false);
     const [busy, setBusy] = useState(''); const [message, setMessage] = useState(''); const [error, setError] = useState('');
     const [showSafeAreas, setShowSafeAreas] = useState(true);
@@ -19,6 +22,7 @@ export function Studio() {
     const [job, setJob] = useState<string>(); const [progress, setProgress] = useState(0); const [download, setDownload] = useState('');
     const input = useRef<HTMLInputElement>(null); const video = useRef<HTMLVideoElement>(null); const player = useRef<PlayerRef>(null);
     const revision = useRef(0); const initialLoad = useRef(false); const pendingLivePhotoVideo = useRef('');
+    const coverConflicts = useMemo(() => mode === 'cover' ? coverLayout(project).conflicts : [], [mode, project.cover, project.words, project.imageWidth, project.imageHeight]);
     const t = timeline(project); const word = project.words.find(w => w.id === selected);
     const imageFrame = filmLayout(project).photoImage;
     const selectedPlacement = annotationLayout(project.words, imageFrame, selected).placements.find(placement => placement.id === selected);
@@ -49,7 +53,7 @@ export function Studio() {
         }, 1500);
         return () => { cancelled = true; clearInterval(timer); };
     }, [job]);
-    function update(p: Project) { revision.current++; setProject(p); setDownload(''); }
+    function update(p: Project) { if (p.cover) p = { ...p, cover: { ...p.cover, words: Object.fromEntries(Object.entries(p.cover.words).filter(([id]) => p.words.some(w => w.id === id))) } }; revision.current++; setProject(p); setDownload(''); }
     function editWord(patch: Partial<Word>) { update({ ...project, words: project.words.map(w => w.id === selected ? { ...w, ...patch } : w) }); }
     function moveAnnotation(id: string, kind: 'label' | 'target', point: { x: number; y: number }) {
         setSelected(id);
@@ -195,14 +199,38 @@ export function Studio() {
                     <Button variant="ghost" size="sm" className="w-full mt-3" disabled={!project.image || project.words.length >= 10} onClick={() => { const w: Word = { id: crypto.randomUUID(), english: 'word', chinese: '', ipa: '', box: { x: .5, y: .6, width: 0, height: 0 } }; update({ ...project, words: [...project.words,w] }); setSelected(w.id); }}><Plus />手动添加单词</Button>
                 </fieldset>
             </aside>
-            <section className="preview-column"><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, onAnnotationMove: moveAnnotation, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
+            {mode === 'cover' ? <section className="preview-column">
+                <div className="cover-tabs"><Button variant="ghost" onClick={() => setMode('video')}>视频</Button><Button variant="secondary">封面</Button><span>3:4 · 1080 × 1440</span></div>
+                <div className="preview-stage"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project, onMove:(id, kind, point) => {
+                    setSelected(id); const c = project.cover ?? defaultCover;
+                    update({ ...project, cover: { ...c, words: { ...c.words, [id]: { ...(c.words[id] ?? { scale: 1 }), [kind === 'label' ? 'labelCenterOverride' : 'targetCenterOverride']: point } } } });
+                } }} /></div>
+                <p className="hint">拖动胶囊或圆点调整封面；松手后重新规划引导线。</p>
+            </section> : <section className="preview-column"><div className="cover-tabs"><Button variant="secondary" onClick={() => setMode('video')}>视频</Button><Button variant="ghost" onClick={() => { player.current?.pause(); setMode('cover'); }}>封面</Button></div><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, onAnnotationMove: moveAnnotation, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
                 {showSafeAreas && <div className="safe-area-overlay" aria-hidden="true">
                     <div className="safe-band safe-band-top" style={{ height: `${project.safeTop/1920*100}%` }}><span>顶部遮挡参考区</span></div>
                     <div className="safe-band safe-band-bottom" style={{ height: `${project.safeBottom/1920*100}%` }}><span>文案 / 导航遮挡参考区</span></div>
                     {project.safeRight > 0 && <div className="safe-band safe-band-right" style={{ width: `${project.safeRight/1080*100}%`, top: `${project.safeTop/1920*100}%`, bottom: `${project.safeBottom/1920*100}%` }} />}
                 </div>}
-                </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊或引导线圆点调整位置</span></div><div className="timeline-strip"><button onClick={() => player.current?.seekTo(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => player.current?.seekTo(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button><button onClick={() => player.current?.seekTo(t.intro+t.reveal)}><Volume2 size={15} /><span>高亮跟读</span><small>{project.words.length} 词</small></button><button onClick={() => player.current?.seekTo(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>3s</small></button></div></section>
-            <aside className="panel settings"><div className="panel-heading"><span className="section-number">02</span><h2>校对与节奏</h2><Volume2 size={17} /></div><fieldset disabled={!!busy || !!job || !ready} className="panel-body">
+                </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊或引导线圆点调整位置</span></div><div className="timeline-strip"><button onClick={() => player.current?.seekTo(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => player.current?.seekTo(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button><button onClick={() => player.current?.seekTo(t.intro+t.reveal)}><Volume2 size={15} /><span>高亮跟读</span><small>{project.words.length} 词</small></button><button onClick={() => player.current?.seekTo(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>3s</small></button></div></section>}
+            {mode === 'cover' ? <aside className="panel settings"><div className="panel-heading"><h2>学习卡片封面</h2></div><fieldset className="panel-body" disabled={!!busy || !ready}>
+                <p className="hint">完整照片 · 全部单词<br />尺寸与位置仅用于封面，随草稿保存。</p>
+                <label className="range-field"><span>全部胶囊 <strong>{Math.round((project.cover?.scale ?? 1)*100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".6" max="1.6" step=".01" value={project.cover?.scale ?? 1} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), scale: Number(e.target.value) } })} /></label>
+                {word ? <label className="range-field"><span>{word.english} <strong>{Math.round((project.cover?.words[word.id]?.scale ?? 1)*100)}%</strong></span><input aria-label="当前胶囊大小" type="range" min=".75" max="1.5" step=".01" value={project.cover?.words[word.id]?.scale ?? 1} onChange={e => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: { ...c.words, [word.id]: { ...c.words[word.id], scale: Number(e.target.value) } } } }); }} /></label> : <p className="hint">选择左侧单词，可单独调整大小。</p>}
+                <div className="cover-highlight-picker"><h3>高亮单词</h3><p className="hint">可多选，与视频一致：亮黄胶囊、加粗描边和放大效果，引导线同步高亮。</p>
+                    <div className="cover-highlight-list">{project.words.map(w => <label key={w.id}><input type="checkbox" checked={project.cover?.words[w.id]?.highlighted ?? false} onChange={e => {
+                        const c = project.cover ?? defaultCover;
+                        update({ ...project, cover: { ...c, words: { ...c.words, [w.id]: { ...(c.words[w.id] ?? { scale: 1 }), highlighted: e.target.checked } } } });
+                    }} /><span>{w.english}</span></label>)}</div>
+                    <Button variant="ghost" size="sm" disabled={!project.words.some(w => project.cover?.words[w.id]?.highlighted)} onClick={() => {
+                        const c = project.cover ?? defaultCover;
+                        update({ ...project, cover: { ...c, words: Object.fromEntries(Object.entries(c.words).map(([id, value]) => [id, { ...value, highlighted: false }])) } });
+                    }}>清除高亮</Button>
+                </div>
+                <Button variant="outline" className="w-full" onClick={() => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: Object.fromEntries(Object.entries(c.words).map(([id, value]) => [id, { scale: value.scale, highlighted: value.highlighted }])) } }); }}>恢复视频位置</Button>
+                {coverConflicts.length > 0 && <p role="alert" className="cover-conflict">以下胶囊重叠或超出安全边距：{project.words.filter(w => coverConflicts.includes(w.id)).map(w => w.english).join('、')}。请缩小或移动后再导出。</p>}
+                <Button className="w-full mt-4" disabled={!project.image || !project.words.length || project.words.some(w => !w.english.trim()) || coverConflicts.length > 0} onClick={() => run('导出封面', async () => { const result = await api<{ file: string }>('render-cover', { project }); const a = document.createElement('a'); a.href = result.file; a.download = 'kakaword-cover.png'; a.click(); setMessage('封面已导出'); })}><ImageDown />导出封面 PNG</Button>
+            </fieldset></aside> : <aside className="panel settings"><div className="panel-heading"><span className="section-number">02</span><h2>校对与节奏</h2><Volume2 size={17} /></div><fieldset disabled={!!busy || !!job || !ready} className="panel-body">
                 <div className="editor-note"><span>一张照片，一点新发现。</span><p>画面保持安静，让正在读的单词亮起来。</p></div>
                 {word ? <><div className="edit-heading"><span>当前单词</span><Button variant="ghost" size="icon" aria-label="删除当前单词" onClick={() => { update({ ...project, words: project.words.filter(w => w.id !== selected) }); setSelected(''); }}><Trash2 /></Button></div><label className="field-label" htmlFor="english">英文</label><input id="english" className="input word-input" maxLength={60} value={word.english} onChange={e => editWord(changeEnglish(word, e.target.value))} /><label className="field-label" htmlFor="chinese">中文释义</label><input id="chinese" className="input" maxLength={60} value={word.chinese} onChange={e => editWord({ chinese: e.target.value })} /><label className="field-label" htmlFor="ipa">音标</label><input id="ipa" className="input" maxLength={80} value={word.ipa} onChange={e => editWord({ ipa: e.target.value })} /><label className="field-label">单词胶囊位置</label><div className="position-grid">{(['x','y'] as const).map((key,i) => <label key={key}><span>{['横向','纵向'][i]} <small>{(selectedCenter[key]*100).toFixed(1)}%</small></span><input type="range" min="0" max="100" step="0.1" value={selectedCenter[key]*100} onChange={e => editWord({ labelCenterOverride: { ...selectedCenter, [key]: Number(e.target.value)/100 } })} /></label>)}</div><label className="field-label">引导线终点位置</label><div className="position-grid">{(['x','y'] as const).map((key,i) => <label key={key}><span>{['横向','纵向'][i]} <small>{(selectedTarget[key]*100).toFixed(1)}%</small></span><input type="range" min="0" max="100" step="0.1" value={selectedTarget[key]*100} onChange={e => editWord({ targetCenterOverride: { ...selectedTarget, [key]: Number(e.target.value)/100 } })} /></label>)}</div><Button variant="ghost" size="sm" className="w-full mt-2" disabled={!word.labelCenterOverride && !word.targetCenterOverride} onClick={() => editWord({ labelCenterOverride: undefined, targetCenterOverride: undefined })}>恢复自动位置</Button>{word.audio && <audio className="word-audio" src={word.audio} controls />}</> : <div className="select-hint">选择左侧单词，校对文字并调整胶囊和引导线。</div>}
                 <div className="settings-divider" /><h3>平台安全留白</h3>
@@ -211,7 +239,7 @@ export function Studio() {
                 <p className="hint">文字和标签会避开留白区域。遮挡参考区不进入成片；可按小红书 / 抖音的发布预览调整。</p>
                 <div className="settings-divider" /><h3>播放节奏</h3><label className="field-label" htmlFor="voiceId">MiniMax 配音音色</label><select id="voiceId" className="input" value={project.voiceId} onChange={e => update({ ...project, voiceId: e.target.value as Project['voiceId'], captionAudio: undefined, captionAudioSeconds: undefined, words: project.words.map(word => ({ ...word, audio: undefined, audioSeconds: undefined })) })}>{voiceOptions.map(voice => <option key={voice.id} value={voice.id}>{voice.label} · {voice.id}</option>)}</select><label className="range-field"><span>配音语速 <strong>{project.speechSpeed.toFixed(2)}×</strong></span><input type="range" min="0.5" max="2" step="0.05" value={project.speechSpeed} onChange={e => update({ ...project, speechSpeed: Number(e.target.value), captionAudio: undefined, captionAudioSeconds: undefined, words: project.words.map(word => ({ ...word, audio: undefined, audioSeconds: undefined })) })} /></label><p className="hint">更换音色或语速后需要重新生成全部配音。</p><label className="range-field"><span>开头取景（视频末尾） <strong>{project.introSeconds.toFixed(1)} 秒</strong></span><input type="range" min="0.5" max="5" step="0.1" value={project.introSeconds} onChange={e => update({ ...project, introSeconds: Number(e.target.value) })} /></label><label className="range-field"><span>跟读留白 <strong>{project.pauseSeconds.toFixed(1)} 秒</strong></span><input type="range" min="0" max="3" step="0.1" value={project.pauseSeconds} onChange={e => update({ ...project, pauseSeconds: Number(e.target.value) })} /></label>
                 <Button variant="secondary" className="w-full mt-4" disabled={!project.caption.trim() || !project.words.length || project.words.some(w => !w.english.trim())} onClick={speech}><Volume2 />生成全部配音</Button><p className="hint">会生成每个单词和照片英文句子的配音。修改英文后需重新生成。</p><Button variant="outline" className="w-full mt-2" disabled={!project.image} onClick={() => { player.current?.seekTo(0); player.current?.play(); }}><Play />从头预览</Button>
-            </fieldset></aside>
+            </fieldset></aside>}
         </main><footer className="studio-footer"><span>KAKAWORD · CREATIVE NOTEBOOK</span><span>每日一拍，每日一词。让学习留在生活里。</span></footer>
     </div>;
 }
