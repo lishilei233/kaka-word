@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { forwardRecognition } from './recognition.server.ts';
+import { forwardRecognition, generateSocialCopy } from './recognition.server.ts';
 const result = { imageWidth: 800, imageHeight: 600, objects: [], caption: 'A quiet room.', captionChinese: '安静的房间。', captionStyle: 'serious' };
 
 test('forwards multipart image and existing access headers, decodes chunked SSE with photo descriptions', async () => {
@@ -40,4 +40,26 @@ test('rejects interrupted or failed streams instead of treating partial objects 
     await assert.rejects(() => forwardRecognition(new Uint8Array(), 8, { baseURL:'http://localhost:8787' }, undefined, transport), /中断/);
     const failed = await forwardRecognition(new Uint8Array(), 8, { baseURL:'http://localhost:8787' }, undefined, async () => new Response('event: error\ndata: {"error":"ANALYZE_FAILED","message":"请重试"}\n\n', {headers:{'content-type':'text/event-stream'}}));
     assert.equal(failed.status, 502);
+});
+
+test('generates and validates publishing copy through the existing server credential', async () => {
+    const previous = process.env.SERVER_ACCESS_TOKEN;
+    process.env.SERVER_ACCESS_TOKEN = 'studio-token';
+    const expected = {
+        xiaohongshu: { title: '小红书', body: '正文', hashtags: ['生活英语'] },
+        douyin: { title: '抖音', body: '正文', hashtags: ['跟读'] },
+        channels: { title: '视频号', body: '正文', hashtags: ['每日英语'] },
+    };
+    try {
+        const result = await generateSocialCopy({ caption: 'A room.', captionChinese: '一个房间。', words: [{ english: 'room', chinese: '房间' }], highlightedWords: ['room'] }, undefined, async (input, init) => {
+            assert.equal(input, 'http://127.0.0.1:8787/v1/social-copy');
+            assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer studio-token');
+            assert.deepEqual(JSON.parse(String(init?.body)).highlightedWords, ['room']);
+            return Response.json(expected);
+        });
+        assert.deepEqual(result, expected);
+    } finally {
+        if (previous === undefined) delete process.env.SERVER_ACCESS_TOKEN;
+        else process.env.SERVER_ACCESS_TOKEN = previous;
+    }
 });

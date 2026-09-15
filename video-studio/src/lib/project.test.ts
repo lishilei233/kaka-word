@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, CAPTION_FRAMES, changeEnglish, openingMedia, emptyProject, exportReady, projectSchema, sortByPhotoPosition, timeline, type Project } from './project.ts';
+import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, CAPTION_FRAMES, changeEnglish, openingMedia, emptyProject, exportReady, projectSchema, selectCaptionVariant, sortByPhotoPosition, timeline, type Project } from './project.ts';
 const p: Project = { ...emptyProject, image: '/studio-api/assets/1234.jpg', caption: 'A quiet room.', captionAudio: '/studio-api/assets/abcd.wav', captionAudioSeconds: 1.8, words: [
     { id: '1', english: 'window', chinese: '窗户', ipa: '', box: { x: .05, y: .1, width: .1, height: .2 }, audio: '/studio-api/assets/1234.wav', audioSeconds: .8 },
     { id: '2', english: 'trash can', chinese: '垃圾桶', ipa: '', box: { x: .4, y: .5, width: .2, height: .2 }, audio: '/studio-api/assets/5678.wav', audioSeconds: 1.4 },
@@ -50,4 +50,18 @@ test('recognized objects sort by photo rows, then from left to right', () => {
         { id: 'middle', box: { x: .4, y: .4, width: .1, height: .1 } },
     ];
     assert.deepEqual(sortByPhotoPosition(objects).map(object => object.id), ['top-left', 'top-right', 'middle', 'bottom']);
+});
+
+test('selecting an AI caption variant replaces both languages and invalidates old speech', () => {
+    const variants = {
+        serious: { caption: 'A cat sits here.', captionChinese: '一只猫坐在这里。' },
+        funny: { caption: 'The cat owns this chair.', captionChinese: '这把椅子归猫所有。' },
+        literary: { caption: 'Soft light finds the quiet cat.', captionChinese: '柔光落在安静的猫身上。' },
+    };
+    const selected = selectCaptionVariant({ ...p, captionVariants: variants }, 'literary');
+    assert.equal(selected.caption, variants.literary.caption);
+    assert.equal(selected.captionChinese, variants.literary.captionChinese);
+    assert.equal(selected.selectedCaptionStyle, 'literary');
+    assert.equal(selected.captionAudio, undefined);
+    assert.equal(selected.captionAudioSeconds, undefined);
 });

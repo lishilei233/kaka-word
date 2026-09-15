@@ -29,6 +29,14 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible { 
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; }.animate-spin { animation:none; } }
 
 .caption-input { height:66px; padding:9px 11px; line-height:1.5; resize:vertical; }
+.caption-variants { display:grid;gap:9px;margin:14px 0 17px; }
+.caption-variants button { position:relative;text-align:left;padding:13px 14px;border:1px solid #24211e20;border-radius:14px;background:#fffdf899;color:#24211e;box-shadow:1px 2px 0 #24211e0a; }
+.caption-variants button:hover { border-color:#b59642;background:#fffaf0; }
+.caption-variants button.selected { border:2px solid #24211e;background:#fff4ca;box-shadow:3px 3px 0 #f4c95d; }
+.caption-variants button>span { display:flex;align-items:baseline;gap:9px;margin-bottom:7px; }
+.caption-variants strong { font-size:14px; }.caption-variants small { color:#8a7a65;font-size:10px;letter-spacing:.05em; }
+.caption-variants p { margin:0;font-family:Georgia,"Times New Roman",serif;font-size:13px;font-weight:700;line-height:1.35; }
+.caption-variants em { display:block;margin-top:5px;color:#746957;font-size:11px;font-style:normal;line-height:1.4; }
 .player-shell { position:relative; }
 .safe-area-overlay { position:absolute;inset:0;pointer-events:none;z-index:3;overflow:hidden;border-radius:8px; }
 .safe-band { position:absolute;background:repeating-linear-gradient(135deg,#bd7b3014 0,#bd7b3014 5px,#bd7b3028 5px,#bd7b3028 6px); }
@@ -48,3 +56,19 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible { 
 .cover-highlight-list label { display:flex;align-items:center;gap:7px;padding:8px 12px;border:1px solid #24211e25;border-radius:18px;font-size:13px;cursor:pointer; }
 .cover-highlight-list label:has(input:checked) { background:#24211e;color:#f4c95d; }
 .cover-highlight-list input { accent-color:#f4c95d; }
+.publish-column { min-width:0; }
+.publish-board { display:grid;gap:14px; }
+.publish-card { position:relative;overflow:hidden;padding:18px;background:#fffdf8;border:1px solid #dcd1bd;border-radius:18px;box-shadow:3px 4px 0 #24211e0c; }
+.publish-card::after { content:"";position:absolute;right:-18px;top:-26px;width:82px;height:82px;border-radius:50%;background:var(--platform-tint);opacity:.38;pointer-events:none; }
+.publish-xiaohongshu { --platform-tint:#e96e62; }.publish-douyin { --platform-tint:#83d6d0; }.publish-channels { --platform-tint:#f4c95d; }
+.publish-card header { position:relative;z-index:1;display:flex;align-items:center;gap:11px;margin-bottom:15px; }
+.publish-card header>span { color:#b09c7b;font-family:Georgia,serif;font-size:22px;font-style:italic; }
+.publish-card header>div { flex:1; }.publish-card header small { display:block;color:#9a8b74;font-family:Menlo,monospace;font-size:8px;letter-spacing:.13em; }
+.publish-card header h2 { margin:2px 0 0;font-size:17px; }
+.publish-card label { display:block;margin-top:10px;color:#887a65;font-size:10px;font-weight:700;letter-spacing:.04em; }
+.publish-card input,.publish-card textarea { display:block;width:100%;margin-top:5px;padding:9px 10px;border:1px solid #24211e1c;border-radius:10px;background:#f8f1e6;color:#24211e;font:600 13px/1.5 "PingFang SC",sans-serif;box-sizing:border-box; }
+.publish-card textarea { min-height:82px;resize:vertical; }.publish-card input:focus,.publish-card textarea:focus { outline:2px solid #f4c95d;outline-offset:1px; }
+.publish-tags { display:flex;flex-wrap:wrap;gap:5px;margin-top:9px; }.publish-tags span { padding:3px 7px;border-radius:9px;background:#f4c95d45;font-size:9px; }
+.publish-empty { min-height:520px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:42px;text-align:center;border:1px dashed #bcae96;border-radius:20px;background:radial-gradient(#c7bba533 .8px,transparent .8px) 0 0/10px 10px,#eee7da; }
+.publish-empty>span { display:grid;place-items:center;width:66px;height:66px;border-radius:50%;background:#f4c95d;font-size:26px;box-shadow:5px 6px 0 #24211e; }.publish-empty h2 { max-width:330px;margin:26px 0 10px;font:700 27px/1.25 Georgia,"Songti SC",serif; }.publish-empty p { max-width:360px;color:#776b58;line-height:1.8; }
+.publish-source { margin-top:18px;padding:15px;border:1px dashed #b9aa91;border-radius:14px;background:#f7f0e4; }.publish-source small { color:#c66c59;font-family:Menlo,monospace;font-size:9px;letter-spacing:.12em; }.publish-source p { margin:8px 0 12px;font-size:13px;line-height:1.6; }.publish-source div { display:flex;flex-wrap:wrap;gap:5px; }.publish-source span { padding:4px 7px;border-radius:10px;background:#f4c95d;font-size:10px;font-weight:800; }

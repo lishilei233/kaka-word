@@ -1,15 +1,18 @@
 import { z } from "zod";
-import { qwenLearningObjectPrompt, vocabularyPrompt } from "../prompts.js";
+import { qwenLearningObjectPrompt, socialCopyPrompt, vocabularyPrompt } from "../prompts.js";
 import { extractJson } from "../response-json.js";
 import { ObjectArrayStreamParser, readSSEData } from "../streaming-json.js";
 import {
   analyzeResultSchema,
   vocabularyDetailsSchema,
+  socialCopySchema,
   type AnalyzeResult,
   type VisionInput,
   type VisionProvider,
   type VocabularyDetails,
   type VocabularyInput,
+  type SocialCopy,
+  type SocialCopyInput,
 } from "../types.js";
 
 type QwenConfig = { apiKey: string; apiHost: string; model: string };
@@ -36,6 +39,7 @@ const qwenResultSchema = z.object({
   })).max(10),
   caption: z.string().min(1).max(220),
   captionChinese: z.string().min(1).max(220),
+  captionVariants: analyzeResultSchema.shape.captionVariants,
 });
 
 export class QwenVisionProvider implements VisionProvider {
@@ -123,6 +127,7 @@ export class QwenVisionProvider implements VisionProvider {
       objects: parsed.objects.map(normalizeObject),
       caption: parsed.caption,
       captionChinese: parsed.captionChinese,
+      captionVariants: parsed.captionVariants,
       captionStyle: input.captionStyle,
     });
   }
@@ -149,6 +154,27 @@ export class QwenVisionProvider implements VisionProvider {
     const content = payload?.choices?.[0]?.message?.content;
     if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
     return vocabularyDetailsSchema.parse(extractJson(content));
+  }
+
+  async generateSocialCopy(input: SocialCopyInput): Promise<SocialCopy> {
+    if (!this.config.apiKey) throw new Error("QWEN_API_KEY is required");
+    const response = await fetch(qwenEndpoint(this.config.apiHost), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.config.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.config.model,
+        stream: false,
+        enable_thinking: false,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: socialCopyPrompt(input) }],
+      }),
+      signal: input.signal,
+    });
+    if (!response.ok) throw new Error(`Qwen social copy failed (${response.status})`);
+    const payload = await response.json() as any;
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
+    return socialCopySchema.parse(extractJson(content));
   }
 }
 

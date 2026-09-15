@@ -12,7 +12,7 @@ import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { getImageDimensions } from '../../../server/src/utils/image-dimensions.ts';
 import { projectSchema, exportReady, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
-import { recognizeImage } from './recognition.server.ts';
+import { generateSocialCopy, recognizeImage } from './recognition.server.ts';
 
 const exec = promisify(execFile);
 const root = resolve(process.env.STUDIO_DATA_DIR || '.data');
@@ -183,6 +183,15 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
                 const captionSpeech = await synthesizeSpeech(caption, voiceId, speechSpeed, 60);
                 return send({ words: output, captionAudio: captionSpeech.audio, captionAudioSeconds: captionSpeech.audioSeconds });
             } finally { state.speechBusy = false; }
+        }
+        if (req.method === 'POST' && path === '/studio-api/social-copy') {
+            const p = projectSchema.parse(await json(req));
+            return send(await generateSocialCopy({
+                caption: p.caption,
+                captionChinese: p.captionChinese,
+                words: p.words.map(({ english, chinese }) => ({ english, chinese })),
+                highlightedWords: p.words.filter(word => p.cover?.words[word.id]?.highlighted).map(word => word.english),
+            }, req.signal));
         }
         if (req.method === 'POST' && path === '/studio-api/render') {
             const p = projectSchema.parse(await json(req));

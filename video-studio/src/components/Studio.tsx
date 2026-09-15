@@ -1,4 +1,5 @@
 import { Cover } from '../video/Cover';
+import { PublishPanel } from './PublishPanel';
 import { coverLayout, defaultCover } from '../lib/cover-layout';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
@@ -6,14 +7,16 @@ import { ArrowDown, ArrowUp, Camera, Check, ChevronRight, Download, Film as Film
 import { Button } from './ui/button';
 import { Film } from '../video/Film';
 import { api, snapshot, upload, uploadApplePhoto } from '../lib/media';
-import { changeEnglish, emptyProject, exportReady, FPS, projectSchema, sortByPhotoPosition, timeline, voiceOptions, type Project, type Word } from '../lib/project';
+import { changeEnglish, emptyProject, exportReady, FPS, projectSchema, selectCaptionVariant, sortByPhotoPosition, timeline, voiceOptions, type Project, type Word } from '../lib/project';
 import { annotationLayout } from '../lib/annotation-layout';
 import { filmLayout } from '../lib/film-layout';
 
-type Analysis = { caption: string; captionChinese: string; objects: { id: string; english: string; chinese: string; ipa: string; box: { x: number; y: number; width: number; height: number } }[] };
+type CaptionStyle = 'serious' | 'funny' | 'literary';
+type CaptionVariant = { caption: string; captionChinese: string };
+type Analysis = { caption: string; captionChinese: string; captionVariants?: Record<CaptionStyle, CaptionVariant>; objects: { id: string; english: string; chinese: string; ipa: string; box: { x: number; y: number; width: number; height: number } }[] };
 export function Studio() {
     const [project, setProject] = useState<Project>(emptyProject);
-    const [mode, setMode] = useState<'video' | 'cover'>('video');
+    const [mode, setMode] = useState<'video' | 'cover' | 'publish'>('video');
     const [ready, setReady] = useState(false);
     const [busy, setBusy] = useState(''); const [message, setMessage] = useState(''); const [error, setError] = useState('');
     const [showSafeAreas, setShowSafeAreas] = useState(true);
@@ -54,7 +57,7 @@ export function Studio() {
         return () => { cancelled = true; clearInterval(timer); };
     }, [job]);
     function update(p: Project) { if (p.cover) p = { ...p, cover: { ...p.cover, words: Object.fromEntries(Object.entries(p.cover.words).filter(([id]) => p.words.some(w => w.id === id))) } }; revision.current++; setProject(p); setDownload(''); }
-    function editWord(patch: Partial<Word>) { update({ ...project, words: project.words.map(w => w.id === selected ? { ...w, ...patch } : w) }); }
+    function editWord(patch: Partial<Word>) { update({ ...project, socialCopy: undefined, words: project.words.map(w => w.id === selected ? { ...w, ...patch } : w) }); }
     function moveAnnotation(id: string, kind: 'label' | 'target', point: { x: number; y: number }) {
         setSelected(id);
         update({ ...project, words: project.words.map(w => w.id === id ? {
@@ -74,7 +77,7 @@ export function Studio() {
                 const ext = file.name.split('.').pop()?.toLowerCase();
                 if (!ext || !['mp4', 'mov', 'webm'].includes(ext)) throw new Error('请选择 MP4、MOV 或 WebM 视频');
                 const url = await upload(file, ext); setSource(url);
-                update({ ...project, image: undefined, video: undefined, words: [], caption: '', captionChinese: '', captionAudio: undefined, captionAudioSeconds: undefined }); setSelected('');
+                update({ ...project, image: undefined, video: undefined, words: [], caption: '', captionChinese: '', captionVariants: undefined, selectedCaptionStyle: 'serious', captionAudio: undefined, captionAudioSeconds: undefined }); setSelected('');
                 setMessage('拖动视频进度，选好画面后点击「使用这一帧」');
             } else if (file.type.startsWith('image/')) {
                 pendingLivePhotoVideo.current = '';
@@ -82,14 +85,14 @@ export function Studio() {
                 if (imageExt === 'heic' || imageExt === 'heif') {
                     const converted = await uploadApplePhoto(file, imageExt);
                     setSource('');
-                    update({ ...project, image: converted.url, imageWidth: converted.imageWidth, imageHeight: converted.imageHeight, video: undefined, words: [], caption: '', captionChinese: '', captionAudio: undefined, captionAudioSeconds: undefined }); setSelected('');
+                    update({ ...project, image: converted.url, imageWidth: converted.imageWidth, imageHeight: converted.imageHeight, video: undefined, words: [], caption: '', captionChinese: '', captionVariants: undefined, selectedCaptionStyle: 'serious', captionAudio: undefined, captionAudioSeconds: undefined }); setSelected('');
                     setMessage('HEIC 已转换为照片，可以开始识别；如需动态效果，请同时选择配套 MOV');
                 } else {
                     const objectUrl = URL.createObjectURL(file);
                     try {
                         const image = new Image(); image.src = objectUrl; await image.decode();
                         const frame = await snapshot(image); setSource('');
-                        update({ ...project, ...frame, video: undefined, words: [], caption: '', captionChinese: '', captionAudio: undefined, captionAudioSeconds: undefined }); setSelected('');
+                        update({ ...project, ...frame, video: undefined, words: [], caption: '', captionChinese: '', captionVariants: undefined, selectedCaptionStyle: 'serious', captionAudio: undefined, captionAudioSeconds: undefined }); setSelected('');
                         setMessage('照片已准备好，可以开始识别');
                     } finally { URL.revokeObjectURL(objectUrl); }
                 }
@@ -118,7 +121,7 @@ export function Studio() {
             const videoUrl = await upload(videoFile, videoExt);
             pendingLivePhotoVideo.current = videoUrl;
             setSource(videoUrl);
-            update({ ...project, ...frame, video: videoUrl, captureSeconds: 0, introSeconds: 2, words: [], caption: '', captionChinese: '', captionAudio: undefined, captionAudioSeconds: undefined });
+            update({ ...project, ...frame, video: videoUrl, captureSeconds: 0, introSeconds: 2, words: [], caption: '', captionChinese: '', captionVariants: undefined, selectedCaptionStyle: 'serious', captionAudio: undefined, captionAudioSeconds: undefined });
             setSelected(''); setMessage('Apple 动态照片已导入：取景框将播放 MOV 的最后 2 秒');
         });
     }
@@ -127,7 +130,7 @@ export function Studio() {
         const element = video.current; element.pause();
         await run('截取照片', async () => {
             const frame = await snapshot(element);
-            update({ ...project, ...frame, video: source, captureSeconds: element.currentTime, words: [], caption: '', captionChinese: '', captionAudio: undefined, captionAudioSeconds: undefined });
+            update({ ...project, ...frame, video: source, captureSeconds: element.currentTime, words: [], caption: '', captionChinese: '', captionVariants: undefined, selectedCaptionStyle: 'serious', captionAudio: undefined, captionAudioSeconds: undefined });
             setSelected(''); setMessage('已选定拍摄帧，识别和成片将使用这张照片');
         });
     }
@@ -141,7 +144,9 @@ export function Studio() {
                 id: `${w.id}-${index}`, english: w.english, chinese: w.chinese, ipa: w.ipa,
                 box: w.box,
             }));
-            update({ ...project, words, caption: result.caption, captionChinese: result.captionChinese, captionAudio: undefined, captionAudioSeconds: undefined }); setSelected(words[0]?.id || '');
+            const fallback = { caption: result.caption, captionChinese: result.captionChinese };
+            const captionVariants = result.captionVariants ?? { serious: fallback, funny: fallback, literary: fallback };
+            update({ ...project, words, captionVariants, selectedCaptionStyle: 'serious', ...captionVariants.serious, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined }); setSelected(words[0]?.id || '');
             player.current?.seekTo(t.intro + t.reveal);
             setMessage(words.length ? `找到 ${words.length} 个单词，请校对名称和标签位置` : '没有找到可靠的物体，试试另一张照片或手动添加');
         });
@@ -151,9 +156,15 @@ export function Studio() {
             const version = revision.current;
             const result = await api<{ words: Pick<Word, 'id' | 'english' | 'audio' | 'audioSeconds'>[]; captionAudio: string; captionAudioSeconds: number }>('speech', { words: project.words.map(({ id, english }) => ({ id, english })), caption: project.caption, voiceId: project.voiceId, speechSpeed: project.speechSpeed });
             if (revision.current !== version) return;
-            debugger
             update({ ...project, captionAudio: result.captionAudio, captionAudioSeconds: result.captionAudioSeconds, words: project.words.map(w => ({ ...w, ...result.words.find(a => a.id === w.id && a.english === w.english) })) });
             setMessage('配音已就绪，点击预览播放即可跟读');
+        });
+    }
+    async function generatePublishingCopy() {
+        await run('生成发布文案', async () => {
+            const socialCopy = await api<Project['socialCopy']>('social-copy', project);
+            update({ ...project, socialCopy });
+            setMessage('三个平台的发布文案已生成，可以继续校对或复制');
         });
     }
     async function exportCurrentFrame() {
@@ -186,10 +197,19 @@ export function Studio() {
                     <button className="upload-zone" onClick={() => input.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (!busy) void importFiles(Array.from(e.dataTransfer.files)); }}><span className="upload-icon"><ImagePlus size={24} /></span><strong>{project.image || source ? '更换图片或视频' : '放进一张生活的切片'}</strong><span>拖入素材，或点击选择</span><small>图片 / 视频 / Apple 动态照片（同时选择 HEIC + MOV）</small></button>
                     {source && <div className="video-picker"><video key={source} ref={video} src={source} controls preload="metadata" onError={() => setError('无法播放这个视频，请转换为 H.264 MP4 后重试')} onLoadedMetadata={e => { const duration=e.currentTarget.duration; setSourceDuration(duration); if (pendingLivePhotoVideo.current === source) { pendingLivePhotoVideo.current=''; update({ ...project, captureSeconds: duration, introSeconds: 2 }); } }} /><Button variant="secondary" size="sm" onClick={capture}><Camera />使用这一帧</Button><small>{project.video === source ? `快门时刻：${project.captureSeconds.toFixed(2)} 秒 / ${sourceDuration.toFixed(1)} 秒` : `尚未选定拍摄帧 · 视频 ${sourceDuration.toFixed(1)} 秒`}</small></div>}
                     <label className="field-label" htmlFor="title">本期标题</label><input id="title" className="input" value={project.title} maxLength={80} onChange={e => update({ ...project, title: e.target.value })} />
-                    <label className="field-label" htmlFor="caption">照片描述 · English</label>
-                    <textarea id="caption" className="input caption-input" maxLength={220} value={project.caption} placeholder="AI 按 App 同一识别接口自动生成" onChange={e => update({ ...project, caption: e.target.value, captionAudio: undefined, captionAudioSeconds: undefined })} />
-                    <label className="field-label" htmlFor="captionChinese">照片描述 · 中文</label>
-                    <textarea id="captionChinese" className="input caption-input" maxLength={220} value={project.captionChinese} placeholder="AI 自动生成对应中文描述" onChange={e => update({ ...project, captionChinese: e.target.value })} />
+                    {project.captionVariants && <div className="caption-variants" role="radiogroup" aria-label="照片描述风格">
+                        {([['serious', '认真', '准确清楚'], ['funny', '搞笑', '轻松有趣'], ['literary', '文艺', '克制有画面感']] as const).map(([style, label, note]) => {
+                            const variant = project.captionVariants![style];
+                            const active = project.selectedCaptionStyle === style;
+                            return <button type="button" role="radio" aria-checked={active} className={active ? 'selected' : ''} key={style} onClick={() => update(selectCaptionVariant(project, style))}>
+                                <span><strong>{label}</strong><small>{note}</small></span><p>{variant.caption}</p><em>{variant.captionChinese}</em>
+                            </button>;
+                        })}
+                    </div>}
+                    <label className="field-label" htmlFor="caption">最终照片描述 · English</label>
+                    <textarea id="caption" className="input caption-input" maxLength={220} value={project.caption} placeholder="AI 按 App 同一识别接口自动生成" onChange={e => update({ ...project, caption: e.target.value, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined })} />
+                    <label className="field-label" htmlFor="captionChinese">最终照片描述 · 中文</label>
+                    <textarea id="captionChinese" className="input caption-input" maxLength={220} value={project.captionChinese} placeholder="AI 自动生成对应中文描述" onChange={e => update({ ...project, captionChinese: e.target.value, socialCopy: undefined })} />
                     <p className="hint">AI 识别会通过 App 同一接口生成描述；成片在全部单词读完后展示。</p>
                     <div className="recognize-row"><label htmlFor="count">识别数量</label><select id="count" value={count} onChange={e => setCount(Number(e.target.value))}>{[4, 5, 6, 7, 8, 9, 10].map(n => <option key={n}>{n}</option>)}</select><Button size="sm" disabled={!project.image} onClick={analyze}><Sparkles />{project.words.length ? '重新识别' : 'AI 识别'}</Button></div>
                     {project.words.length > 0 && <p className="hint">重新识别会替换当前词表与配音。</p>}
@@ -199,21 +219,29 @@ export function Studio() {
                     <Button variant="ghost" size="sm" className="w-full mt-3" disabled={!project.image || project.words.length >= 10} onClick={() => { const w: Word = { id: crypto.randomUUID(), english: 'word', chinese: '', ipa: '', box: { x: .5, y: .6, width: 0, height: 0 } }; update({ ...project, words: [...project.words,w] }); setSelected(w.id); }}><Plus />手动添加单词</Button>
                 </fieldset>
             </aside>
-            {mode === 'cover' ? <section className="preview-column">
-                <div className="cover-tabs"><Button variant="ghost" onClick={() => setMode('video')}>视频</Button><Button variant="secondary">封面</Button><span>3:4 · 1080 × 1440</span></div>
+            {mode === 'publish' ? <section className="preview-column publish-column">
+                <div className="cover-tabs"><Button variant="ghost" onClick={() => setMode('video')}>视频</Button><Button variant="ghost" onClick={() => setMode('cover')}>封面</Button><Button variant="secondary">发布</Button><span>3 PLATFORMS</span></div>
+                <PublishPanel project={project} update={update} />
+            </section> : mode === 'cover' ? <section className="preview-column">
+                <div className="cover-tabs"><Button variant="ghost" onClick={() => setMode('video')}>视频</Button><Button variant="secondary">封面</Button><Button variant="ghost" onClick={() => setMode('publish')}>发布</Button><span>3:4 · 1080 × 1440</span></div>
                 <div className="preview-stage"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project, onMove:(id, kind, point) => {
                     setSelected(id); const c = project.cover ?? defaultCover;
                     update({ ...project, cover: { ...c, words: { ...c.words, [id]: { ...(c.words[id] ?? { scale: 1 }), [kind === 'label' ? 'labelCenterOverride' : 'targetCenterOverride']: point } } } });
                 } }} /></div>
                 <p className="hint">拖动胶囊或圆点调整封面；松手后重新规划引导线。</p>
-            </section> : <section className="preview-column"><div className="cover-tabs"><Button variant="secondary" onClick={() => setMode('video')}>视频</Button><Button variant="ghost" onClick={() => { player.current?.pause(); setMode('cover'); }}>封面</Button></div><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, onAnnotationMove: moveAnnotation, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
+            </section> : <section className="preview-column"><div className="cover-tabs"><Button variant="secondary" onClick={() => setMode('video')}>视频</Button><Button variant="ghost" onClick={() => { player.current?.pause(); setMode('cover'); }}>封面</Button><Button variant="ghost" onClick={() => { player.current?.pause(); setMode('publish'); }}>发布</Button></div><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, onAnnotationMove: moveAnnotation, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
                 {showSafeAreas && <div className="safe-area-overlay" aria-hidden="true">
                     <div className="safe-band safe-band-top" style={{ height: `${project.safeTop/1920*100}%` }}><span>顶部遮挡参考区</span></div>
                     <div className="safe-band safe-band-bottom" style={{ height: `${project.safeBottom/1920*100}%` }}><span>文案 / 导航遮挡参考区</span></div>
                     {project.safeRight > 0 && <div className="safe-band safe-band-right" style={{ width: `${project.safeRight/1080*100}%`, top: `${project.safeTop/1920*100}%`, bottom: `${project.safeBottom/1920*100}%` }} />}
                 </div>}
                 </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊或引导线圆点调整位置</span></div><div className="timeline-strip"><button onClick={() => player.current?.seekTo(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => player.current?.seekTo(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button><button onClick={() => player.current?.seekTo(t.intro+t.reveal)}><Volume2 size={15} /><span>高亮跟读</span><small>{project.words.length} 词</small></button><button onClick={() => player.current?.seekTo(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>3s</small></button></div></section>}
-            {mode === 'cover' ? <aside className="panel settings"><div className="panel-heading"><h2>学习卡片封面</h2></div><fieldset className="panel-body" disabled={!!busy || !ready}>
+            {mode === 'publish' ? <aside className="panel settings publish-settings"><div className="panel-heading"><h2>发布助手</h2><Sparkles size={17} /></div><fieldset className="panel-body" disabled={!!busy || !ready}>
+                <div className="editor-note"><span>一套内容，三种说法。</span><p>生成时会使用最终照片描述、全部词汇和封面高亮词。</p></div>
+                <div className="publish-source"><small>PHOTO NOTE</small><p>{project.captionChinese || '请先完成 AI 识别并选定照片描述。'}</p><div>{project.words.map(word => <span key={word.id}>{word.english}</span>)}</div></div>
+                <Button className="w-full mt-4" disabled={!project.caption.trim() || !project.words.length} onClick={generatePublishingCopy}><Sparkles />{project.socialCopy ? '重新生成三平台文案' : '生成三平台文案'}</Button>
+                <p className="hint">重新生成会替换三个平台当前的编辑内容。文案只保存在本地草稿，不会自动发布。</p>
+            </fieldset></aside> : mode === 'cover' ? <aside className="panel settings"><div className="panel-heading"><h2>学习卡片封面</h2></div><fieldset className="panel-body" disabled={!!busy || !ready}>
                 <p className="hint">完整照片 · 全部单词<br />尺寸与位置仅用于封面，随草稿保存。</p>
                 <label className="range-field"><span>全部胶囊 <strong>{Math.round((project.cover?.scale ?? 1)*100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".6" max="1.6" step=".01" value={project.cover?.scale ?? 1} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), scale: Number(e.target.value) } })} /></label>
                 {word ? <label className="range-field"><span>{word.english} <strong>{Math.round((project.cover?.words[word.id]?.scale ?? 1)*100)}%</strong></span><input aria-label="当前胶囊大小" type="range" min=".75" max="1.5" step=".01" value={project.cover?.words[word.id]?.scale ?? 1} onChange={e => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: { ...c.words, [word.id]: { ...c.words[word.id], scale: Number(e.target.value) } } } }); }} /></label> : <p className="hint">选择左侧单词，可单独调整大小。</p>}

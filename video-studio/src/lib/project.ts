@@ -31,6 +31,11 @@ const currentWordSchema = z.object({
 });
 const legacyWordSchema = currentWordSchema.omit({ box: true, labelCenterOverride: true, targetCenterOverride: true }).extend({ x: position, y: position, targetX: position, targetY: position });
 const imageAsset = z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.jpg$/);
+export const captionVariantSchema = z.object({ caption: z.string().max(220), captionChinese: z.string().max(220) });
+const captionVariantsSchema = z.object({ serious: captionVariantSchema, funny: captionVariantSchema, literary: captionVariantSchema });
+export const socialPostSchema = z.object({ title: z.string().max(80), body: z.string().max(1000), hashtags: z.array(z.string().max(40)).max(12) });
+export const socialCopySchema = z.object({ xiaohongshu: socialPostSchema, douyin: socialPostSchema, channels: socialPostSchema });
+export type SocialCopy = z.infer<typeof socialCopySchema>;
 export const coverSchema = z.object({
     template: z.literal('learning-card').default('learning-card'),
     scale: z.number().min(.6).max(1.6).default(1),
@@ -46,6 +51,9 @@ const projectFields = {
     cover: coverSchema.optional(),
     title: z.string().max(80),
     caption: z.string().max(220).default(''), captionChinese: z.string().max(220).default(''),
+    captionVariants: captionVariantsSchema.optional(),
+    selectedCaptionStyle: z.enum(['serious', 'funny', 'literary']).default('serious'),
+    socialCopy: socialCopySchema.optional(),
     captionAudio: z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.wav$/).optional(),
     captionAudioSeconds: z.number().positive().max(60).optional(),
     voiceId: voiceIdSchema.default('English_Graceful_Lady'),
@@ -77,7 +85,7 @@ export const AUDIO_LEAD_FRAMES = 6;
 export const AUDIO_TAIL_FRAMES = 9;
 export const CAPTION_FRAMES = 90;
 export const emptyProject: Project = {
-    version: 2, title: '生活里的英语', caption: '', captionChinese: '', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
+    version: 2, title: '生活里的英语', caption: '', captionChinese: '', selectedCaptionStyle: 'serious', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
     safeTop: 120, safeBottom: 240, safeRight: 0, imageWidth: 4, imageHeight: 3,
     captureSeconds: 2, introSeconds: 2, pauseSeconds: 1.2, words: [],
 };
@@ -103,6 +111,10 @@ export function activeWord(p: Project, frame: number) {
 }
 export function changeEnglish(word: Word, english: string): Word {
     return { ...word, english, audio: undefined, audioSeconds: undefined };
+}
+export function selectCaptionVariant(p: Project, style: 'serious' | 'funny' | 'literary'): Project {
+    const variant = p.captionVariants?.[style];
+    return variant ? { ...p, selectedCaptionStyle: style, ...variant, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined } : p;
 }
 export function exportReady(p: Project) {
     return !!p.image && !!p.caption.trim() && !!p.captionAudio && !!p.captionAudioSeconds && p.words.length > 0 && p.words.every(w => w.english.trim() && w.audio && w.audioSeconds);
