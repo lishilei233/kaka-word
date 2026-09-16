@@ -32,11 +32,11 @@ export function captionParts(text: string, vocabulary: string[] = []) {
 
 // Use the same conservative sizing in Player and Remotion, including long edited sentences.
 export function SceneSentence({ english, chinese, width, vocabulary = [] }: { english: string; chinese: string; width: number; vocabulary?: string[] }) {
-    let size = 18;
+    let size = 22;
     const lines = (text: string, font: number) => Math.max(1, Math.ceil([...text].reduce((sum, c) => sum + (/[^\x00-\xff]/.test(c) ? font : font * .65), 0) / Math.max(40, width - 34)));
-    while (size > 7 && lines(english, size) * size * 1.3 + lines(chinese, size * .78) * size * .78 * 1.4 + 8 > 108) size -= .5;
+    while (size > 7 && lines(english, size) * size * 1.3 + lines(chinese, size * .78) * size * .78 * 1.4 + 8 > 116) size -= .5;
     return <>
         <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: size, lineHeight: 1.3, fontWeight: 700, overflowWrap: 'anywhere', color: 'rgba(36,33,30,.86)' }}>{captionParts(english, vocabulary).map((part, index) => <span key={`${part.text}-${index}`} style={part.highlighted ? { background: '#ffd84d', borderRadius: 5, padding: '0 4px', boxShadow: '0 0 0 2px rgba(255,255,255,.9)', fontWeight: 900 } : undefined}>{part.text}</span>)}</div>
-        <div style={{ marginTop: 8, fontSize: size * .78, lineHeight: 1.4, overflowWrap: 'anywhere', fontWeight: 600, color: 'rgba(36,33,30,.56)' }}>{chinese}</div>
+        <div style={{ marginTop: 6, fontSize: size * .78, lineHeight: 1.35, overflowWrap: 'anywhere', fontWeight: 600, color: 'rgba(36,33,30,.56)' }}>{chinese}</div>
     </>;
 }

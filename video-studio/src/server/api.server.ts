@@ -107,7 +107,9 @@ async function render(id: string, p: Project, origin: string) {
     try {
         // Rebuild for each export so preview edits can never reuse an older film bundle.
         const serveUrl = await bundle({ entryPoint: resolve('src/video/Root.tsx') });
-        const inputProps = { project: absoluteProject(p, origin) };
+        // Export at 2× the editing canvas for sharper text and annotation edges.
+        // Film scales its logical 540×960 layout to match this metadata.
+        const inputProps = { project: absoluteProject(p, origin), renderScale: 2 };
         const composition = await selectComposition({ serveUrl, id: 'Kakaword', inputProps, browserExecutable });
         await renderMedia({ composition, serveUrl, codec: 'h264', inputProps, browserExecutable,
             outputLocation: join(exportsDir, `${id}.mp4`), concurrency: 2,

@@ -19,7 +19,7 @@ function rectStyle(rect: Rect): CSSProperties { return { position: 'absolute', l
 
 type AnnotationMove = (id: string, kind: 'label' | 'target', point: { x: number; y: number }) => void;
 
-export function Film({ project: p, onAnnotationMove, onInteractionTargetMove, onAnnotationDragStart }: { project: Project; onAnnotationMove?: AnnotationMove; onInteractionTargetMove?: (point: { x: number; y: number }) => void; onAnnotationDragStart?: () => void }) {
+export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteractionTargetMove, onAnnotationDragStart }: { project: Project; renderScale?: number; onAnnotationMove?: AnnotationMove; onInteractionTargetMove?: (point: { x: number; y: number }) => void; onAnnotationDragStart?: () => void }) {
     const frame = useCurrentFrame();
     const t = timeline(p), current = activeWord(p, frame), direct = p.videoTemplate === 'direct';
     const opening = !direct && frame < t.intro;
@@ -86,7 +86,7 @@ export function Film({ project: p, onAnnotationMove, onInteractionTargetMove, on
         onAnnotationMove(finished.id, finished.kind, finished.point);
     }
     return <AbsoluteFill style={{ background: opening ? '#191919' : paper }}>
-        <div style={{ position: 'absolute', width: 540, height: 960, transform: 'scale(2)', transformOrigin: 'top left', color: opening ? '#fff' : ink, fontFamily: round, overflow: 'hidden', backgroundImage: opening ? undefined : 'repeating-linear-gradient(0deg,transparent 0px,transparent 27px,rgba(109,99,88,.055) 27px,rgba(109,99,88,.055) 28px)' }}>
+        <div style={{ position: 'absolute', width: 540, height: 960, transform: `scale(${2 * renderScale})`, transformOrigin: 'top left', color: opening ? '#fff' : ink, fontFamily: round, overflow: 'hidden', backgroundImage: opening ? undefined : 'repeating-linear-gradient(0deg,transparent 0px,transparent 27px,rgba(109,99,88,.055) 27px,rgba(109,99,88,.055) 28px)' }}>
             <div data-film-media={opening ? 'camera' : 'photo'} style={{ ...rectStyle(photo), overflow: 'hidden', borderRadius: opening ? 0 : 18, background: opening ? '#292929' : '#e9dec9', boxShadow: opening ? undefined : 'inset 0 0 0 4px #fffdf8, 0 3px 0 #24211e24' }}>
                 {p.image && <Img src={p.image} style={mediaStyle} />}
                 {!p.image && <div style={{ ...center, height: '100%', color: '#a69884', flexDirection: 'column', gap: 16 }}><span style={{ fontSize: 54 }}>＋</span><span style={{ fontSize: 17 }}>从一张生活照片开始</span></div>}
@@ -113,10 +113,9 @@ export function Film({ project: p, onAnnotationMove, onInteractionTargetMove, on
             {!opening && layout.sceneHeight > 0 && <div style={{ position: 'absolute', zIndex: 3, left: layout.sceneLeft, top: layout.sceneTop, width: layout.sceneWidth }}><SceneCards project={p} currentId={current?.id} /></div>}
             {!opening && frame >= t.captionFrom && <>
                 <div style={{ position: 'absolute', left: photo.x + photo.width - 102, top: photo.y - 12, width: 72, height: 18, background: '#f4c95dc7', transform: 'rotate(-4deg)' }} />
-                <div data-film-description style={{ position: 'absolute', zIndex: 4, top: layout.descriptionTop, left: layout.textLeft, width: textWidth, minHeight: 140, padding: 17, boxSizing: 'border-box', overflow: 'hidden', background: 'rgba(255,253,248,.94)', borderRadius: 22, border: '1px solid rgba(36,33,30,.08)', boxShadow: '2px 3px 0 rgba(36,33,30,.1)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontFamily: mono, fontSize: 10, fontWeight: 900, letterSpacing: 1.6, color: '#d2765f' }}>❝PHOTO NOTE</span></div>
+                    <div data-film-description style={{ position: 'absolute', zIndex: 4, top: layout.descriptionTop, left: layout.textLeft, width: textWidth, minHeight: 140, padding: '12px 14px', boxSizing: 'border-box', overflow: 'hidden', background: 'rgba(255,253,248,.94)', borderRadius: 22, border: '1px solid rgba(36,33,30,.08)', boxShadow: '2px 3px 0 rgba(36,33,30,.1)' }}>
+                    <div style={{ position: 'absolute', left: 20, right: 20, top: 0, height: 3, borderRadius: 3, background: 'rgba(210,118,95,.72)' }} />
                     <SceneSentence width={textWidth} english={p.interaction?.enabled && frame >= t.interactionFrom ? p.interaction.english : p.caption} chinese={p.interaction?.enabled && frame >= t.interactionFrom ? p.interaction.chinese : p.captionChinese} vocabulary={p.interaction?.enabled && frame >= t.interactionFrom ? [] : readingWords(p.words).map(word => word.english)} />
-                    <div style={{ position: 'absolute', top: -7, left: '42%', width: 82, height: 16, background: 'rgba(143,196,217,.55)', transform: 'rotate(-2deg)' }} />
                 </div>
             </>}
             {!opening && p.interaction?.enabled && p.interaction.arrowEnabled && frame >= t.interactionFrom && <InteractionArrow

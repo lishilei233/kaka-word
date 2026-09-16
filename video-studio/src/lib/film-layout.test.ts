@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { emptyProject, projectSchema } from './project.ts';
 import { FILM_HEIGHT, FILM_WIDTH, filmLayout } from './film-layout.ts';
 
-test('result photo keeps its source aspect ratio with 20 point side margins', () => {
+test('result photo keeps its source aspect ratio with 10 point side margins', () => {
     const l = filmLayout(emptyProject);
     assert.deepEqual(l.camera, { x: 0, y: 0, width: FILM_WIDTH, height: FILM_HEIGHT });
-    assert.equal(l.photo.x, 20);
-    assert.equal(l.photo.width, FILM_WIDTH - 40);
+    assert.equal(l.photo.x, 10);
+    assert.equal(l.photo.width, FILM_WIDTH - 20);
     assert.deepEqual(l.photoImage, l.photo);
     assert.equal(l.cameraImage.width/l.cameraImage.height, 4/3);
     assert.equal(l.photoImage.width/l.photoImage.height, 4/3);
@@ -16,9 +16,9 @@ test('result photo size is independent of scene cards and configurable safe area
     for (const safeTop of [120,180,280]) for (const safeBottom of [240,360,480]) for (const aspect of [4/3,3]) {
         const p = { ...emptyProject, safeTop, safeBottom, imageWidth: aspect*100, imageHeight:100 };
         const l = filmLayout(p);
-        assert.equal(l.photo.x, 20);
-        assert.equal(l.photo.width, 500);
-        assert.ok(Math.abs(l.photo.height - 500/aspect) < 1e-10);
+        assert.equal(l.photo.x, 10);
+        assert.equal(l.photo.width, 520);
+        assert.ok(Math.abs(l.photo.height - 520/aspect) < 1e-10);
         assert.ok(l.descriptionTop >= 0 && l.descriptionTop+140 <= FILM_HEIGHT);
         assert.ok(l.wordTop >= 0 && l.wordTop+l.wordDetailHeight <= FILM_HEIGHT);
         assert.ok(l.shutterTop+104 <= 960-safeBottom/2);
@@ -26,8 +26,8 @@ test('result photo size is independent of scene cards and configurable safe area
 });
 test('portrait photos keep the original card size and use visible overlay fallbacks', () => {
     const l = filmLayout({ ...emptyProject, imageWidth: 9, imageHeight: 16 });
-    assert.equal(l.photo.width, 500);
-    assert.equal(l.photo.height, 500*16/9);
+    assert.equal(l.photo.width, 520);
+    assert.equal(l.photo.height, 520*16/9);
     assert.ok(l.photo.y >= 0 && l.photo.y+l.photo.height <= FILM_HEIGHT);
     assert.ok(l.descriptionTop+140 <= FILM_HEIGHT);
     assert.ok(l.wordTop+l.wordDetailHeight <= FILM_HEIGHT);

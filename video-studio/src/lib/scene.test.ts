@@ -72,7 +72,7 @@ test('up to ten scene cards float inside an unchanged portrait, landscape or pan
             words: Array.from({ length: count }, (_, i) => ({ ...project.words[0], id: String(i) })) };
         const layout = filmLayout(p);
         assert.ok(Math.abs(layout.photo.width / layout.photo.height - aspect) < 1e-10);
-        assert.equal(layout.photo.width, 500);
+        assert.equal(layout.photo.width, 520);
         assert.ok(layout.descriptionTop + 140 <= 960);
         assert.ok(layout.wordTop + layout.wordDetailHeight <= 960);
         if (count) {

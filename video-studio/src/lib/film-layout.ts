@@ -5,6 +5,8 @@ export const FILM_HEIGHT = 960;
 export const SCENE_CARD_HEIGHT = 44;
 export const SCENE_CARD_GAP = 6;
 export const WORD_DETAIL_HEIGHT = 110;
+// Keep a slim paper edge around the photo: 10 logical points = 20 exported px.
+export const PHOTO_SIDE_MARGIN = 10;
 function fitImage(frame: Rect, aspect: number): Rect {
     const width = Math.min(frame.width, frame.height * aspect);
     const height = width / aspect;
@@ -15,12 +17,13 @@ export function filmLayout(p: Project) {
     const top = p.safeTop / 2, bottom = FILM_HEIGHT - p.safeBottom / 2;
     const textLeft = 24, textRight = FILM_WIDTH - p.safeRight / 2 - 20;
     const aspect = p.imageWidth / p.imageHeight;
-    const photoWidth = FILM_WIDTH - 40;
+    const photoWidth = FILM_WIDTH - PHOTO_SIDE_MARGIN * 2;
     const photoHeight = photoWidth / aspect;
     // Safe areas are soft constraints for the result card. Keep the original
-    // 500-point photo size and move tall photos upward before allowing overlap.
+    // Keep the photo at the original near-full-width size and move tall photos
+    // upward before allowing the soft safe-area overlap.
     const photoTop = Math.min(top, Math.max(0, FILM_HEIGHT - photoHeight));
-    const photo = { x: 20, y: photoTop, width: photoWidth, height: photoHeight };
+    const photo = { x: PHOTO_SIDE_MARGIN, y: photoTop, width: photoWidth, height: photoHeight };
     const sceneRows = Math.ceil(sceneWords(p.words).length / 2);
     const sceneHeight = sceneRows ? sceneRows * SCENE_CARD_HEIGHT + (sceneRows - 1) * SCENE_CARD_GAP : 0;
     const sceneTop = sceneHeight ? photo.y + photo.height - sceneHeight - 12 : photo.y + photo.height;
