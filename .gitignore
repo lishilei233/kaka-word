@@ -4,3 +4,7 @@ server/node_modules/
 server/dist/
 ios/build/
 *.xcuserstate
+
+video-studio/.data/
+video-studio/node_modules/
+video-studio/dist/
