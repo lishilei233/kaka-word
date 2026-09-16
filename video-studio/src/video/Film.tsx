@@ -18,7 +18,8 @@ type AnnotationMove = (id: string, kind: 'label' | 'target', point: { x: number;
 
 export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { project: Project; onAnnotationMove?: AnnotationMove; onAnnotationDragStart?: () => void }) {
     const frame = useCurrentFrame();
-    const t = timeline(p), current = activeWord(p, frame), opening = frame < t.intro;
+    const t = timeline(p), current = activeWord(p, frame), direct = p.videoTemplate === 'direct';
+    const opening = !direct && frame < t.intro;
     const layout = filmLayout(p);
     const photo = opening ? layout.camera : layout.photo;
     const image = opening ? layout.cameraImage : layout.photoImage;
@@ -38,20 +39,27 @@ export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { 
         const media = event.currentTarget.closest('[data-film-media]');
         if (!media) return;
         const bounds = media.getBoundingClientRect();
+        const scale = bounds.width / photo.width;
+        const imageBounds = {
+            left: bounds.left + (image.x - photo.x) * scale,
+            top: bounds.top + (image.y - photo.y) * scale,
+            width: image.width * scale,
+            height: image.height * scale,
+        };
         const point = {
-            x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
-            y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+            x: Math.min(1, Math.max(0, (event.clientX - imageBounds.left) / imageBounds.width)),
+            y: Math.min(1, Math.max(0, (event.clientY - imageBounds.top) / imageBounds.height)),
         };
         drag.current = { id, kind, point };
         if (kind === 'label') {
             const element = event.currentTarget as HTMLElement;
-            element.style.left = `${point.x * photo.width}px`;
-            element.style.top = `${point.y * photo.height}px`;
+            element.style.left = `${image.x - photo.x + point.x * image.width}px`;
+            element.style.top = `${image.y - photo.y + point.y * image.height}px`;
         } else {
             const group = event.currentTarget.parentElement;
             group?.querySelectorAll('circle').forEach(circle => {
-                circle.setAttribute('cx', String(point.x * photo.width));
-                circle.setAttribute('cy', String(point.y * photo.height));
+                circle.setAttribute('cx', String(image.x - photo.x + point.x * image.width));
+                circle.setAttribute('cy', String(image.y - photo.y + point.y * image.height));
             });
         }
     }
@@ -60,10 +68,13 @@ export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { 
         event.preventDefault(); event.stopPropagation();
         event.currentTarget.setPointerCapture(event.pointerId);
         onAnnotationDragStart?.();
-        const word = p.words.find(item => item.id === id);
-        drag.current = { id, kind, point: kind === 'label'
-            ? word?.labelCenterOverride ?? { x: .5, y: .5 }
-            : word?.targetCenterOverride ?? (word ? { x: word.box.x + word.box.width / 2, y: word.box.y + word.box.height / 2 } : { x: .5, y: .5 }) };
+        const placement = annotations.placements.find(item => item.id === id);
+        const route = annotations.routes.find(item => item.id === id);
+        const renderedPoint = kind === 'label' ? placement?.labelCenter : route?.target;
+        drag.current = { id, kind, point: renderedPoint ? {
+            x: (renderedPoint.x - image.x) / image.width,
+            y: (renderedPoint.y - image.y) / image.height,
+        } : { x: .5, y: .5 } };
     }
     function finishDrag(event: ReactPointerEvent<Element>) {
         if (!onAnnotationMove || !drag.current) return;
@@ -81,7 +92,7 @@ export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { 
                 {opening && <svg viewBox={`0 0 ${photo.width} ${photo.height}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}><path d={`M50 20H16V54 M${photo.width-50} 20H${photo.width-16}V54 M16 ${photo.height-54}V${photo.height-20}H50 M${photo.width-50} ${photo.height-20}H${photo.width-16}V${photo.height-54}`} stroke="#ffffffbd" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>}
                 {!opening && <>
                     <svg viewBox={`0 0 ${photo.width} ${photo.height}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>{annotations.routes.map(route => {
-                        const segment=t.words.find(item=>item.word.id===route.id), visible=!!segment && frame >= segment.from;
+                        const segment=t.words.find(item=>item.word.id===route.id), visible=direct || (!!segment && frame >= segment.from);
                         const line = leaderStyle(current?.id === route.id);
                         const d=`M ${route.start.x-photo.x} ${route.start.y-photo.y} Q ${route.control.x-photo.x} ${route.control.y-photo.y} ${route.target.x-photo.x} ${route.target.y-photo.y}`;
                         return <g key={route.id} opacity={visible?1:0} style={{ filter: line.filter }}>
@@ -92,7 +103,7 @@ export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { 
                             <circle cx={route.target.x-photo.x} cy={route.target.y-photo.y} r={line.dotInner} fill={line.fill} style={{ pointerEvents: 'none' }} />
                         </g>;
                     })}</svg>
-                    {annotations.placements.map(placement => { const segment=t.words.find(item=>item.word.id===placement.id); const isCurrent=current?.id===placement.id; return <div key={placement.id} onClick={event => { event.preventDefault(); event.stopPropagation(); }} onPointerDown={event => beginDrag(event, placement.id, 'label')} onPointerMove={event => dragPoint(event, placement.id, 'label')} onPointerUp={finishDrag} onPointerCancel={finishDrag} title={onAnnotationMove ? '拖动调整胶囊位置' : undefined} style={{ position: 'absolute', left: placement.labelCenter.x-photo.x, top: placement.labelCenter.y-photo.y, width: placement.labelWidth, height: placement.labelHeight, transform: `translate(-50%,-50%) scale(${isCurrent?annotationHighlight.scale:1})`, borderRadius: 999, padding: '0 12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: isCurrent ? annotationHighlight.fill : sun, color: ink, border: isCurrent ? '3px solid rgba(36,33,30,.96)' : '1px solid rgba(36,33,30,.18)', fontFamily: '"SF Pro Rounded", ui-rounded, system-ui, sans-serif', fontWeight: 900, fontSize: 16, lineHeight: 1, boxShadow: isCurrent?'0 0 0 4px rgba(255,255,255,.88), 0 7px 14px rgba(36,33,30,.38)':'none', opacity: segment && frame >= segment.from ? 1 : 0, transition: 'none', cursor: onAnnotationMove ? 'grab' : undefined, touchAction: 'none' }}>{placement.object.english}</div>})}
+                    {annotations.placements.map(placement => { const segment=t.words.find(item=>item.word.id===placement.id); const isCurrent=current?.id===placement.id; return <div key={placement.id} onClick={event => { event.preventDefault(); event.stopPropagation(); }} onPointerDown={event => beginDrag(event, placement.id, 'label')} onPointerMove={event => dragPoint(event, placement.id, 'label')} onPointerUp={finishDrag} onPointerCancel={finishDrag} title={onAnnotationMove ? '拖动调整胶囊位置' : undefined} style={{ position: 'absolute', left: placement.labelCenter.x-photo.x, top: placement.labelCenter.y-photo.y, width: placement.labelWidth, height: placement.labelHeight, transform: `translate(-50%,-50%) scale(${isCurrent?annotationHighlight.scale:1})`, borderRadius: 999, padding: '0 12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: isCurrent ? annotationHighlight.fill : sun, color: ink, border: isCurrent ? '3px solid rgba(36,33,30,.96)' : '1px solid rgba(36,33,30,.18)', fontFamily: '"SF Pro Rounded", ui-rounded, system-ui, sans-serif', fontWeight: 900, fontSize: 16, lineHeight: 1, boxShadow: isCurrent?'0 0 0 4px rgba(255,255,255,.88), 0 7px 14px rgba(36,33,30,.38)':'none', opacity: direct || (segment && frame >= segment.from) ? 1 : 0, transition: 'none', cursor: onAnnotationMove ? 'grab' : undefined, touchAction: 'none' }}>{placement.object.english}</div>})}
                     <div style={{ position: 'absolute', inset: 0, borderRadius: 18, boxShadow: 'inset 0 0 0 4px #fffdf8', pointerEvents: 'none' }} />
                 </>}
             </div>
@@ -112,9 +123,9 @@ export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { 
                     <div style={{ fontFamily: mono, fontSize: 10, marginTop: 9, letterSpacing: 2 }}>{String(wordIndex + 1).padStart(2, '0')} / {String(p.words.length).padStart(2, '0')} · 跟我读</div>
                 </> : <></>}
             </div>
-            {frame >= t.intro && frame < t.intro + 5 && <div style={{ position: 'absolute', inset: 0, background: 'white', opacity: (5-(frame-t.intro))/5 }} />}
+            {!direct && frame >= t.intro && frame < t.intro + 5 && <div style={{ position: 'absolute', inset: 0, background: 'white', opacity: (5-(frame-t.intro))/5 }} />}
         </div>
-        <Sequence from={Math.max(0, t.intro - 3)} durationInFrames={45}><Audio src={staticFile('camera-shutter.mp3')} volume={0.72} pauseWhenBuffering /></Sequence>
+        {!direct && <Sequence from={Math.max(0, t.intro - 3)} durationInFrames={45}><Audio src={staticFile('camera-shutter.mp3')} volume={0.72} pauseWhenBuffering /></Sequence>}
         {t.words.map(({ word, from, audioFrames }) => word.audio ? <Sequence key={word.id} from={from + AUDIO_LEAD_FRAMES} durationInFrames={audioFrames + AUDIO_TAIL_FRAMES}><Audio src={word.audio} pauseWhenBuffering /></Sequence> : null)}
         {p.captionAudio && <Sequence from={t.captionFrom + AUDIO_LEAD_FRAMES} durationInFrames={t.captionAudioFrames + AUDIO_TAIL_FRAMES}><Audio src={p.captionAudio} pauseWhenBuffering /></Sequence>}
     </AbsoluteFill>;

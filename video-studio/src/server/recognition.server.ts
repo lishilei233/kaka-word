@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { analyzeResultSchema } from '../../../server/src/core/image-analysis/types.ts';
-import { socialCopySchema, type SocialCopyInput } from '../../../server/src/core/image-analysis/types.ts';
+import { captionVariantsSchema, socialCopySchema, type CaptionVariantsInput, type SocialCopyInput } from '../../../server/src/core/image-analysis/types.ts';
 import { readSSEData } from '../../../server/src/core/image-analysis/streaming-json.ts';
 
 export type RecognitionConnection = { baseURL: string; accessToken?: string; deviceToken?: string };
@@ -73,4 +73,19 @@ export async function generateSocialCopy(input: SocialCopyInput, signal?: AbortS
     const result = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) throw new Error(typeof result.message === 'string' ? result.message : '发布文案生成失败');
     return socialCopySchema.parse(result);
+}
+
+export async function generateCaptionVariants(input: CaptionVariantsInput, signal?: AbortSignal, transport: typeof fetch = fetch) {
+    const baseURL = (process.env.SERVER_API_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
+    const headers = new Headers({ 'Content-Type': 'application/json', 'X-Operation-ID': randomUUID() });
+    if (process.env.SERVER_ACCESS_TOKEN) headers.set('Authorization', `Bearer ${process.env.SERVER_ACCESS_TOKEN}`);
+    let response: Response;
+    try {
+        response = await transport(`${baseURL}/v1/caption-variants`, { method: 'POST', headers, body: JSON.stringify(input), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000) });
+    } catch {
+        throw new Error('无法连接现有 AI 服务，请检查 server 是否运行');
+    }
+    const result = await response.json().catch(() => ({})) as Record<string, unknown>;
+    if (!response.ok) throw new Error(typeof result.message === 'string' ? result.message : '多版本照片描述生成失败');
+    return captionVariantsSchema.parse(result);
 }

@@ -7,8 +7,8 @@ import { ArrowDown, ArrowUp, Camera, Check, ChevronRight, Download, Film as Film
 import { Button } from './ui/button';
 import { Film } from '../video/Film';
 import { api, snapshot, upload, uploadApplePhoto } from '../lib/media';
-import { changeEnglish, emptyProject, exportReady, FPS, projectSchema, selectCaptionVariant, sortByPhotoPosition, timeline, voiceOptions, type Project, type Word } from '../lib/project';
-import { annotationLayout } from '../lib/annotation-layout';
+import { changeEnglish, emptyProject, exportBlockers, exportReady, FPS, projectSchema, selectCaptionVariant, sortByPhotoPosition, timeline, voiceOptions, type Project, type Word } from '../lib/project';
+import { annotationLayout, sortByAnnotationPosition } from '../lib/annotation-layout';
 import { filmLayout } from '../lib/film-layout';
 
 type CaptionStyle = 'serious' | 'funny' | 'literary';
@@ -26,7 +26,7 @@ export function Studio() {
     const input = useRef<HTMLInputElement>(null); const video = useRef<HTMLVideoElement>(null); const player = useRef<PlayerRef>(null);
     const revision = useRef(0); const initialLoad = useRef(false); const pendingLivePhotoVideo = useRef('');
     const coverConflicts = useMemo(() => mode === 'cover' ? coverLayout(project).conflicts : [], [mode, project.cover, project.words, project.imageWidth, project.imageHeight]);
-    const t = timeline(project); const word = project.words.find(w => w.id === selected);
+    const t = timeline(project); const word = project.words.find(w => w.id === selected); const exportIssues = exportBlockers(project);
     const imageFrame = filmLayout(project).photoImage;
     const selectedPlacement = annotationLayout(project.words, imageFrame, selected).placements.find(placement => placement.id === selected);
     const selectedCenter = selectedPlacement ? {
@@ -60,9 +60,11 @@ export function Studio() {
     function editWord(patch: Partial<Word>) { update({ ...project, socialCopy: undefined, words: project.words.map(w => w.id === selected ? { ...w, ...patch } : w) }); }
     function moveAnnotation(id: string, kind: 'label' | 'target', point: { x: number; y: number }) {
         setSelected(id);
-        update({ ...project, words: project.words.map(w => w.id === id ? {
+        let words = project.words.map(w => w.id === id ? {
             ...w, [kind === 'label' ? 'labelCenterOverride' : 'targetCenterOverride']: point,
-        } : w) });
+        } : w);
+        if (kind === 'label') words = sortByAnnotationPosition(words, imageFrame, id);
+        update({ ...project, words });
     }
     async function run(label: string, work: () => Promise<void>) {
         setBusy(label); setError(''); setMessage('');
@@ -190,6 +192,7 @@ export function Studio() {
         </header>
         <div className="page-intro"><div><span className="eyebrow">EVERYDAY ENGLISH, ONE PHOTO AT A TIME</span><h1>把生活，拍成一堂小课。</h1></div><div className="workflow"><span>01 素材</span><ChevronRight /><span>02 单词</span><ChevronRight /><span>03 成片</span></div></div>
         {(error || message || busy) && <div role={error ? 'alert' : 'status'} className={`notice ${error ? 'notice-error' : ''}`}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : error ? '！' : <Check size={16} />}{error || busy || message}{download && <a className="download-link" href={download}>下载 MP4 →</a>}</div>}
+        {ready && project.image && exportIssues.length > 0 && !busy && <div role="status" className="notice notice-warning">导出前还需要：{exportIssues.join('；')}</div>}
         <main className="workspace">
             <aside className="panel materials"><div className="panel-heading"><span className="section-number">01</span><h2>素材与单词</h2><ImagePlus size={17} /></div>
                 <fieldset disabled={!!busy || !!job || !ready} className="panel-body">
@@ -235,7 +238,7 @@ export function Studio() {
                     <div className="safe-band safe-band-bottom" style={{ height: `${project.safeBottom/1920*100}%` }}><span>文案 / 导航遮挡参考区</span></div>
                     {project.safeRight > 0 && <div className="safe-band safe-band-right" style={{ width: `${project.safeRight/1080*100}%`, top: `${project.safeTop/1920*100}%`, bottom: `${project.safeBottom/1920*100}%` }} />}
                 </div>}
-                </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊或引导线圆点调整位置</span></div><div className="timeline-strip"><button onClick={() => player.current?.seekTo(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => player.current?.seekTo(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button><button onClick={() => player.current?.seekTo(t.intro+t.reveal)}><Volume2 size={15} /><span>高亮跟读</span><small>{project.words.length} 词</small></button><button onClick={() => player.current?.seekTo(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>3s</small></button></div></section>}
+                </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊或引导线圆点调整位置</span></div><div className={`timeline-strip ${project.videoTemplate === 'direct' ? 'timeline-direct' : ''}`}>{project.videoTemplate === 'camera' ? <><button onClick={() => player.current?.seekTo(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => player.current?.seekTo(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button></> : <button onClick={() => player.current?.seekTo(0)}><Sparkles size={15} /><span>完整单词图</span><small>0.5s</small></button>}<button onClick={() => player.current?.seekTo(t.intro+t.reveal)}><Volume2 size={15} /><span>高亮跟读</span><small>{project.words.length} 词</small></button><button onClick={() => player.current?.seekTo(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>3s</small></button></div></section>}
             {mode === 'publish' ? <aside className="panel settings publish-settings"><div className="panel-heading"><h2>发布助手</h2><Sparkles size={17} /></div><fieldset className="panel-body" disabled={!!busy || !ready}>
                 <div className="editor-note"><span>一套内容，三种说法。</span><p>生成时会使用最终照片描述、全部词汇和封面高亮词。</p></div>
                 <div className="publish-source"><small>PHOTO NOTE</small><p>{project.captionChinese || '请先完成 AI 识别并选定照片描述。'}</p><div>{project.words.map(word => <span key={word.id}>{word.english}</span>)}</div></div>
@@ -265,7 +268,7 @@ export function Studio() {
                 <label className="safe-toggle"><input type="checkbox" checked={showSafeAreas} onChange={e => setShowSafeAreas(e.target.checked)} />显示遮挡参考区（仅预览）</label>
                 {([['safeTop', '顶部', 120, 280], ['safeBottom', '底部', 240, 480], ['safeRight', '右侧按钮区', 0, 160]] as const).map(([key, title, min, max]) => <label className="range-field" key={key}><span>{title}留白 <strong>{project[key]} px</strong></span><input type="range" min={min} max={max} step="20" value={project[key]} onChange={e => update({ ...project, [key]: Number(e.target.value) })} /></label>)}
                 <p className="hint">文字和标签会避开留白区域。遮挡参考区不进入成片；可按小红书 / 抖音的发布预览调整。</p>
-                <div className="settings-divider" /><h3>播放节奏</h3><label className="field-label" htmlFor="voiceId">MiniMax 配音音色</label><select id="voiceId" className="input" value={project.voiceId} onChange={e => update({ ...project, voiceId: e.target.value as Project['voiceId'], captionAudio: undefined, captionAudioSeconds: undefined, words: project.words.map(word => ({ ...word, audio: undefined, audioSeconds: undefined })) })}>{voiceOptions.map(voice => <option key={voice.id} value={voice.id}>{voice.label} · {voice.id}</option>)}</select><label className="range-field"><span>配音语速 <strong>{project.speechSpeed.toFixed(2)}×</strong></span><input type="range" min="0.5" max="2" step="0.05" value={project.speechSpeed} onChange={e => update({ ...project, speechSpeed: Number(e.target.value), captionAudio: undefined, captionAudioSeconds: undefined, words: project.words.map(word => ({ ...word, audio: undefined, audioSeconds: undefined })) })} /></label><p className="hint">更换音色或语速后需要重新生成全部配音。</p><label className="range-field"><span>开头取景（视频末尾） <strong>{project.introSeconds.toFixed(1)} 秒</strong></span><input type="range" min="0.5" max="5" step="0.1" value={project.introSeconds} onChange={e => update({ ...project, introSeconds: Number(e.target.value) })} /></label><label className="range-field"><span>跟读留白 <strong>{project.pauseSeconds.toFixed(1)} 秒</strong></span><input type="range" min="0" max="3" step="0.1" value={project.pauseSeconds} onChange={e => update({ ...project, pauseSeconds: Number(e.target.value) })} /></label>
+                <div className="settings-divider" /><h3>视频模板</h3><div className="template-picker"><button type="button" className={project.videoTemplate === 'direct' ? 'selected' : ''} onClick={() => update({ ...project, videoTemplate: 'direct' })}><strong>直接学习</strong><span>第一帧展示全部单词，0.5 秒后开始朗读</span></button><button type="button" className={project.videoTemplate === 'camera' ? 'selected' : ''} onClick={() => update({ ...project, videoTemplate: 'camera' })}><strong>拍照识别</strong><span>保留动态取景、快门和识别过渡</span></button></div><h3>播放节奏</h3><label className="field-label" htmlFor="voiceId">MiniMax 配音音色</label><select id="voiceId" className="input" value={project.voiceId} onChange={e => update({ ...project, voiceId: e.target.value as Project['voiceId'], captionAudio: undefined, captionAudioSeconds: undefined, words: project.words.map(word => ({ ...word, audio: undefined, audioSeconds: undefined })) })}>{voiceOptions.map(voice => <option key={voice.id} value={voice.id}>{voice.label} · {voice.id}</option>)}</select><label className="range-field"><span>配音语速 <strong>{project.speechSpeed.toFixed(2)}×</strong></span><input type="range" min="0.5" max="2" step="0.05" value={project.speechSpeed} onChange={e => update({ ...project, speechSpeed: Number(e.target.value), captionAudio: undefined, captionAudioSeconds: undefined, words: project.words.map(word => ({ ...word, audio: undefined, audioSeconds: undefined })) })} /></label><p className="hint">更换音色或语速后需要重新生成全部配音。</p>{project.videoTemplate === 'camera' && <label className="range-field"><span>开头取景（视频末尾） <strong>{project.introSeconds.toFixed(1)} 秒</strong><input type="range" min="0.5" max="5" step="0.1" value={project.introSeconds} onChange={e => update({ ...project, introSeconds: Number(e.target.value) })} /></span></label>}<label className="range-field"><span>跟读留白 <strong>{project.pauseSeconds.toFixed(1)} 秒</strong></span><input type="range" min="0" max="3" step="0.1" value={project.pauseSeconds} onChange={e => update({ ...project, pauseSeconds: Number(e.target.value) })} /></label>
                 <Button variant="secondary" className="w-full mt-4" disabled={!project.caption.trim() || !project.words.length || project.words.some(w => !w.english.trim())} onClick={speech}><Volume2 />生成全部配音</Button><p className="hint">会生成每个单词和照片英文句子的配音。修改英文后需重新生成。</p><Button variant="outline" className="w-full mt-2" disabled={!project.image} onClick={() => { player.current?.seekTo(0); player.current?.play(); }}><Play />从头预览</Button>
             </fieldset></aside>}
         </main><footer className="studio-footer"><span>KAKAWORD · CREATIVE NOTEBOOK</span><span>每日一拍，每日一词。让学习留在生活里。</span></footer>

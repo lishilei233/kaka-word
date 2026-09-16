@@ -23,6 +23,25 @@ Return JSON only with this exact shape:
 Each title and body must differ meaningfully by platform. Use 3-6 relevant hashtags without #. Avoid exaggerated marketing language and avoid claiming the viewer learned or mastered anything.`;
 }
 
+export function captionVariantsPrompt(input: {
+  caption: string;
+  captionChinese: string;
+  words: { english: string; chinese: string }[];
+}): string {
+  return `You are an English vocabulary learning assistant. Rewrite one verified photo description in three tones without inventing objects or actions.
+Verified description: ${JSON.stringify(input.caption)}
+Chinese translation: ${JSON.stringify(input.captionChinese)}
+Visible vocabulary: ${JSON.stringify(input.words)}
+
+Return JSON only:
+{
+  "serious": { "caption": "accurate natural English", "captionChinese": "自然简体中文" },
+  "funny": { "caption": "playful friendly English", "captionChinese": "自然简体中文" },
+  "literary": { "caption": "vivid restrained English", "captionChinese": "自然简体中文" }
+}
+Each English version must be exactly one beginner-friendly sentence, no more than 24 words. Preserve the facts in the verified description. Gentle humor is allowed, but never mock people or infer sensitive traits.`;
+}
+
 export function learningObjectPrompt(
   maxObjects: number,
   captionStyle: CaptionStyle,
@@ -59,19 +78,14 @@ Return exactly this shape:
     }
   ],
   "caption": ${JSON.stringify(captionExample)},
-  "captionChinese": "一个杯子、一本书和一盆植物摆在一起。",
-  "captionVariants": {
-    "serious": { "caption": "A mug sits beside an open book.", "captionChinese": "一个杯子放在一本打开的书旁边。" },
-    "funny": { "caption": "The mug is waiting for its next coffee mission.", "captionChinese": "这个杯子正在等待下一次咖啡任务。" },
-    "literary": { "caption": "Quiet light rests on the mug and open pages.", "captionChinese": "静静的光落在杯子和摊开的书页上。" }
-  }
+  "captionChinese": "一个杯子、一本书和一盆植物摆在一起。"
 }
 
 Coordinates must be normalized from 0 to 1, with box x/y as the top-left corner. The box must tightly contain the actual object. anchor must be a visible point on the object's own pixels, not merely the center of its box. For hollow, separated, thin, or partially occluded objects, choose an unmistakable visible part. Nearby objects such as a curtain and window must have clearly different anchors: curtain on fabric, window on glass or frame. Keep the English word natural and singular. Use simplified Chinese for chinese and exampleChinese, and translate each English example naturally.
 
 First decide whether the object itself exists and can be located reliably. If not, skip it. If it can be located and its precise name is clear, set confirmationStatus to "confirmed" and omit candidates. If it can be located but 2 or more similar names are genuinely plausible, keep the object, set confirmationStatus to "needsConfirmation", and return 2 or 3 candidates ordered most likely first. Each candidate must contain english, chinese, ipa, example, and exampleChinese. The top-level vocabulary fields must exactly match the first candidate. Do not invent weak alternatives. Never output "userConfirmed"; the app reserves it for a learner's choice.
 
-Generate all three captionVariants about this exact image: serious is accurate and natural; funny is playful and friendly; literary is vivid, restrained, and poetic without inventing objects. Each English caption must be exactly one beginner-friendly sentence of no more than 24 words, with a natural short simplified-Chinese translation. Set caption and captionChinese to the requested ${captionStyle} variant. Do not include markdown fences or commentary.`;
+${captionInstruction} The caption must be exactly one beginner-friendly sentence and no more than 24 words. Translate the caption into one natural, short simplified-Chinese sentence in captionChinese. Do not include markdown fences or commentary.`;
 }
 
 export function qwenLearningObjectPrompt(
@@ -108,19 +122,14 @@ Return exactly this JSON shape:
     }
   ],
   "caption": ${JSON.stringify(captionExample)},
-  "captionChinese": "一个杯子、一本书和一盆植物摆在一起。",
-  "captionVariants": {
-    "serious": { "caption": "A mug sits beside an open book.", "captionChinese": "一个杯子放在一本打开的书旁边。" },
-    "funny": { "caption": "The mug is waiting for its next coffee mission.", "captionChinese": "这个杯子正在等待下一次咖啡任务。" },
-    "literary": { "caption": "Quiet light rests on the mug and open pages.", "captionChinese": "静静的光落在杯子和摊开的书页上。" }
-  }
+  "captionChinese": "一个杯子、一本书和一盆植物摆在一起。"
 }
 
 bbox must be [x1, y1, x2, y2] relative to the original image and normalized to integer coordinates from 0 to 999. anchor must be [x, y] in the same 0 to 999 coordinate system. The box must tightly contain the actual object. The anchor must lie on clearly visible pixels belonging to that object, not simply at the bbox center. For hollow, separated, thin, or partially occluded objects, choose an unmistakable visible part. Do not confuse nearby objects: for curtain place anchor on curtain fabric; for window place anchor on glass or frame. Use a natural singular English noun, simplified Chinese, a short beginner-friendly English example, and its natural simplified-Chinese translation in exampleChinese.
 
 First decide whether the object itself exists and can be located reliably. If not, skip it. If it can be located and its precise name is clear, set confirmationStatus to "confirmed" and omit candidates. If it can be located but 2 or more similar names are genuinely plausible, keep the object, set confirmationStatus to "needsConfirmation", and return 2 or 3 candidates ordered most likely first. Each candidate must contain english, chinese, ipa, example, and exampleChinese. The top-level vocabulary fields must exactly match the first candidate. Do not invent weak alternatives. Never output "userConfirmed"; the app reserves it for a learner's choice.
 
-Generate all three captionVariants about this exact image: serious is accurate and natural; funny is playful and friendly; literary is vivid, restrained, and poetic without inventing objects. Each English caption must be exactly one beginner-friendly sentence of no more than 24 words, with a natural short simplified-Chinese translation. Set caption and captionChinese to the requested ${captionStyle} variant. Do not output markdown or commentary.`;
+${captionInstruction} The caption must be exactly one beginner-friendly sentence and no more than 24 words. Translate the caption into one natural, short simplified-Chinese sentence in captionChinese. Do not output markdown or commentary.`;
 }
 
 function masteredWordsInstruction(masteredWords: string[]): string {

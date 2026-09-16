@@ -161,6 +161,17 @@ export function annotationLayout<T extends AnnotationObject>(objects: T[], frame
     return {placements,routes:routedLeaderLines(placements,frame)};
 }
 
+export function sortByAnnotationPosition<T extends AnnotationObject>(objects: T[], frame: Box, movableObjectId?: string): T[] {
+    const centers = new Map(annotationLayout(objects, frame, movableObjectId).placements.map(placement => [placement.id, placement.labelCenter]));
+    return [...objects].sort((a, b) => {
+        const centerA = centers.get(a.id), centerB = centers.get(b.id);
+        if (!centerA || !centerB) return centerA ? -1 : centerB ? 1 : 0;
+        const rowA = Math.round((centerA.y - frame.y) / (frame.height * .08));
+        const rowB = Math.round((centerB.y - frame.y) / (frame.height * .08));
+        return rowA - rowB || centerA.x - centerB.x || centerA.y - centerB.y;
+    });
+}
+
 // Cover mode retains every label, including labels which cannot fit safely.
 export function completeAnnotationLayout<T extends AnnotationObject>(objects: T[], frame: Box): AnnotationLayout<T> {
     const automatic = searchedPlacements(objects, frame);

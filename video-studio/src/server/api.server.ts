@@ -12,7 +12,7 @@ import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { getImageDimensions } from '../../../server/src/utils/image-dimensions.ts';
 import { projectSchema, exportReady, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
-import { generateSocialCopy, recognizeImage } from './recognition.server.ts';
+import { generateCaptionVariants, generateSocialCopy, recognizeImage } from './recognition.server.ts';
 
 const exec = promisify(execFile);
 const root = resolve(process.env.STUDIO_DATA_DIR || '.data');
@@ -164,7 +164,15 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             if (!image.endsWith('.jpg')) throw new Error('请先选取照片帧');
             const bytes = await readFile(assetFile(image));
             if (!getImageDimensions(bytes)) throw new Error('无效图片');
-            return await recognizeImage(bytes, maxObjects, req.signal);
+            const recognitionResponse = await recognizeImage(bytes, maxObjects, req.signal);
+            if (!recognitionResponse.ok) return recognitionResponse;
+            const recognition = await recognitionResponse.json() as { caption: string; captionChinese: string; objects: { english: string; chinese: string }[] };
+            const captionVariants = await generateCaptionVariants({
+                caption: recognition.caption,
+                captionChinese: recognition.captionChinese,
+                words: recognition.objects.map(({ english, chinese }) => ({ english, chinese })),
+            }, req.signal);
+            return send({ ...recognition, captionVariants });
         }
         if (req.method === 'POST' && path === '/studio-api/speech') {
             if (state.speechBusy) return send({ error: '正在生成配音，请稍后重试' }, 409);

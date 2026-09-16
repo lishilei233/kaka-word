@@ -36,7 +36,7 @@ export const learningObjectSchema = z.object({
   confirmationStatus: confirmationStatusSchema.default("confirmed"),
 });
 
-export const captionStyleSchema = z.enum(["serious", "funny", "literary"]);
+export const captionStyleSchema = z.enum(["serious", "funny"]);
 
 export const requestedCaptionStyleSchema = z.enum(["serious", "funny", "random"]);
 
@@ -55,11 +55,6 @@ export const analyzeResultSchema = z.object({
   caption: z.string().min(1).max(220),
   captionChinese: z.string().min(1).max(220),
   captionStyle: captionStyleSchema,
-  captionVariants: z.object({
-    serious: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
-    funny: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
-    literary: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
-  }).optional(),
 });
 
 export const providerAnalyzeResultSchema = analyzeResultSchema.omit({ captionStyle: true });
@@ -106,6 +101,18 @@ export type SocialCopyInput = {
   highlightedWords: string[];
   signal?: AbortSignal;
 };
+export const captionVariantsSchema = z.object({
+  serious: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
+  funny: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
+  literary: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
+});
+export type CaptionVariants = z.infer<typeof captionVariantsSchema>;
+export type CaptionVariantsInput = {
+  caption: string;
+  captionChinese: string;
+  words: { english: string; chinese: string }[];
+  signal?: AbortSignal;
+};
 
 export interface VisionProvider {
   analyze(input: VisionInput): Promise<AnalyzeResult>;
@@ -115,4 +122,5 @@ export interface VisionProvider {
   ): Promise<AnalyzeResult>;
   resolveVocabulary(input: VocabularyInput): Promise<VocabularyDetails>;
   generateSocialCopy?(input: SocialCopyInput): Promise<SocialCopy>;
+  generateCaptionVariants?(input: CaptionVariantsInput): Promise<CaptionVariants>;
 }

@@ -715,6 +715,18 @@ private struct DiscoveryAlbumView: View {
                         .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden, edges: .all)
+                        .onAppear {
+                            if record.id == historyStore.records.last?.id {
+                                historyStore.loadNextPage()
+                            }
+                        }
+                    }
+
+                    if historyStore.isLoadingPage {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                 }
 
@@ -764,11 +776,11 @@ private struct DiscoveryAlbumView: View {
                 tint: Color.sun,
                 foreground: Color.ink
             ) {
-                Text("\(historyStore.records.count) 张")
+                Text("\(historyStore.totalRecordCount) 张")
                     .font(.system(size: 10, weight: .black, design: .monospaced))
                     .frame(width: 50, height: 50)
             }
-            .accessibilityLabel("共 \(historyStore.records.count) 张发现卡")
+            .accessibilityLabel("共 \(historyStore.totalRecordCount) 张发现卡")
         }
     }
 

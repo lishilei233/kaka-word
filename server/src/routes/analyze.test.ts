@@ -111,6 +111,7 @@ test("streams validated mock objects before the complete result", async () => {
   assert.match(body, /"captionStyle":"serious"/);
   assert.match(body, /"caption":"A mug, a book, and a plant sit together on the table\."/);
   assert.match(body, /"captionChinese":"一个杯子、一本书和一盆植物摆在一起。"/);
+  assert.doesNotMatch(body, /captionVariants/);
   assert.equal(limiter.minuteCalls, 1);
   assert.equal(limiter.dailyCalls, 1);
   assert.equal(limiter.lastClientIP, "203.0.113.10");

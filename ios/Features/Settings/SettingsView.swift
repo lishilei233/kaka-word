@@ -380,7 +380,7 @@ struct SettingsView: View {
                     HStack {
                         Text("清空全部历史记录")
                         Spacer()
-                        Text("\(historyStore.records.count)")
+                        Text("\(historyStore.totalRecordCount)")
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
                     }
                     .font(.system(size: 14, weight: .heavy, design: .rounded))

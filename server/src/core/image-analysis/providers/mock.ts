@@ -6,9 +6,18 @@ import type {
   VocabularyInput,
   SocialCopyInput,
   SocialCopy,
+  CaptionVariants,
+  CaptionVariantsInput,
 } from "../types.js";
 
 export class MockVisionProvider implements VisionProvider {
+  async generateCaptionVariants(input: CaptionVariantsInput): Promise<CaptionVariants> {
+    return {
+      serious: { caption: input.caption, captionChinese: input.captionChinese },
+      funny: { caption: "The mug is patiently waiting for its next coffee mission.", captionChinese: "这个杯子正耐心地等待下一次咖啡任务。" },
+      literary: { caption: "Soft light settles over the mug, the book, and the quiet plant.", captionChinese: "柔和的光落在杯子、书和安静的植物上。" },
+    };
+  }
   async generateSocialCopy(input: SocialCopyInput): Promise<SocialCopy> {
     const words = input.words.map((word) => word.english).join("、");
     return {
@@ -53,11 +62,6 @@ function mockResult(input: VisionInput): AnalyzeResult {
       ? "这个杯子正耐心地等待下一次咖啡任务。"
       : "一个杯子、一本书和一盆植物摆在一起。",
     captionStyle: input.captionStyle,
-    captionVariants: {
-      serious: { caption: "A mug, a book, and a plant sit together on the table.", captionChinese: "一个杯子、一本书和一盆植物摆在一起。" },
-      funny: { caption: "The mug is patiently waiting for its next coffee mission.", captionChinese: "这个杯子正耐心地等待下一次咖啡任务。" },
-      literary: { caption: "Soft light settles over the mug, the book, and the quiet plant.", captionChinese: "柔和的光落在杯子、书和安静的植物上。" },
-    },
     objects: [
       {
         id: "obj_01",

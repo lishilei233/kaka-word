@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { forwardRecognition, generateSocialCopy } from './recognition.server.ts';
+import { forwardRecognition, generateCaptionVariants, generateSocialCopy } from './recognition.server.ts';
 const result = { imageWidth: 800, imageHeight: 600, objects: [], caption: 'A quiet room.', captionChinese: '安静的房间。', captionStyle: 'serious' };
 
 test('forwards multipart image and existing access headers, decodes chunked SSE with photo descriptions', async () => {
@@ -55,6 +55,27 @@ test('generates and validates publishing copy through the existing server creden
             assert.equal(input, 'http://127.0.0.1:8787/v1/social-copy');
             assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer studio-token');
             assert.deepEqual(JSON.parse(String(init?.body)).highlightedWords, ['room']);
+            return Response.json(expected);
+        });
+        assert.deepEqual(result, expected);
+    } finally {
+        if (previous === undefined) delete process.env.SERVER_ACCESS_TOKEN;
+        else process.env.SERVER_ACCESS_TOKEN = previous;
+    }
+});
+
+test('generates caption variants through a separate studio-only endpoint', async () => {
+    const previous = process.env.SERVER_ACCESS_TOKEN;
+    process.env.SERVER_ACCESS_TOKEN = 'studio-token';
+    const expected = {
+        serious: { caption: 'A room.', captionChinese: '一个房间。' },
+        funny: { caption: 'The room is ready for a nap.', captionChinese: '这个房间准备睡午觉了。' },
+        literary: { caption: 'Soft light rests in the room.', captionChinese: '柔光停在房间里。' },
+    };
+    try {
+        const result = await generateCaptionVariants({ caption: 'A room.', captionChinese: '一个房间。', words: [{ english: 'room', chinese: '房间' }] }, undefined, async (input, init) => {
+            assert.equal(input, 'http://127.0.0.1:8787/v1/caption-variants');
+            assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer studio-token');
             return Response.json(expected);
         });
         assert.deepEqual(result, expected);

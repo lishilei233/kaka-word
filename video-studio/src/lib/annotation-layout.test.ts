@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { annotationLayout, type AnnotationObject, type Box } from './annotation-layout.ts';
+import { annotationLayout, sortByAnnotationPosition, type AnnotationObject, type Box } from './annotation-layout.ts';
 
 const frame: Box = { x: 0, y: 0, width: 360, height: 480 };
 const makeObject = (id: string, index=0): AnnotationObject => ({
@@ -61,4 +61,13 @@ test('portrait, landscape and panoramic layouts are deterministic', () => {
         assert.deepEqual(annotationLayout(objects,targetFrame),annotationLayout(objects,targetFrame));
         assertNoOverlap(objects,targetFrame);
     }
+});
+
+test('manual capsule positions determine reading order from top to bottom and left to right', () => {
+    const objects = [
+        { ...makeObject('bottom'), labelCenterOverride: { x: .2, y: .8 } },
+        { ...makeObject('top-right'), labelCenterOverride: { x: .8, y: .2 } },
+        { ...makeObject('top-left'), labelCenterOverride: { x: .2, y: .2 } },
+    ];
+    assert.deepEqual(sortByAnnotationPosition(objects, frame, 'top-left').map(object => object.id), ['top-left', 'top-right', 'bottom']);
 });

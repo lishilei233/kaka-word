@@ -1,4 +1,5 @@
 import AVFoundation
+import SwiftData
 import XCTest
 @testable import PictureWord
 
@@ -164,16 +165,19 @@ final class WordLearningStoreTests: XCTestCase {
     }
 
     private var directory: URL!
+    private var container: ModelContainer!
 
     override func setUp() {
         super.setUp()
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WordLearningStoreTests-\(UUID().uuidString)", isDirectory: true)
+        container = try! PersistenceController.makeContainer(inMemory: true)
     }
 
     override func tearDown() {
         if let directory { try? FileManager.default.removeItem(at: directory) }
         directory = nil
+        container = nil
         super.tearDown()
     }
 
@@ -182,7 +186,7 @@ final class WordLearningStoreTests: XCTestCase {
         let older = makeRecord(word: " Mug ", chinese: "旧杯子", date: Date(timeIntervalSince1970: 100))
         let newer = makeRecord(word: "mug", chinese: "马克杯", date: Date(timeIntervalSince1970: 200))
 
-        store.synchronize(with: [older, newer])
+        replaceHistory(with: [older, newer], store: store)
 
         XCTAssertEqual(store.entries.count, 1)
         XCTAssertEqual(store.entries.first?.id, "mug")
@@ -194,16 +198,16 @@ final class WordLearningStoreTests: XCTestCase {
     func testMasteryPersistsAndReturnsAfterWordReappears() {
         let record = makeRecord(word: "book", chinese: "书", date: Date(timeIntervalSince1970: 100))
         var store: WordLearningStore? = makeStore()
-        store?.synchronize(with: [record])
+        if let store { replaceHistory(with: [record], store: store) }
         store?.setState(.mastered, for: "book")
         XCTAssertEqual(store?.masteredWordsForRecognition, ["book"])
 
         store = nil
         let restored = makeStore()
-        restored.synchronize(with: [])
+        replaceHistory(with: [], store: restored)
         XCTAssertTrue(restored.masteredEntries.isEmpty)
         XCTAssertEqual(restored.masteredWordsForRecognition, ["book"])
-        restored.synchronize(with: [record])
+        replaceHistory(with: [record], store: restored)
         XCTAssertEqual(restored.state(for: "book"), .mastered)
     }
 
@@ -217,7 +221,7 @@ final class WordLearningStoreTests: XCTestCase {
                 date: now.addingTimeInterval(Double(index))
             )
         }
-        store.synchronize(with: records)
+        replaceHistory(with: records, store: store)
         store.setState(.mastered, for: "word-6")
 
         let practice = store.startOrResumePractice()
@@ -235,7 +239,7 @@ final class WordLearningStoreTests: XCTestCase {
             makeRecord(word: "cup", chinese: "杯子", date: now.addingTimeInterval(2))
         ]
         var store: WordLearningStore? = makeStore(now: now)
-        store?.synchronize(with: records)
+        if let store { replaceHistory(with: records, store: store) }
         XCTAssertEqual(store?.startOrResumePractice().map(\.id), ["cup", "plant", "book"])
 
         store?.recordPracticeResult(for: "cup", mastered: false)
@@ -246,13 +250,13 @@ final class WordLearningStoreTests: XCTestCase {
 
         store = nil
         let restored = makeStore(now: now)
-        restored.synchronize(with: records)
+        replaceHistory(with: records, store: restored)
         XCTAssertEqual(restored.startOrResumePractice().map(\.id), ["plant", "book", "cup"])
     }
 
     func testSingleStillLearningWordRemainsQueued() {
         let store = makeStore()
-        store.synchronize(with: [makeRecord(word: "plant", chinese: "植物", date: Date())])
+        replaceHistory(with: [makeRecord(word: "plant", chinese: "植物", date: Date())], store: store)
 
         store.recordPracticeResult(for: "plant", mastered: false)
 
@@ -263,10 +267,10 @@ final class WordLearningStoreTests: XCTestCase {
     func testMasteredWordsLeaveQueueUntilNoLearningWordsRemain() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let store = makeStore(now: now)
-        store.synchronize(with: [
+        replaceHistory(with: [
             makeRecord(word: "book", chinese: "书", date: now),
             makeRecord(word: "plant", chinese: "植物", date: now.addingTimeInterval(1))
-        ])
+        ], store: store)
 
         store.recordPracticeResult(for: "plant", mastered: true)
 
@@ -285,19 +289,19 @@ final class WordLearningStoreTests: XCTestCase {
         let plant = makeRecord(word: "plant", chinese: "植物", date: now.addingTimeInterval(1))
         let cup = makeRecord(word: "cup", chinese: "杯子", date: now.addingTimeInterval(2))
         let store = makeStore(now: now)
-        store.synchronize(with: [book, plant])
+        replaceHistory(with: [book, plant], store: store)
         store.recordPracticeResult(for: "plant", mastered: false)
         XCTAssertEqual(store.practiceEntries.map(\.id), ["book", "plant"])
 
-        store.synchronize(with: [book, plant, cup])
+        replaceHistory(with: [book, plant, cup], store: store)
         XCTAssertEqual(store.practiceEntries.map(\.id), ["book", "plant", "cup"])
 
         store.setState(.mastered, for: "book")
-        store.synchronize(with: [cup])
+        replaceHistory(with: [cup], store: store)
         XCTAssertEqual(store.practiceEntries.map(\.id), ["cup"])
 
         store.setState(.learning, for: "book")
-        store.synchronize(with: [book, cup])
+        replaceHistory(with: [book, cup], store: store)
         XCTAssertEqual(store.practiceEntries.map(\.id), ["cup", "book"])
     }
 
@@ -319,23 +323,39 @@ final class WordLearningStoreTests: XCTestCase {
         try Data(legacyJSON.utf8).write(to: directory.appendingPathComponent("word-learning.json"))
 
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let store = makeStore(now: now)
-        store.synchronize(with: [
+        let records = [
             makeRecord(word: "book", chinese: "书", date: now),
             makeRecord(word: "plant", chinese: "植物", date: now.addingTimeInterval(1)),
             makeRecord(word: "cup", chinese: "杯子", date: now.addingTimeInterval(2))
-        ])
+        ]
+        let historyDirectory = directory.appendingPathComponent("History", isDirectory: true)
+        try FileManager.default.createDirectory(at: historyDirectory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(records).write(to: historyDirectory.appendingPathComponent("history.json"))
+        let defaultsName = "LegacyMigrationTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        try LegacyJSONMigration(container: container, defaults: defaults, rootDirectory: directory).runIfNeeded()
+        let store = makeStore(now: now)
 
         XCTAssertEqual(store.practiceEntries.map(\.id), ["plant", "book", "cup"])
         XCTAssertEqual(store.progressByKey["book"]?.reviewCount, 1)
 
-        let persisted = try Data(contentsOf: directory.appendingPathComponent("word-learning.json"))
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: persisted) as? [String: Any])
-        XCTAssertEqual(object["practiceQueueKeys"] as? [String], ["plant", "book", "cup"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("word-learning.json.migrated-v1").path))
     }
 
     private func makeStore(now: Date = Date()) -> WordLearningStore {
-        WordLearningStore(storageDirectory: directory, now: { now })
+        WordLearningStore(container: container, now: { now })
+    }
+
+    private func replaceHistory(with records: [HistoryRecord], store: WordLearningStore) {
+        let context = ModelContext(container)
+        let existing = (try? context.fetch(FetchDescriptor<HistoryEntity>())) ?? []
+        existing.forEach(context.delete)
+        records.forEach { context.insert(HistoryEntity(record: $0)) }
+        try? context.save()
+        store.reload()
     }
 
     private func makeVoice(

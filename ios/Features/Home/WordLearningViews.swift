@@ -28,6 +28,9 @@ struct WordLearningRow: View {
                     RoundedRectangle(cornerRadius: 17, style: .continuous)
                         .stroke(Color.ink.opacity(0.08), lineWidth: 1)
                 }
+                // scaledToFill may keep an oversized hit-test region after clipping.
+                // Let the enclosing card button own the interaction instead.
+                .allowsHitTesting(false)
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(entry.object.english)
@@ -70,6 +73,7 @@ struct WordLearningRow: View {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .stroke(Color.ink.opacity(0.07))
             }
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .buttonStyle(.plain)
         .rotationEffect(.degrees(entry.id.hashValue.isMultiple(of: 2) ? -0.22 : 0.22))
@@ -91,7 +95,7 @@ enum WordImageCropper {
 
     static func image(for entry: WordEntry, historyStore: HistoryStore) -> UIImage? {
         for occurrence in entry.occurrences {
-            guard let record = historyStore.records.first(where: { $0.id == occurrence.recordID }),
+            guard let record = historyStore.record(id: occurrence.recordID),
                   let image = historyStore.image(for: record),
                   let cgImage = image.cgImage else { continue }
 
@@ -116,7 +120,7 @@ enum WordImageCropper {
 
     static func reviewPhoto(for entry: WordEntry, historyStore: HistoryStore) -> ReviewPhoto? {
         for occurrence in entry.occurrences {
-            guard let record = historyStore.records.first(where: { $0.id == occurrence.recordID }),
+            guard let record = historyStore.record(id: occurrence.recordID),
                   let image = historyStore.image(for: record) else { continue }
             return ReviewPhoto(image: image, targetBox: normalizedBox(occurrence.object.box))
         }

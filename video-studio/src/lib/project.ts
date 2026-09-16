@@ -54,6 +54,7 @@ const projectFields = {
     captionVariants: captionVariantsSchema.optional(),
     selectedCaptionStyle: z.enum(['serious', 'funny', 'literary']).default('serious'),
     socialCopy: socialCopySchema.optional(),
+    videoTemplate: z.enum(['direct', 'camera']).default('direct'),
     captionAudio: z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.wav$/).optional(),
     captionAudioSeconds: z.number().positive().max(60).optional(),
     voiceId: voiceIdSchema.default('English_Graceful_Lady'),
@@ -85,13 +86,13 @@ export const AUDIO_LEAD_FRAMES = 6;
 export const AUDIO_TAIL_FRAMES = 9;
 export const CAPTION_FRAMES = 90;
 export const emptyProject: Project = {
-    version: 2, title: '生活里的英语', caption: '', captionChinese: '', selectedCaptionStyle: 'serious', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
+    version: 2, title: '生活里的英语', caption: '', captionChinese: '', selectedCaptionStyle: 'serious', videoTemplate: 'direct', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
     safeTop: 120, safeBottom: 240, safeRight: 0, imageWidth: 4, imageHeight: 3,
     captureSeconds: 2, introSeconds: 2, pauseSeconds: 1.2, words: [],
 };
 export function timeline(p: Project) {
-    const intro = Math.round(p.introSeconds * FPS);
-    const reveal = 45;
+    const intro = p.videoTemplate === 'direct' ? Math.round(.5 * FPS) : Math.round(p.introSeconds * FPS);
+    const reveal = p.videoTemplate === 'direct' ? 0 : 45;
     let cursor = intro + reveal;
     const words = p.words.map(word => {
         const from = cursor;
@@ -117,7 +118,21 @@ export function selectCaptionVariant(p: Project, style: 'serious' | 'funny' | 'l
     return variant ? { ...p, selectedCaptionStyle: style, ...variant, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined } : p;
 }
 export function exportReady(p: Project) {
-    return !!p.image && !!p.caption.trim() && !!p.captionAudio && !!p.captionAudioSeconds && p.words.length > 0 && p.words.every(w => w.english.trim() && w.audio && w.audioSeconds);
+    return exportBlockers(p).length === 0;
+}
+export function exportBlockers(p: Project): string[] {
+    const blockers: string[] = [];
+    if (!p.image) blockers.push('缺少照片');
+    if (!p.words.length) blockers.push('缺少单词');
+    else {
+        const unnamed = p.words.filter(word => !word.english.trim()).length;
+        const silent = p.words.filter(word => word.english.trim() && (!word.audio || !word.audioSeconds)).length;
+        if (unnamed) blockers.push(`${unnamed} 个单词缺少英文`);
+        if (silent) blockers.push(`${silent} 个单词尚未生成配音`);
+    }
+    if (!p.caption.trim()) blockers.push('缺少照片英文描述');
+    else if (!p.captionAudio || !p.captionAudioSeconds) blockers.push('照片句子尚未生成配音');
+    return blockers;
 }
 
 export function openingMedia(p: Project) {
