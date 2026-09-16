@@ -12,22 +12,27 @@ test('result photo keeps its source aspect ratio with 20 point side margins', ()
     assert.equal(l.cameraImage.width/l.cameraImage.height, 4/3);
     assert.equal(l.photoImage.width/l.photoImage.height, 4/3);
 });
-test('caption, word and shutter stay within configurable vertical safe areas', () => {
+test('result photo size is independent of scene cards and configurable safe areas', () => {
     for (const safeTop of [120,180,280]) for (const safeBottom of [240,360,480]) for (const aspect of [4/3,3]) {
         const p = { ...emptyProject, safeTop, safeBottom, imageWidth: aspect*100, imageHeight:100 };
         const l = filmLayout(p);
-        assert.ok(l.photo.y >= l.top);
-        assert.ok(l.photo.y + l.photo.height < l.descriptionTop);
-        assert.equal(l.wordTop, l.descriptionTop);
-        assert.ok(l.descriptionTop + 140 <= l.closingTop);
-        assert.ok(l.wordTop+92 <= 960-safeBottom/2);
+        assert.equal(l.photo.x, 20);
+        assert.equal(l.photo.width, 500);
+        assert.ok(Math.abs(l.photo.height - 500/aspect) < 1e-10);
+        assert.ok(l.descriptionTop >= 0 && l.descriptionTop+140 <= FILM_HEIGHT);
+        assert.ok(l.wordTop >= 0 && l.wordTop+l.wordDetailHeight <= FILM_HEIGHT);
         assert.ok(l.shutterTop+104 <= 960-safeBottom/2);
     }
 });
-test('portrait photos derive height only from their aspect ratio', () => {
+test('portrait photos keep the original card size and use visible overlay fallbacks', () => {
     const l = filmLayout({ ...emptyProject, imageWidth: 9, imageHeight: 16 });
-    assert.equal(l.photo.width, FILM_WIDTH - 40);
-    assert.equal(l.photo.height, (FILM_WIDTH - 40) / (9 / 16));
+    assert.equal(l.photo.width, 500);
+    assert.equal(l.photo.height, 500*16/9);
+    assert.ok(l.photo.y >= 0 && l.photo.y+l.photo.height <= FILM_HEIGHT);
+    assert.ok(l.descriptionTop+140 <= FILM_HEIGHT);
+    assert.ok(l.wordTop+l.wordDetailHeight <= FILM_HEIGHT);
+    assert.equal(l.descriptionOverPhoto, true);
+    assert.equal(l.wordOverPhoto, true);
     assert.equal(l.photo.width / l.photo.height, 9 / 16);
 });
 test('old drafts migrate label and target coordinates while receiving new defaults', () => {

@@ -1,4 +1,5 @@
 import { annotationHighlight, leaderStyle } from './annotation-style';
+import { SceneCards } from './SceneCards';
 import { Img } from 'remotion';
 import { useMemo, useRef, type PointerEvent } from 'react';
 import { coverLayout } from '../lib/cover-layout';
@@ -41,10 +42,11 @@ export function Cover({ project, onMove }: { project: Project; onMove?: CoverMov
                 <circle cx={item.target.x} cy={item.target.y} r="22" fill="transparent" /><circle cx={item.target.x} cy={item.target.y} r={line.dotOuter} fill={line.ink} style={{ filter: line.filter }} /><circle cx={item.target.x} cy={item.target.y} r={line.dotInner} fill={line.fill} />
             </g>
             <g style={{ cursor: onMove ? 'grab' : undefined }} onPointerDown={e => begin(e, item.id, 'label', item.labelCenter)} onPointerMove={move} onPointerUp={e => finish(e)} onPointerCancel={e => finish(e, true)}>
-                {highlighted && <rect x={item.labelFrame.x-8} y={item.labelFrame.y-8} width={item.labelWidth+16} height={item.labelHeight+16} rx={item.labelHeight/2+8} fill={annotationHighlight.ring} style={{ filter: 'drop-shadow(0 14px 14px rgba(36,33,30,.38))' }} />}
-                <rect {...{ x: item.labelFrame.x, y: item.labelFrame.y, width: item.labelWidth, height: item.labelHeight }} rx={item.labelHeight/2} fill={highlighted ? annotationHighlight.fill : '#f4c95d'} stroke={onMove && layout.conflicts.includes(item.id) ? '#c43f35' : '#24211e'} strokeOpacity={onMove && layout.conflicts.includes(item.id) ? 1 : highlighted ? .96 : .18} strokeWidth={highlighted ? 6 : 3} />
+                {highlighted && <rect x={item.labelFrame.x-4} y={item.labelFrame.y-4} width={item.labelWidth+8} height={item.labelHeight+8} rx={item.labelHeight/2+4} fill={annotationHighlight.ring} style={{ filter: 'drop-shadow(0 8px 12px rgba(36,33,30,.28))' }} />}
+                <rect {...{ x: item.labelFrame.x, y: item.labelFrame.y, width: item.labelWidth, height: item.labelHeight }} rx={item.labelHeight/2} fill={highlighted ? annotationHighlight.fill : '#f4c95d'} stroke={onMove && layout.conflicts.includes(item.id) ? '#c43f35' : '#24211e'} strokeOpacity={onMove && layout.conflicts.includes(item.id) ? 1 : highlighted ? .88 : .18} strokeWidth={highlighted ? 4 : 3} />
                 <text x={item.labelCenter.x} y={item.labelCenter.y} dominantBaseline="central" textAnchor="middle" fill={'#24211e'} fontFamily="'SF Pro Rounded', ui-rounded, system-ui, sans-serif" fontWeight="900" fontSize={16*item.object.labelScale}>{item.object.english}</text>
             </g>
         </g>; })}
+        {layout.sceneHeight > 0 && <foreignObject x={layout.sceneLeft} y={layout.sceneTop} width={layout.sceneWidth} height={layout.sceneHeight} style={{ overflow: 'visible' }}><div style={{ width: layout.sceneWidth/2, transform: 'scale(2)', transformOrigin: 'top left' }}><SceneCards project={project} cover /></div></foreignObject>}
     </svg>;
 }

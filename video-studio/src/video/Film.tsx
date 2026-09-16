@@ -1,6 +1,9 @@
 import { annotationHighlight, leaderStyle } from './annotation-style';
 import { AbsoluteFill, Audio, Freeze, Img, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
-import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, FPS, openingMedia, timeline, type Project } from '../lib/project';
+import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, FPS, openingMedia, timeline, objectWords, readingWords, type Project } from '../lib/project';
+import { SceneCards } from './SceneCards';
+import { SceneSentence } from './SceneSentence';
+import { InteractionArrow } from './InteractionArrow';
 import { filmLayout, type Rect } from '../lib/film-layout';
 import { annotationLayout } from '../lib/annotation-layout';
 import { useMemo, useRef } from 'react';
@@ -16,7 +19,7 @@ function rectStyle(rect: Rect): CSSProperties { return { position: 'absolute', l
 
 type AnnotationMove = (id: string, kind: 'label' | 'target', point: { x: number; y: number }) => void;
 
-export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { project: Project; onAnnotationMove?: AnnotationMove; onAnnotationDragStart?: () => void }) {
+export function Film({ project: p, onAnnotationMove, onInteractionTargetMove, onAnnotationDragStart }: { project: Project; onAnnotationMove?: AnnotationMove; onInteractionTargetMove?: (point: { x: number; y: number }) => void; onAnnotationDragStart?: () => void }) {
     const frame = useCurrentFrame();
     const t = timeline(p), current = activeWord(p, frame), direct = p.videoTemplate === 'direct';
     const opening = !direct && frame < t.intro;
@@ -26,11 +29,11 @@ export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { 
     const mediaStyle: CSSProperties = { ...rectStyle({ ...image, x: image.x - photo.x, y: image.y - photo.y }), objectFit: 'contain' };
     const captureFrame = Math.round(p.captureSeconds * FPS);
     const { holdFrames, startFrom } = openingMedia(p);
-    const wordIndex = current ? p.words.findIndex(w => w.id === current.id) : -1;
+    const wordIndex = current ? t.words.findIndex(item => item.word.id === current.id) : -1;
     const shutterScale = interpolate(frame, [Math.max(0, t.intro - 7), Math.max(0, t.intro - 3), t.intro], [1, .84, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
     const textWidth = layout.textRight - layout.textLeft;
     const annotations = useMemo(
-        () => annotationLayout(p.words, layout.photoImage),
+        () => annotationLayout(objectWords(p.words), layout.photoImage),
         [p.words, layout.photoImage.x, layout.photoImage.y, layout.photoImage.width, layout.photoImage.height],
     );
     const drag = useRef<{ id: string; kind: 'label' | 'target'; point: { x: number; y: number } } | undefined>(undefined);
@@ -103,24 +106,32 @@ export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { 
                             <circle cx={route.target.x-photo.x} cy={route.target.y-photo.y} r={line.dotInner} fill={line.fill} style={{ pointerEvents: 'none' }} />
                         </g>;
                     })}</svg>
-                    {annotations.placements.map(placement => { const segment=t.words.find(item=>item.word.id===placement.id); const isCurrent=current?.id===placement.id; return <div key={placement.id} onClick={event => { event.preventDefault(); event.stopPropagation(); }} onPointerDown={event => beginDrag(event, placement.id, 'label')} onPointerMove={event => dragPoint(event, placement.id, 'label')} onPointerUp={finishDrag} onPointerCancel={finishDrag} title={onAnnotationMove ? '拖动调整胶囊位置' : undefined} style={{ position: 'absolute', left: placement.labelCenter.x-photo.x, top: placement.labelCenter.y-photo.y, width: placement.labelWidth, height: placement.labelHeight, transform: `translate(-50%,-50%) scale(${isCurrent?annotationHighlight.scale:1})`, borderRadius: 999, padding: '0 12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: isCurrent ? annotationHighlight.fill : sun, color: ink, border: isCurrent ? '3px solid rgba(36,33,30,.96)' : '1px solid rgba(36,33,30,.18)', fontFamily: '"SF Pro Rounded", ui-rounded, system-ui, sans-serif', fontWeight: 900, fontSize: 16, lineHeight: 1, boxShadow: isCurrent?'0 0 0 4px rgba(255,255,255,.88), 0 7px 14px rgba(36,33,30,.38)':'none', opacity: direct || (segment && frame >= segment.from) ? 1 : 0, transition: 'none', cursor: onAnnotationMove ? 'grab' : undefined, touchAction: 'none' }}>{placement.object.english}</div>})}
+                    {annotations.placements.map(placement => { const segment=t.words.find(item=>item.word.id===placement.id); const isCurrent=current?.id===placement.id; return <div key={placement.id} onClick={event => { event.preventDefault(); event.stopPropagation(); }} onPointerDown={event => beginDrag(event, placement.id, 'label')} onPointerMove={event => dragPoint(event, placement.id, 'label')} onPointerUp={finishDrag} onPointerCancel={finishDrag} title={onAnnotationMove ? '拖动调整胶囊位置' : undefined} style={{ position: 'absolute', left: placement.labelCenter.x-photo.x, top: placement.labelCenter.y-photo.y, width: placement.labelWidth, height: placement.labelHeight, transform: `translate(-50%,-50%) scale(${isCurrent?annotationHighlight.scale:1})`, borderRadius: 999, padding: '0 12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: isCurrent ? annotationHighlight.fill : sun, color: ink, border: isCurrent ? `${annotationHighlight.border}px solid ${annotationHighlight.ink}` : '1px solid rgba(36,33,30,.18)', fontFamily: '"SF Pro Rounded", ui-rounded, system-ui, sans-serif', fontWeight: 900, fontSize: 16, lineHeight: 1, boxShadow: isCurrent?`0 0 0 ${annotationHighlight.ringSize}px ${annotationHighlight.ring}, ${annotationHighlight.shadow}`:'none', opacity: direct || (segment && frame >= segment.from) ? 1 : 0, transition: 'none', cursor: onAnnotationMove ? 'grab' : undefined, touchAction: 'none' }}>{placement.object.english}</div>})}
                     <div style={{ position: 'absolute', inset: 0, borderRadius: 18, boxShadow: 'inset 0 0 0 4px #fffdf8', pointerEvents: 'none' }} />
                 </>}
             </div>
+            {!opening && layout.sceneHeight > 0 && <div style={{ position: 'absolute', zIndex: 3, left: layout.sceneLeft, top: layout.sceneTop, width: layout.sceneWidth }}><SceneCards project={p} currentId={current?.id} /></div>}
             {!opening && frame >= t.captionFrom && <>
                 <div style={{ position: 'absolute', left: photo.x + photo.width - 102, top: photo.y - 12, width: 72, height: 18, background: '#f4c95dc7', transform: 'rotate(-4deg)' }} />
-                <div data-film-description style={{ position: 'absolute', top: layout.descriptionTop, left: layout.textLeft, width: textWidth, minHeight: 140, padding: 17, boxSizing: 'border-box', overflow: 'hidden', background: 'rgba(255,253,248,.94)', borderRadius: 22, border: '1px solid rgba(36,33,30,.08)', boxShadow: '2px 3px 0 rgba(36,33,30,.1)' }}>
+                <div data-film-description style={{ position: 'absolute', zIndex: 4, top: layout.descriptionTop, left: layout.textLeft, width: textWidth, minHeight: 140, padding: 17, boxSizing: 'border-box', overflow: 'hidden', background: 'rgba(255,253,248,.94)', borderRadius: 22, border: '1px solid rgba(36,33,30,.08)', boxShadow: '2px 3px 0 rgba(36,33,30,.1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ fontFamily: mono, fontSize: 10, fontWeight: 900, letterSpacing: 1.6, color: '#d2765f' }}>❝PHOTO NOTE</span></div>
-                    <div style={{ ...twoLines, fontFamily: serif, fontSize: p.caption.length > 120 ? 17 : 20, lineHeight: 1.25, fontWeight: 700, color: 'rgba(36,33,30,.86)' }}>{p.caption}</div>
-                    <div style={{ ...twoLines, marginTop: p.caption && p.captionChinese ? 8 : 0, fontSize: p.captionChinese.length > 60 ? 14 : 16, lineHeight: 1.35, fontWeight: 600, color: 'rgba(36,33,30,.56)' }}>{p.captionChinese}</div>
+                    <SceneSentence width={textWidth} english={p.interaction?.enabled && frame >= t.interactionFrom ? p.interaction.english : p.caption} chinese={p.interaction?.enabled && frame >= t.interactionFrom ? p.interaction.chinese : p.captionChinese} vocabulary={p.interaction?.enabled && frame >= t.interactionFrom ? [] : readingWords(p.words).map(word => word.english)} />
                     <div style={{ position: 'absolute', top: -7, left: '42%', width: 82, height: 16, background: 'rgba(143,196,217,.55)', transform: 'rotate(-2deg)' }} />
                 </div>
             </>}
-            <div style={{ position: 'absolute', top: opening ? layout.shutterTop : frame >= t.captionFrom ? layout.closingTop : layout.wordTop, left: layout.textLeft, width: textWidth, textAlign: 'center', height: opening ? 104 : 92, overflow: 'hidden' }}>
+            {!opening && p.interaction?.enabled && p.interaction.arrowEnabled && frame >= t.interactionFrom && <InteractionArrow
+                photo={layout.photoImage}
+                descriptionTop={layout.descriptionTop}
+                target={p.interaction.arrowTarget ?? { x: .5, y: .45 }}
+                progress={interpolate(frame-t.interactionFrom, [0, 12], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })}
+                onMove={onInteractionTargetMove}
+                onDragStart={onAnnotationDragStart}
+            />}
+            <div style={{ position: 'absolute', zIndex: layout.wordOverPhoto ? 4 : undefined, top: opening ? layout.shutterTop : frame >= t.captionFrom ? layout.closingTop : layout.wordTop, left: layout.textLeft, width: textWidth, textAlign: 'center', height: opening ? 104 : layout.wordDetailHeight, overflow: 'hidden', boxSizing: 'border-box', padding: !opening && layout.wordOverPhoto ? '8px 12px' : undefined, borderRadius: !opening && layout.wordOverPhoto ? 18 : undefined, background: !opening && layout.wordOverPhoto ? 'rgba(255,253,248,.92)' : undefined }}>
                 {opening ? <><div style={center}><div style={{ width: 64, height: 64, borderRadius: '50%', background: sun, border: '5px solid #ffffffe6', boxShadow: shutterScale < .95 ? '0 2px 5px #0005, 0 0 0 8px #f4c95d38' : '0 6px 12px #0004', transform: `scale(${shutterScale})` }} /></div><div style={{ fontSize: 14, marginTop: 14 }}>随手一拍，发现身边的英语</div></> : current ? <>
                     <div style={{ ...twoLines, fontFamily: serif, fontSize: current.english.length > 22 ? 22 : 34, fontWeight: 700, lineHeight: 1.05 }}>{current.english}</div>
-                    <div style={{ fontSize: 16, lineHeight: 1.2, marginTop: 7, color: '#6d6358', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{current.ipa} <span style={{ marginLeft: 10 }}>{current.chinese}</span></div>
-                    <div style={{ fontFamily: mono, fontSize: 10, marginTop: 9, letterSpacing: 2 }}>{String(wordIndex + 1).padStart(2, '0')} / {String(p.words.length).padStart(2, '0')} · 跟我读</div>
+                    <div style={{ fontSize: 18, lineHeight: 1.25, marginTop: 7, color: '#6d6358', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ fontSize: 14, fontWeight: 800, color: '#8a6540', marginRight: 10 }}>{current.kind === 'action' ? '动作词' : current.kind === 'state' ? '状态词' : '物体词'}</span>{current.ipa} <span style={{ marginLeft: 12 }}>{current.chinese}</span></div>
+                    <div style={{ fontFamily: mono, fontSize: 12, marginTop: 10, letterSpacing: 2 }}>{String(wordIndex + 1).padStart(2, '0')} / {String(p.words.length).padStart(2, '0')} · 跟我读</div>
                 </> : <></>}
             </div>
             {!direct && frame >= t.intro && frame < t.intro + 5 && <div style={{ position: 'absolute', inset: 0, background: 'white', opacity: (5-(frame-t.intro))/5 }} />}
@@ -128,5 +139,6 @@ export function Film({ project: p, onAnnotationMove, onAnnotationDragStart }: { 
         {!direct && <Sequence from={Math.max(0, t.intro - 3)} durationInFrames={45}><Audio src={staticFile('camera-shutter.mp3')} volume={0.72} pauseWhenBuffering /></Sequence>}
         {t.words.map(({ word, from, audioFrames }) => word.audio ? <Sequence key={word.id} from={from + AUDIO_LEAD_FRAMES} durationInFrames={audioFrames + AUDIO_TAIL_FRAMES}><Audio src={word.audio} pauseWhenBuffering /></Sequence> : null)}
         {p.captionAudio && <Sequence from={t.captionFrom + AUDIO_LEAD_FRAMES} durationInFrames={t.captionAudioFrames + AUDIO_TAIL_FRAMES}><Audio src={p.captionAudio} pauseWhenBuffering /></Sequence>}
+        {p.interaction?.enabled && p.interaction.audio && <Sequence from={t.interactionFrom + AUDIO_LEAD_FRAMES} durationInFrames={t.interactionAudioFrames + AUDIO_TAIL_FRAMES}><Audio src={p.interaction.audio} pauseWhenBuffering /></Sequence>}
     </AbsoluteFill>;
 }

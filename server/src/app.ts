@@ -13,6 +13,7 @@ import { registerMembershipRoute } from "./routes/membership.js";
 import { registerRecognitionFeedbackRoute } from "./routes/recognition-feedback.js";
 import { registerStoreRoutes } from "./routes/store.js";
 import { registerSocialCopyRoute } from "./routes/social-copy.js";
+import { registerStudioSceneRoute } from './routes/studio-scene.js';
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
 import { errorFields, type LogLevel, type Logger } from "./utils/logger.js";
 
@@ -61,6 +62,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
     logger,
   });
   registerSocialCopyRoute(app, { provider, videoStudioAccessToken: config.videoStudioAccessToken, logger });
+  registerStudioSceneRoute(app, { provider, videoStudioAccessToken: config.videoStudioAccessToken });
   registerVocabularyRoute(app, {
     provider,
     providerName: config.vision.name,

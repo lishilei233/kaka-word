@@ -95,9 +95,11 @@ export const socialCopySchema = z.object({
 });
 export type SocialCopy = z.infer<typeof socialCopySchema>;
 export type SocialCopyInput = {
+  sceneTheme?: string;
+  interaction?: { english: string; chinese: string };
   caption: string;
   captionChinese: string;
-  words: { english: string; chinese: string }[];
+  words: { english: string; chinese: string; ipa?: string; kind?: 'object' | 'action' | 'state' }[];
   highlightedWords: string[];
   signal?: AbortSignal;
 };
@@ -115,6 +117,7 @@ export type CaptionVariantsInput = {
 };
 
 export interface VisionProvider {
+  analyzeStudioScene?(input: import('./studio-scene.js').StudioSceneInput): Promise<import('./studio-scene.js').StudioScene>;
   analyze(input: VisionInput): Promise<AnalyzeResult>;
   analyzeStream?(
     input: VisionInput,

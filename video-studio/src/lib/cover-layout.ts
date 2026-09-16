@@ -1,10 +1,12 @@
 import { annotationHighlight } from '../video/annotation-style';
-import { filmLayout } from './film-layout';
+import { filmLayout, SCENE_CARD_GAP, SCENE_CARD_HEIGHT } from './film-layout';
 import { annotationLayout, completeAnnotationLayout } from './annotation-layout';
-import type { Project, CoverConfig } from './project';
+import { objectWords, sceneWords, type Project, type CoverConfig } from './project';
 
-export const defaultCover: CoverConfig = { template: 'learning-card', scale: 1, words: {} };
+export const defaultCover: CoverConfig = { template: 'learning-card', scale: 1.3, words: {} };
 export function coverLayout(project: Project) {
+    const sceneRows = Math.ceil(sceneWords(project.words).length / 2);
+    const sceneHeight = sceneRows ? (sceneRows * SCENE_CARD_HEIGHT + (sceneRows - 1) * SCENE_CARD_GAP) * 2 : 0;
     const scale = Math.max(1080 / project.imageWidth, 1440 / project.imageHeight);
     const width = project.imageWidth * scale, height = project.imageHeight * scale;
     const photo = { x: (1080-width)/2, y: (1440-height)/2, width, height };
@@ -15,8 +17,8 @@ export function coverLayout(project: Project) {
     });
     const config = project.cover ?? defaultCover;
     const videoFrame = filmLayout(project).photoImage;
-    const videoLayout = annotationLayout(project.words, videoFrame);
-    const objects = project.words.map(word => {
+    const videoLayout = annotationLayout(objectWords(project.words), videoFrame);
+    const objects = objectWords(project.words).map(word => {
         const placement = videoLayout.placements.find(p => p.id === word.id);
         const inherited = placement ? { x: (placement.labelCenter.x-videoFrame.x)/videoFrame.width, y: (placement.labelCenter.y-videoFrame.y)/videoFrame.height } : word.labelCenterOverride;
         const labelScale = 2 * config.scale * (config.words[word.id]?.scale ?? 1) * (config.words[word.id]?.highlighted ? annotationHighlight.scale : 1);
@@ -31,13 +33,14 @@ export function coverLayout(project: Project) {
     const conflicts = new Set<string>();
     for (const p of layout.placements) {
         const a = p.labelFrame;
-        if (a.x < 10-.001 || a.y < 10-.001 || a.x+a.width > 1070+.001 || a.y+a.height > 1430+.001) conflicts.add(p.id);
+        if (a.x < viewport.x+10-.001 || a.y < viewport.y+10-.001 || a.x+a.width > viewport.x+viewport.width-10+.001 || a.y+a.height > viewport.y+viewport.height-10+.001) conflicts.add(p.id);
         for (const q of layout.placements) {
             const b = q.labelFrame;
             if (p.id !== q.id && a.x < b.x+b.width && a.x+a.width > b.x && a.y < b.y+b.height && a.y+a.height > b.y) { conflicts.add(p.id); conflicts.add(q.id); }
         }
     }
-    return { ...layout, photo, conflicts: [...conflicts] };
+    for (const word of project.words) if ((word.kind ?? 'object') === 'object' && (!word.box || word.needsLocation)) conflicts.add(word.id);
+    return { ...layout, photo, sceneTop: 1440 - 24 - sceneHeight, sceneLeft: 24, sceneWidth: 1032, sceneHeight, conflicts: [...conflicts] };
 }
 export function coverExportReady(project: Project) {
     return !!project.image && project.words.length > 0 && project.words.every(w => w.english.trim()) && coverLayout(project).conflicts.length === 0;

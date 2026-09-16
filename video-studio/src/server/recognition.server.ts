@@ -1,4 +1,18 @@
 import { randomUUID } from 'node:crypto';
+import { studioSceneSchema } from '../../../server/src/core/image-analysis/studio-scene.ts';
+
+export async function analyzeScene(bytes: Uint8Array, maxWords: number, context: string, signal?: AbortSignal, transport: typeof fetch = fetch) {
+    const form = new FormData();
+    form.set('image', new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }), 'photo.jpg');
+    form.set('maxWords', String(maxWords)); form.set('context', context);
+    const response = await transport(`${(process.env.SERVER_API_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '')}/v1/studio/scene`, {
+        method: 'POST', body: form, redirect: 'error', headers: { Authorization: `Bearer ${process.env.SERVER_ACCESS_TOKEN ?? ''}` },
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || '场景分析失败');
+    return studioSceneSchema.parse(result);
+}
 import { analyzeResultSchema } from '../../../server/src/core/image-analysis/types.ts';
 import { captionVariantsSchema, socialCopySchema, type CaptionVariantsInput, type SocialCopyInput } from '../../../server/src/core/image-analysis/types.ts';
 import { readSSEData } from '../../../server/src/core/image-analysis/streaming-json.ts';

@@ -24,7 +24,7 @@ export function PublishPanel({ project, update }: { project: Project; update: (p
             return <article className={`publish-card publish-${id}`} key={id}>
                 <header><span>{String(index + 1).padStart(2, '0')}</span><div><small>{eyebrow}</small><h2>{label}</h2></div><Button variant="ghost" size="sm" onClick={() => void copy(id)}>复制全文</Button></header>
                 <label>标题<input value={post.title} maxLength={80} onChange={event => edit(id, { title: event.target.value })} /></label>
-                <label>正文<textarea value={post.body} maxLength={1000} onChange={event => edit(id, { body: event.target.value })} /></label>
+                <label>正文<textarea value={post.body} maxLength={4000} onChange={event => edit(id, { body: event.target.value })} /></label>
                 <label>话题标签<input value={post.hashtags.join(' ')} onChange={event => edit(id, { hashtags: event.target.value.split(/[\s#，,]+/).filter(Boolean).slice(0, 12) })} /></label>
                 <div className="publish-tags">{post.hashtags.map(tag => <span key={tag}>#{tag}</span>)}</div>
             </article>;

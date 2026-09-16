@@ -1,13 +1,18 @@
 import type { CaptionStyle } from "./types.js";
 
 export function socialCopyPrompt(input: {
+  sceneTheme?: string;
+  interaction?: { english: string; chinese: string };
   caption: string;
   captionChinese: string;
   words: { english: string; chinese: string }[];
   highlightedWords: string[];
 }): string {
   return `You write Chinese social media copy for Kakaword, an app that finds English words in everyday photos.
-Create platform-specific copy from this learning card. Stay faithful to the supplied photo description and vocabulary. Do not invent visual details, claims, prices, links, or app features. Keep English words exactly as supplied.
+Create platform-specific copy from this learning card. Stay faithful to the supplied photo description and vocabulary. Do not invent visual details, claims, prices, links, or app features. Keep English words exactly as supplied. Titles should clearly name the everyday scene, beginner audience or practical learning value; use the actual number of supplied words if naming a count. Avoid empty guessing hooks.
+
+Scene theme: ${JSON.stringify(input.sceneTheme ?? '')}
+Optional interaction: ${JSON.stringify(input.interaction ?? null)}
 
 Photo: ${JSON.stringify(input.caption)}
 Chinese photo description: ${JSON.stringify(input.captionChinese)}
@@ -35,11 +40,11 @@ Visible vocabulary: ${JSON.stringify(input.words)}
 
 Return JSON only:
 {
-  "serious": { "caption": "accurate natural English", "captionChinese": "自然简体中文" },
-  "funny": { "caption": "playful friendly English", "captionChinese": "自然简体中文" },
-  "literary": { "caption": "vivid restrained English", "captionChinese": "自然简体中文" }
+  "serious": { "caption": "accurate natural English", "captionChinese": "自然灵动、口语化的简体中文" },
+  "funny": { "caption": "playful friendly English", "captionChinese": "自然灵动、口语化的简体中文" },
+  "literary": { "caption": "vivid restrained English", "captionChinese": "自然灵动、口语化的简体中文" }
 }
-Each English version must be exactly one beginner-friendly sentence, no more than 24 words. Preserve the facts in the verified description. Gentle humor is allowed, but never mock people or infer sensitive traits.`;
+Each English version must be exactly one beginner-friendly sentence, no more than 24 words. Preserve and naturally reuse supplied vocabulary, especially action and state terms when supported; do not force every word. Translate each version into lively, idiomatic, conversational simplified Chinese; do not translate word-for-word or use stiff textbook phrasing. Preserve the facts in the verified description. Gentle humor is allowed, but never mock people or infer sensitive traits.`;
 }
 
 export function learningObjectPrompt(
@@ -85,7 +90,7 @@ Coordinates must be normalized from 0 to 1, with box x/y as the top-left corner.
 
 First decide whether the object itself exists and can be located reliably. If not, skip it. If it can be located and its precise name is clear, set confirmationStatus to "confirmed" and omit candidates. If it can be located but 2 or more similar names are genuinely plausible, keep the object, set confirmationStatus to "needsConfirmation", and return 2 or 3 candidates ordered most likely first. Each candidate must contain english, chinese, ipa, example, and exampleChinese. The top-level vocabulary fields must exactly match the first candidate. Do not invent weak alternatives. Never output "userConfirmed"; the app reserves it for a learner's choice.
 
-${captionInstruction} The caption must be exactly one beginner-friendly sentence and no more than 24 words. Translate the caption into one natural, short simplified-Chinese sentence in captionChinese. Do not include markdown fences or commentary.`;
+${captionInstruction} When visible vocabulary is available, naturally use one or more supplied English words, prioritizing supported actions and states; never force awkward grammar. The caption must be exactly one beginner-friendly sentence and no more than 24 words. Translate the caption into one lively, idiomatic, conversational simplified-Chinese sentence in captionChinese; do not translate word-for-word or use stiff textbook phrasing. Do not include markdown fences or commentary.`;
 }
 
 export function qwenLearningObjectPrompt(
@@ -129,7 +134,7 @@ bbox must be [x1, y1, x2, y2] relative to the original image and normalized to i
 
 First decide whether the object itself exists and can be located reliably. If not, skip it. If it can be located and its precise name is clear, set confirmationStatus to "confirmed" and omit candidates. If it can be located but 2 or more similar names are genuinely plausible, keep the object, set confirmationStatus to "needsConfirmation", and return 2 or 3 candidates ordered most likely first. Each candidate must contain english, chinese, ipa, example, and exampleChinese. The top-level vocabulary fields must exactly match the first candidate. Do not invent weak alternatives. Never output "userConfirmed"; the app reserves it for a learner's choice.
 
-${captionInstruction} The caption must be exactly one beginner-friendly sentence and no more than 24 words. Translate the caption into one natural, short simplified-Chinese sentence in captionChinese. Do not output markdown or commentary.`;
+${captionInstruction} When visible vocabulary is available, naturally use one or more supplied English words, prioritizing supported actions and states; never force awkward grammar. The caption must be exactly one beginner-friendly sentence and no more than 24 words. Translate the caption into one lively, idiomatic, conversational simplified-Chinese sentence in captionChinese; do not translate word-for-word or use stiff textbook phrasing. Do not output markdown or commentary.`;
 }
 
 function masteredWordsInstruction(masteredWords: string[]): string {

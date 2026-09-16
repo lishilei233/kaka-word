@@ -25,7 +25,9 @@ export const voiceOptions = [
 const currentWordSchema = z.object({
     id: z.string().min(1).max(80), english: z.string().trim().min(1).max(60),
     chinese: z.string().max(60), ipa: z.string().max(80),
-    box: boxSchema, labelCenterOverride: pointSchema.optional(), targetCenterOverride: pointSchema.optional(),
+    kind: z.enum(['object', 'action', 'state']).optional(),
+    needsLocation: z.boolean().optional(),
+    box: boxSchema.optional(), labelCenterOverride: pointSchema.optional(), targetCenterOverride: pointSchema.optional(),
     audio: z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.wav$/).optional(),
     audioSeconds: z.number().positive().max(30).optional(),
 });
@@ -33,12 +35,12 @@ const legacyWordSchema = currentWordSchema.omit({ box: true, labelCenterOverride
 const imageAsset = z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.jpg$/);
 export const captionVariantSchema = z.object({ caption: z.string().max(220), captionChinese: z.string().max(220) });
 const captionVariantsSchema = z.object({ serious: captionVariantSchema, funny: captionVariantSchema, literary: captionVariantSchema });
-export const socialPostSchema = z.object({ title: z.string().max(80), body: z.string().max(1000), hashtags: z.array(z.string().max(40)).max(12) });
+export const socialPostSchema = z.object({ title: z.string().max(80), body: z.string().max(4000), hashtags: z.array(z.string().max(40)).max(12) });
 export const socialCopySchema = z.object({ xiaohongshu: socialPostSchema, douyin: socialPostSchema, channels: socialPostSchema });
 export type SocialCopy = z.infer<typeof socialCopySchema>;
 export const coverSchema = z.object({
     template: z.literal('learning-card').default('learning-card'),
-    scale: z.number().min(.6).max(1.6).default(1),
+    scale: z.number().min(.6).max(1.6).default(1.3),
     words: z.record(z.object({
         scale: z.number().min(.75).max(1.5).default(1),
         highlighted: z.boolean().optional(),
@@ -48,6 +50,13 @@ export const coverSchema = z.object({
 });
 export type CoverConfig = z.infer<typeof coverSchema>;
 const projectFields = {
+    analysisMode: z.enum(['objects', 'scene']).optional(),
+    sceneContext: z.string().max(500).optional(),
+    sceneTheme: z.string().max(100).optional(),
+    interaction: z.object({ enabled: z.boolean(), english: z.string().max(220), chinese: z.string().max(220),
+        arrowEnabled: z.boolean().optional(), arrowTarget: pointSchema.optional(),
+        audio: z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.wav$/).optional(), audioSeconds: z.number().positive().max(60).optional() }).optional(),
+    socialCopyStale: z.boolean().optional(),
     cover: coverSchema.optional(),
     title: z.string().max(80),
     caption: z.string().max(220).default(''), captionChinese: z.string().max(220).default(''),
@@ -77,15 +86,22 @@ export const projectSchema = z.preprocess(input => {
     })) };
 }, currentProjectSchema).superRefine((p, ctx) => {
     if (new Set(p.words.map(w => w.id)).size !== p.words.length) ctx.addIssue({ code: 'custom', message: '单词 ID 不能重复' });
+    if (p.words.some(w => (w.kind ?? 'object') === 'object' && !w.box && !w.needsLocation)) ctx.addIssue({ code: 'custom', message: '物体词需要定位或标记待定位' });
 });
 export const wordSchema = currentWordSchema;
 export type Word = z.infer<typeof wordSchema>;
 export type Project = z.infer<typeof projectSchema>;
+export function objectWords(words: Word[]) {
+    return words.filter((w): w is Word & { box: NonNullable<Word['box']> } => (w.kind ?? 'object') === 'object' && !!w.box && !w.needsLocation);
+}
+export function sceneWords(words: Word[]) { return words.filter(w => w.kind === 'action' || w.kind === 'state'); }
+export function readingWords(words: Word[]) { return [...words.filter(w => (w.kind ?? 'object') === 'object'), ...sceneWords(words)]; }
 export const FPS = 30;
 export const AUDIO_LEAD_FRAMES = 6;
 export const AUDIO_TAIL_FRAMES = 9;
 export const CAPTION_FRAMES = 90;
 export const emptyProject: Project = {
+    analysisMode: 'scene', sceneContext: '',
     version: 2, title: '生活里的英语', caption: '', captionChinese: '', selectedCaptionStyle: 'serious', videoTemplate: 'direct', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
     safeTop: 120, safeBottom: 240, safeRight: 0, imageWidth: 4, imageHeight: 3,
     captureSeconds: 2, introSeconds: 2, pauseSeconds: 1.2, words: [],
@@ -94,7 +110,7 @@ export function timeline(p: Project) {
     const intro = p.videoTemplate === 'direct' ? Math.round(.5 * FPS) : Math.round(p.introSeconds * FPS);
     const reveal = p.videoTemplate === 'direct' ? 0 : 45;
     let cursor = intro + reveal;
-    const words = p.words.map(word => {
+    const words = readingWords(p.words).map(word => {
         const from = cursor;
         const audioFrames = Math.ceil((word.audioSeconds ?? 1) * FPS);
         const pauseFrames = Math.ceil(p.pauseSeconds * FPS);
@@ -105,7 +121,10 @@ export function timeline(p: Project) {
     const captionFrom = cursor;
     const captionAudioFrames = Math.ceil((p.captionAudioSeconds ?? 0) * FPS);
     const caption = Math.max(CAPTION_FRAMES, AUDIO_LEAD_FRAMES + captionAudioFrames + AUDIO_TAIL_FRAMES);
-    return { intro, reveal, words, captionFrom, caption, captionAudioFrames, total: captionFrom + caption };
+    const interactionFrom = captionFrom + caption;
+    const interactionAudioFrames = Math.ceil((p.interaction?.audioSeconds ?? 0) * FPS);
+    const interaction = p.interaction?.enabled ? Math.max(CAPTION_FRAMES, AUDIO_LEAD_FRAMES + interactionAudioFrames + AUDIO_TAIL_FRAMES) : 0;
+    return { intro, reveal, words, captionFrom, caption, captionAudioFrames, interactionFrom, interactionAudioFrames, interaction, total: interactionFrom + interaction };
 }
 export function activeWord(p: Project, frame: number) {
     return timeline(p).words.find(w => frame >= w.from && frame < w.from + w.duration)?.word;
@@ -123,6 +142,11 @@ export function exportReady(p: Project) {
 export function exportBlockers(p: Project): string[] {
     const blockers: string[] = [];
     if (!p.image) blockers.push('缺少照片');
+    if (p.words.some(w => (w.kind ?? 'object') === 'object' && (!w.box || w.needsLocation))) blockers.push('物体词需要完成定位');
+    if (p.interaction?.enabled) {
+        if (!p.interaction.english.trim()) blockers.push('缺少互动句');
+        else if (!p.interaction.audio || !p.interaction.audioSeconds) blockers.push('互动句尚未生成配音');
+    }
     if (!p.words.length) blockers.push('缺少单词');
     else {
         const unnamed = p.words.filter(word => !word.english.trim()).length;

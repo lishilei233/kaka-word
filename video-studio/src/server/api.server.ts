@@ -12,7 +12,8 @@ import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { getImageDimensions } from '../../../server/src/utils/image-dimensions.ts';
 import { projectSchema, exportReady, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
-import { generateCaptionVariants, generateSocialCopy, recognizeImage } from './recognition.server.ts';
+import { analyzeScene, generateCaptionVariants, generateSocialCopy, recognizeImage } from './recognition.server.ts';
+import { learningPost } from '../lib/learning-post.ts';
 
 const exec = promisify(execFile);
 const root = resolve(process.env.STUDIO_DATA_DIR || '.data');
@@ -71,6 +72,7 @@ async function serveFile(req: Request, path: string, download = false): Promise<
 function absoluteProject(p: Project, origin: string): Project {
     return { ...p, image: p.image && origin + p.image, video: p.video && origin + p.video,
         captionAudio: p.captionAudio && origin + p.captionAudio,
+        interaction: p.interaction && { ...p.interaction, audio: p.interaction.audio && origin + p.interaction.audio },
         words: p.words.map(w => ({ ...w, audio: w.audio && origin + w.audio })) };
 }
 async function synthesizeSpeech(text: string, voiceId: string, speed: number, maxSeconds = 30) {
@@ -109,6 +111,10 @@ async function render(id: string, p: Project, origin: string) {
         const composition = await selectComposition({ serveUrl, id: 'Kakaword', inputProps, browserExecutable });
         await renderMedia({ composition, serveUrl, codec: 'h264', inputProps, browserExecutable,
             outputLocation: join(exportsDir, `${id}.mp4`), concurrency: 2,
+            // Photo details and small type degrade badly with Remotion's default
+            // H.264 settings. Render lossless intermediate frames and use a
+            // visually high-quality CRF while retaining social-app compatible MP4.
+            imageFormat: 'png', crf: 16, x264Preset: 'slow', pixelFormat: 'yuv420p', audioBitrate: '192k',
             onProgress: ({ progress }) => state.jobs.set(id, { status: 'rendering', progress }),
         });
         state.jobs.set(id, { status: 'complete', progress: 1, file: `/studio-api/exports/${id}.mp4` });
@@ -159,6 +165,12 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             const name = `${randomUUID()}.${ext}`; await writeFile(join(assets, name), bytes);
             return send({ url: `/studio-api/assets/${name}` });
         }
+        if (req.method === 'POST' && path === '/studio-api/scene') {
+            const input = z.object({ image: z.string(), maxWords: z.number().int().min(4).max(10), context: z.string().max(500).default('') }).parse(await json(req));
+            const bytes = await readFile(assetFile(input.image));
+            if (!input.image.endsWith('.jpg') || !getImageDimensions(bytes)) throw new Error('请先选择有效照片');
+            return send(await analyzeScene(bytes, input.maxWords, input.context, req.signal));
+        }
         if (req.method === 'POST' && path === '/studio-api/analyze') {
             const { image, maxObjects } = z.object({ image: z.string(), maxObjects: z.number().int().min(3).max(10) }).parse(await json(req));
             if (!image.endsWith('.jpg')) throw new Error('请先选取照片帧');
@@ -176,7 +188,8 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         }
         if (req.method === 'POST' && path === '/studio-api/speech') {
             if (state.speechBusy) return send({ error: '正在生成配音，请稍后重试' }, 409);
-            const { words, caption, voiceId, speechSpeed } = z.object({
+            const { words, caption, voiceId, speechSpeed, interaction } = z.object({
+                interaction: z.string().trim().min(1).max(220).optional(),
                 words: z.array(z.object({ id: z.string().max(80), english: z.string().trim().min(1).max(60) })).min(1).max(10),
                 caption: z.string().trim().min(1).max(220),
                 voiceId: voiceIdSchema,
@@ -189,23 +202,27 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
                     output.push({ id: word.id, english: word.english, ...await synthesizeSpeech(word.english, voiceId, speechSpeed) });
                 }
                 const captionSpeech = await synthesizeSpeech(caption, voiceId, speechSpeed, 60);
-                return send({ words: output, captionAudio: captionSpeech.audio, captionAudioSeconds: captionSpeech.audioSeconds });
+                const interactionSpeech = interaction ? await synthesizeSpeech(interaction, voiceId, speechSpeed, 60) : undefined;
+                return send({ words: output, captionAudio: captionSpeech.audio, captionAudioSeconds: captionSpeech.audioSeconds, interactionSpeech });
             } finally { state.speechBusy = false; }
         }
         if (req.method === 'POST' && path === '/studio-api/social-copy') {
             const p = projectSchema.parse(await json(req));
-            return send(await generateSocialCopy({
+            const copy = await generateSocialCopy({
+                sceneTheme: p.sceneTheme,
+                interaction: p.interaction && { english: p.interaction.english, chinese: p.interaction.chinese },
                 caption: p.caption,
                 captionChinese: p.captionChinese,
-                words: p.words.map(({ english, chinese }) => ({ english, chinese })),
+                words: p.words.map(({ english, chinese, ipa, kind }) => ({ english, chinese, ipa, kind })),
                 highlightedWords: p.words.filter(word => p.cover?.words[word.id]?.highlighted).map(word => word.english),
-            }, req.signal));
+            }, req.signal);
+            return send({ ...copy, xiaohongshu: { ...copy.xiaohongshu, body: learningPost(p) } });
         }
         if (req.method === 'POST' && path === '/studio-api/render') {
             const p = projectSchema.parse(await json(req));
             if (!exportReady(p)) throw new Error('请先添加照片、单词并生成全部配音');
             if (state.rendering) return send({ error: '已有导出正在进行，请等待完成' }, 409);
-            await Promise.all([p.image!, p.captionAudio!, ...(p.video ? [p.video] : []), ...p.words.map(w => w.audio!)].map(asset => stat(assetFile(asset))));
+            await Promise.all([p.image!, p.captionAudio!, ...(p.interaction?.enabled ? [p.interaction.audio!] : []), ...(p.video ? [p.video] : []), ...p.words.map(w => w.audio!)].map(asset => stat(assetFile(asset))));
             const id = randomUUID(); state.rendering = true; state.jobs.set(id, { status: 'rendering', progress: 0 });
             void render(id, p, url.origin);
             return send({ id }, 202);
