@@ -25,13 +25,13 @@
 
 | ID | 类型 | 优先级 | 状态 | 标题 | 详细记录 |
 | --- | --- | --- | --- | --- | --- |
-| TODO-004 | feature | P1 | 待验证 | 提升物体识别准确率，降低相似物体误识别 | [TODO-004](./todos/active/TODO-004.md) |
+| TODO-004 | bug | P1 | 待验证 | 通过移动物体范围修正引导线指向 | [TODO-004](./todos/active/TODO-004.md) |
 | TODO-010 | feature | P2 | 已完成 | 记录匿名聚合的识别纠错与候选确认数据 | [TODO-010](./todos/active/TODO-010.md) |
 | TODO-012 | feature | P2 | 已完成 | 基于已掌握词的自动个性化推荐 | [TODO-012](./todos/active/TODO-012.md) |
 | TODO-013 | ui | P2 | 待分析 | 统一并优化 App 整体 UI 风格 | [TODO-013](./todos/active/TODO-013.md) |
 | TODO-014 | feature | P2 | 已完成 | 在单词详情 Sheet 中展示物体图片 | [TODO-014](./todos/active/TODO-014.md) |
-| TODO-015 | feature | P2 | 待分析 | 建立仅支持 Apple 登录的用户系统 | [TODO-015](./todos/active/TODO-015.md) |
-| TODO-016 | feature | P2 | 待分析 | 支持通过 iCloud 跨设备同步学习数据 | [TODO-016](./todos/active/TODO-016.md) |
+| TODO-015 | feature | P2 | 暂缓 | 建立仅支持 Apple 登录的用户系统 | [TODO-015](./todos/active/TODO-015.md) |
+| TODO-016 | feature | P2 | 暂缓 | 支持通过 iCloud 跨设备同步学习数据 | [TODO-016](./todos/active/TODO-016.md) |
 | TODO-017 | feature | P2 | 已完成 | 评估并支持英语发音音色选择 | [TODO-017](./todos/active/TODO-017.md) |
 | TODO-018 | bug | P1 | 已完成 | 修复历史 StoreKit 交易触发重复权益同步和启动卡顿 | [TODO-018](./todos/active/TODO-018.md) |
 

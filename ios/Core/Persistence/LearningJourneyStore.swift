@@ -1,61 +1,47 @@
 import Foundation
-
-private struct LearningJourneySnapshot: Codable {
-    var progress: MissionProgress
-    var stickers: [StickerRecord]
-}
+import SwiftData
 
 @MainActor
 final class LearningJourneyStore: ObservableObject {
     @Published private(set) var progress: MissionProgress
     @Published private(set) var stickers: [StickerRecord]
 
+    private let context: ModelContext
     private let calendar: Calendar
     private let now: () -> Date
-    private let fileURL: URL
 
-    init(
-        fileManager: FileManager = .default,
-        calendar: Calendar = .current,
-        now: @escaping () -> Date = Date.init
-    ) {
+    init(container: ModelContainer, calendar: Calendar = .current, now: @escaping () -> Date = Date.init) {
+        context = ModelContext(container)
         self.calendar = calendar
         self.now = now
-
-        let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        let directory = (support ?? fileManager.temporaryDirectory)
-            .appendingPathComponent("PictureWord", isDirectory: true)
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        fileURL = directory.appendingPathComponent("learning-journey.json")
-
-        if let data = try? Data(contentsOf: fileURL),
-           let snapshot = try? JSONDecoder.learningJourney.decode(LearningJourneySnapshot.self, from: data) {
-            progress = snapshot.progress
-            stickers = snapshot.stickers.sorted { $0.earnedAt > $1.earnedAt }
-        } else {
-            progress = Self.freshProgress(for: now(), calendar: calendar)
-            stickers = []
-        }
-
+        progress = Self.freshProgress(for: now(), calendar: calendar)
+        stickers = []
+        reload()
         refreshForTodayIfNeeded()
     }
 
+    convenience init() {
+        self.init(container: try! PersistenceController.makeContainer(inMemory: true))
+    }
+
     var currentMission: DailyMission {
-        DailyMissionCatalog.missions.first { $0.id == progress.missionID }
-            ?? DailyMissionCatalog.missions[0]
+        DailyMissionCatalog.missions.first { $0.id == progress.missionID } ?? DailyMissionCatalog.missions[0]
     }
-
-    var completedCount: Int {
-        min(progress.recognizedWords.count, currentMission.targetCount)
-    }
-
+    var completedCount: Int { min(progress.recognizedWords.count, currentMission.targetCount) }
     var isComplete: Bool { progress.completedAt != nil }
 
+    func reload() {
+        var descriptor = FetchDescriptor<MissionProgressEntity>(predicate: #Predicate { $0.id == "current" })
+        descriptor.fetchLimit = 1
+        if let entity = try? context.fetch(descriptor).first { progress = PersistenceMapper.missionProgress(from: entity) }
+        let stickerDescriptor = FetchDescriptor<StickerEntity>(sortBy: [SortDescriptor(\.earnedAt, order: .reverse)])
+        stickers = ((try? context.fetch(stickerDescriptor)) ?? []).map(PersistenceMapper.sticker)
+    }
+
     func refreshForTodayIfNeeded() {
-        let today = dayKey(for: now())
-        guard progress.dayKey != today else { return }
+        guard progress.dayKey != dayKey(for: now()) else { return }
         progress = Self.freshProgress(for: now(), calendar: calendar)
-        persist()
+        persistProgress()
     }
 
     func switchToNextMission() {
@@ -63,14 +49,8 @@ final class LearningJourneyStore: ObservableObject {
         let missions = DailyMissionCatalog.missions
         let currentIndex = missions.firstIndex { $0.id == progress.missionID } ?? 0
         let next = missions[(currentIndex + 1) % missions.count]
-        progress = MissionProgress(
-            dayKey: progress.dayKey,
-            missionID: next.id,
-            recognizedWords: [],
-            completedAt: nil,
-            stickerID: nil
-        )
-        persist()
+        progress = MissionProgress(dayKey: progress.dayKey, missionID: next.id, recognizedWords: [], completedAt: nil, stickerID: nil)
+        persistProgress()
     }
 
     @discardableResult
@@ -78,75 +58,45 @@ final class LearningJourneyStore: ObservableObject {
         refreshForTodayIfNeeded()
         let mission = currentMission
         let existing = Set(progress.recognizedWords)
-        let incoming = objects
-            .map { normalize($0.english) }
-            .filter { !$0.isEmpty }
+        let incoming = objects.map { normalize($0.english) }.filter { !$0.isEmpty }
         let newlyAdded = Array(Set(incoming).subtracting(existing)).sorted()
-
         if !newlyAdded.isEmpty {
             progress.recognizedWords.append(contentsOf: newlyAdded)
             progress.recognizedWords = Array(Set(progress.recognizedWords)).sorted()
         }
-
         var completedNow = false
         var earnedSticker: StickerRecord?
         if progress.completedAt == nil, progress.recognizedWords.count >= mission.targetCount {
             let date = now()
             let stickerID = "\(progress.dayKey)-\(mission.id)"
-            let sticker = StickerRecord(
-                id: stickerID,
-                earnedAt: date,
-                missionID: mission.id,
-                title: mission.stickerTitle,
-                symbol: mission.symbol
-            )
+            let sticker = StickerRecord(id: stickerID, earnedAt: date, missionID: mission.id, title: mission.stickerTitle, symbol: mission.symbol)
             progress.completedAt = date
             progress.stickerID = stickerID
             completedNow = true
             if !stickers.contains(where: { $0.id == stickerID }) {
                 stickers.insert(sticker, at: 0)
+                context.insert(StickerEntity(record: sticker))
                 earnedSticker = sticker
             }
         }
-
-        persist()
-        return MissionUpdate(
-            count: min(progress.recognizedWords.count, mission.targetCount),
-            target: mission.targetCount,
-            newlyAdded: newlyAdded,
-            completedNow: completedNow,
-            sticker: earnedSticker
-        )
+        persistProgress()
+        return MissionUpdate(count: min(progress.recognizedWords.count, mission.targetCount), target: mission.targetCount, newlyAdded: newlyAdded, completedNow: completedNow, sticker: earnedSticker)
     }
 
-    private func persist() {
-        let snapshot = LearningJourneySnapshot(progress: progress, stickers: stickers)
-        guard let data = try? JSONEncoder.learningJourney.encode(snapshot) else { return }
-        try? data.write(to: fileURL, options: [.atomic, .completeFileProtection])
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        var mutableURL = fileURL
-        try? mutableURL.setResourceValues(values)
+    private func persistProgress() {
+        var descriptor = FetchDescriptor<MissionProgressEntity>(predicate: #Predicate { $0.id == "current" })
+        descriptor.fetchLimit = 1
+        if let existing = try? context.fetch(descriptor).first { context.delete(existing) }
+        context.insert(MissionProgressEntity(progress: progress))
+        try? context.save()
     }
 
-    private func dayKey(for date: Date) -> String {
-        Self.dayFormatter.string(from: date)
-    }
-
-    private func normalize(_ word: String) -> String {
-        word.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
+    private func dayKey(for date: Date) -> String { Self.dayFormatter.string(from: date) }
+    private func normalize(_ word: String) -> String { word.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
     private static func freshProgress(for date: Date, calendar: Calendar) -> MissionProgress {
-        let index = ((calendar.ordinality(of: .day, in: .year, for: date) ?? 1) - 1)
-            % DailyMissionCatalog.missions.count
-        return MissionProgress(
-            dayKey: dayFormatter.string(from: date),
-            missionID: DailyMissionCatalog.missions[index].id,
-            recognizedWords: [],
-            completedAt: nil,
-            stickerID: nil
-        )
+        let index = ((calendar.ordinality(of: .day, in: .year, for: date) ?? 1) - 1) % DailyMissionCatalog.missions.count
+        return MissionProgress(dayKey: dayFormatter.string(from: date), missionID: DailyMissionCatalog.missions[index].id, recognizedWords: [], completedAt: nil, stickerID: nil)
     }
 
     private static let dayFormatter: DateFormatter = {
@@ -156,22 +106,5 @@ final class LearningJourneyStore: ObservableObject {
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
-    }()
-}
-
-private extension JSONEncoder {
-    static let learningJourney: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        return encoder
-    }()
-}
-
-private extension JSONDecoder {
-    static let learningJourney: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
     }()
 }

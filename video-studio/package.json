@@ -1,0 +1,38 @@
+{
+  "name": "kakaword-video-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 3210",
+    "build": "vite build && tsc --noEmit",
+    "test": "node --import tsx --test src/lib/*.test.ts src/server/*.test.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-start": "latest",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "@remotion/player": "latest",
+    "@remotion/bundler": "latest",
+    "@remotion/renderer": "latest",
+    "remotion": "latest",
+    "@radix-ui/react-slot": "latest",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.3.0",
+    "lucide-react": "latest",
+    "zod": "^3.25.28",
+    "dotenv": "^16.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "tailwindcss": "^4.1.0",
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "^5.9.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/node": "^22.15.29",
+    "tsx": "^4.19.4"
+  }
+}

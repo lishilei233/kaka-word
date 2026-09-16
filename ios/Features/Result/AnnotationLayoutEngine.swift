@@ -28,18 +28,14 @@ struct AnnotationLayoutEngine {
 
     private func optimizedPlacements(in imageFrame: CGRect) -> [AnnotationPlacement] {
         guard !objects.isEmpty else { return [] }
-        if let interactive = interactivePlacements(in: imageFrame) {
-            return interactive
-        }
-        // Preserve existing manual placements first. While one label is being
-        // dragged, place it last so it snaps around the other labels instead of
-        // making the rest of the layout jump away from the user's finger.
+        // While dragging, lock the active label first and let colliding labels
+        // reflow around it. Outside editing, preserve existing manual placements.
         let movableObject = objects.first { $0.id == movableObjectID }
-        let orderedObjects = objects.filter {
+        let orderedObjects = [movableObject].compactMap { $0 } + objects.filter {
             $0.id != movableObjectID && $0.labelCenterOverride != nil
         } + objects.filter {
             $0.id != movableObjectID && $0.labelCenterOverride == nil
-        } + [movableObject].compactMap { $0 }
+        }
         let targets = objects.map { targetPoint(for: $0, in: imageFrame) }
 
         // Keep a non-negotiable visual gap. This also leaves enough room for the
@@ -52,114 +48,6 @@ struct AnnotationLayoutEngine {
             spacing: preferredLabelSpacing
         )
         return placementsInOriginalOrder(placements)
-    }
-
-    /// During a drag the view supplies the already rendered centers of every
-    /// other label. Keep those placements frozen and solve only the moving
-    /// label, avoiding a full beam search on every pointer update.
-    private func interactivePlacements(in frame: CGRect) -> [AnnotationPlacement]? {
-        guard
-            let movableObjectID,
-            let movable = objects.first(where: { $0.id == movableObjectID }),
-            objects.filter({ $0.id != movableObjectID }).allSatisfy({ $0.labelCenterOverride != nil })
-        else { return nil }
-
-        let obstacles = objects.compactMap { object -> AnnotationPlacement? in
-            guard object.id != movableObjectID, let center = object.labelCenterOverride else { return nil }
-            return fixedPlacement(
-                for: object,
-                normalizedCenter: center,
-                target: targetPoint(for: object, in: frame),
-                in: frame
-            )
-        }
-        let target = targetPoint(for: movable, in: frame)
-        let preferred = movable.labelCenterOverride.map {
-            fixedPlacement(for: movable, normalizedCenter: $0, target: target, in: frame)
-        } ?? nearbyPlacements(for: movable, target: target, in: frame).first
-        guard let preferred else { return placementsInOriginalOrder(obstacles) }
-
-        let candidates = interactiveCandidates(
-            for: movable,
-            preferred: preferred,
-            target: target,
-            obstacles: obstacles,
-            in: frame
-        )
-        let resolved = candidates.first { candidate in
-            let protectedFrame = candidate.labelFrame.insetBy(
-                dx: -preferredLabelSpacing / 2,
-                dy: -preferredLabelSpacing / 2
-            )
-            return !obstacles.contains {
-                protectedFrame.intersects(
-                    $0.labelFrame.insetBy(
-                        dx: -preferredLabelSpacing / 2,
-                        dy: -preferredLabelSpacing / 2
-                    )
-                )
-            }
-        }
-        return placementsInOriginalOrder(obstacles + [resolved].compactMap { $0 })
-    }
-
-    private func interactiveCandidates(
-        for object: LearningObject,
-        preferred: AnnotationPlacement,
-        target: CGPoint,
-        obstacles: [AnnotationPlacement],
-        in frame: CGRect
-    ) -> [AnnotationPlacement] {
-        let width = preferred.labelWidth
-        let height = preferred.labelHeight
-        let minX = frame.minX + 8 + width / 2
-        let maxX = frame.maxX - 8 - width / 2
-        let minY = frame.minY + 8 + height / 2
-        let maxY = frame.maxY - 8 - height / 2
-        let proposed = preferred.labelCenter
-        var candidates = [preferred]
-
-        // Candidate centers tangent to each obstacle give a much smaller and
-        // smoother snap than jumping by a whole label width.
-        for obstacle in obstacles {
-            let horizontal = obstacle.labelWidth / 2 + width / 2 + preferredLabelSpacing
-            let vertical = obstacle.labelHeight / 2 + height / 2 + preferredLabelSpacing
-            let rawCenters = [
-                CGPoint(x: obstacle.labelCenter.x - horizontal, y: proposed.y),
-                CGPoint(x: obstacle.labelCenter.x + horizontal, y: proposed.y),
-                CGPoint(x: proposed.x, y: obstacle.labelCenter.y - vertical),
-                CGPoint(x: proposed.x, y: obstacle.labelCenter.y + vertical),
-                CGPoint(x: obstacle.labelCenter.x - horizontal, y: obstacle.labelCenter.y - vertical),
-                CGPoint(x: obstacle.labelCenter.x + horizontal, y: obstacle.labelCenter.y - vertical),
-                CGPoint(x: obstacle.labelCenter.x - horizontal, y: obstacle.labelCenter.y + vertical),
-                CGPoint(x: obstacle.labelCenter.x + horizontal, y: obstacle.labelCenter.y + vertical),
-            ]
-            candidates.append(contentsOf: rawCenters.map { center in
-                makePlacement(
-                    for: object,
-                    rawCenter: center,
-                    target: target,
-                    width: width,
-                    height: height,
-                    minX: minX,
-                    maxX: maxX,
-                    minY: minY,
-                    maxY: maxY
-                )
-            })
-        }
-        candidates.append(contentsOf: gridPlacements(for: object, target: target, in: frame))
-
-        var seenCenters = Set<String>()
-        return candidates
-            .filter { placement in
-                let key = "\(Int(placement.labelCenter.x.rounded())):\(Int(placement.labelCenter.y.rounded()))"
-                return seenCenters.insert(key).inserted
-            }
-            .sorted {
-                squaredDistance(from: $0.labelCenter, to: proposed)
-                    < squaredDistance(from: $1.labelCenter, to: proposed)
-            }
     }
 
     private func searchedPlacements(
@@ -242,10 +130,7 @@ struct AnnotationLayoutEngine {
         let preferredCenter: CGPoint
         if let override = object.labelCenterOverride {
             let fixed = fixedPlacement(for: object, normalizedCenter: override, target: target, in: frame)
-            // During a drag, every other manually positioned label is an
-            // immovable obstacle. Only the label under the user's finger may
-            // snap away from its proposed center.
-            if movableObjectID != nil, object.id != movableObjectID {
+            if object.id == movableObjectID {
                 return [fixed]
             }
             primary = [fixed]
@@ -266,12 +151,10 @@ struct AnnotationLayoutEngine {
     }
 
     private func targetPoint(for object: LearningObject, in frame: CGRect) -> CGPoint {
-        // 对窗帘等细长或中空物体，模型给出的可见锚点比边界框中心更准确；中心点作为兼容兜底。
-        let normalizedX = object.targetOverride?.x ?? object.anchor?.x ?? (object.box.x + object.box.width / 2)
-        let normalizedY = object.targetOverride?.y ?? object.anchor?.y ?? (object.box.y + object.box.height / 2)
+        let center = object.box.center
         return CGPoint(
-            x: frame.minX + frame.width * normalizedX,
-            y: frame.minY + frame.height * normalizedY
+            x: frame.minX + frame.width * center.x,
+            y: frame.minY + frame.height * center.y
         )
     }
 

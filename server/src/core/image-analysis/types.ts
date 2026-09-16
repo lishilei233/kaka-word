@@ -83,11 +83,47 @@ export type VocabularyInput = {
   signal?: AbortSignal;
 };
 
+export const socialPostSchema = z.object({
+  title: z.string().min(1).max(80),
+  body: z.string().min(1).max(1000),
+  hashtags: z.array(z.string().min(1).max(40)).max(12),
+});
+export const socialCopySchema = z.object({
+  xiaohongshu: socialPostSchema,
+  douyin: socialPostSchema,
+  channels: socialPostSchema,
+});
+export type SocialCopy = z.infer<typeof socialCopySchema>;
+export type SocialCopyInput = {
+  sceneTheme?: string;
+  interaction?: { english: string; chinese: string };
+  caption: string;
+  captionChinese: string;
+  words: { english: string; chinese: string; ipa?: string; kind?: 'object' | 'action' | 'state' }[];
+  highlightedWords: string[];
+  signal?: AbortSignal;
+};
+export const captionVariantsSchema = z.object({
+  serious: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
+  funny: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
+  literary: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
+});
+export type CaptionVariants = z.infer<typeof captionVariantsSchema>;
+export type CaptionVariantsInput = {
+  caption: string;
+  captionChinese: string;
+  words: { english: string; chinese: string }[];
+  signal?: AbortSignal;
+};
+
 export interface VisionProvider {
+  analyzeStudioScene?(input: import('./studio-scene.js').StudioSceneInput): Promise<import('./studio-scene.js').StudioScene>;
   analyze(input: VisionInput): Promise<AnalyzeResult>;
   analyzeStream?(
     input: VisionInput,
     onObject: (object: AnalyzeResult["objects"][number]) => Promise<void> | void,
   ): Promise<AnalyzeResult>;
   resolveVocabulary(input: VocabularyInput): Promise<VocabularyDetails>;
+  generateSocialCopy?(input: SocialCopyInput): Promise<SocialCopy>;
+  generateCaptionVariants?(input: CaptionVariantsInput): Promise<CaptionVariants>;
 }

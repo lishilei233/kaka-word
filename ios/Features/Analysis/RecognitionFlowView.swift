@@ -73,7 +73,7 @@ struct RecognitionFlowView: View {
             accept(result)
         }
         .sheet(item: $sharedImage) { item in
-            SystemShareView(items: [item.url])
+            SystemShareView(items: [item.image])
         }
         .alert("无法分享图片", isPresented: Binding(
             get: { shareErrorMessage != nil },
@@ -243,7 +243,7 @@ struct RecognitionFlowView: View {
 
     private func shareDecoratedPhoto(_ result: AnalyzeResult) {
         do {
-            sharedImage = SharedImageFile(url: try DecoratedPhotoRenderer.render(
+            sharedImage = SharedImageFile(image: try DecoratedPhotoRenderer.render(
                 image: image,
                 result: result
             ))

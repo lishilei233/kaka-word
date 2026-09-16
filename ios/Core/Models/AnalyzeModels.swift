@@ -6,9 +6,24 @@ struct ObjectBox: Codable, Hashable {
     let y: Double
     let width: Double
     let height: Double
+
+    var center: ObjectAnchor {
+        ObjectAnchor(x: x + width / 2, y: y + height / 2)
+    }
+
+    func translated(centeredAt proposedCenter: ObjectAnchor) -> ObjectBox {
+        let clampedWidth = min(max(width, 0), 1)
+        let clampedHeight = min(max(height, 0), 1)
+        return ObjectBox(
+            x: min(max(proposedCenter.x - clampedWidth / 2, 0), 1 - clampedWidth),
+            y: min(max(proposedCenter.y - clampedHeight / 2, 0), 1 - clampedHeight),
+            width: clampedWidth,
+            height: clampedHeight
+        )
+    }
 }
 
-/// 模型在物体可见区域内选出的锚点，同样使用 0...1 坐标；绘制引导线时优先于边界框中心。
+/// 旧识别结果中的 AI 锚点；保留用于历史数据兼容，当前引导线统一使用边界框中心。
 struct ObjectAnchor: Codable, Hashable {
     let x: Double
     let y: Double
@@ -56,7 +71,7 @@ struct LearningObject: Codable, Identifiable, Hashable {
     let exampleChinese: String?
     let candidates: [VocabularyDetails]?
     let confirmationStatus: ObjectConfirmationStatus?
-    /// 用户手动放置的标签中心与引导线终点；缺失时继续使用自动布局和 AI 锚点。
+    /// 用户手动放置的标签中心，以及旧版本保存的引导线终点。
     let labelCenterOverride: ObjectAnchor?
     let targetOverride: ObjectAnchor?
 
@@ -140,6 +155,24 @@ struct LearningObject: Codable, Identifiable, Hashable {
             confirmationStatus: confirmationStatus,
             labelCenterOverride: labelCenter ?? labelCenterOverride,
             targetOverride: target ?? targetOverride
+        )
+    }
+
+    func replacingBox(_ updatedBox: ObjectBox) -> LearningObject {
+        LearningObject(
+            id: id,
+            english: english,
+            chinese: chinese,
+            ipa: ipa,
+            confidence: confidence,
+            box: updatedBox,
+            anchor: anchor,
+            example: example,
+            exampleChinese: exampleChinese,
+            candidates: candidates,
+            confirmationStatus: confirmationStatus,
+            labelCenterOverride: labelCenterOverride,
+            targetOverride: nil
         )
     }
 

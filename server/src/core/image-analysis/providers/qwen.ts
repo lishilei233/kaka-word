@@ -1,15 +1,22 @@
 import { z } from "zod";
-import { qwenLearningObjectPrompt, vocabularyPrompt } from "../prompts.js";
+import { studioScenePrompt, studioSceneSchema, type StudioSceneInput } from '../studio-scene.js';
+import { captionVariantsPrompt, qwenLearningObjectPrompt, socialCopyPrompt, vocabularyPrompt } from "../prompts.js";
 import { extractJson } from "../response-json.js";
 import { ObjectArrayStreamParser, readSSEData } from "../streaming-json.js";
 import {
   analyzeResultSchema,
   vocabularyDetailsSchema,
+  socialCopySchema,
+  captionVariantsSchema,
   type AnalyzeResult,
   type VisionInput,
   type VisionProvider,
   type VocabularyDetails,
   type VocabularyInput,
+  type SocialCopy,
+  type SocialCopyInput,
+  type CaptionVariants,
+  type CaptionVariantsInput,
 } from "../types.js";
 
 type QwenConfig = { apiKey: string; apiHost: string; model: string };
@@ -40,6 +47,22 @@ const qwenResultSchema = z.object({
 
 export class QwenVisionProvider implements VisionProvider {
   constructor(private readonly config: QwenConfig) {}
+
+  async analyzeStudioScene(input: StudioSceneInput) {
+    if (!this.config.apiKey) throw new Error('QWEN_API_KEY is required');
+    const response = await fetch(qwenEndpoint(this.config.apiHost), {
+      method: 'POST', headers: { Authorization: `Bearer ${this.config.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: this.config.model, stream: false, enable_thinking: false, response_format: { type: 'json_object' },
+        messages: [{ role: 'user', content: [{ type: 'text', text: studioScenePrompt(input) },
+          { type: 'image_url', image_url: { url: `data:${input.mimeType};base64,${Buffer.from(input.image).toString('base64')}` } }] }] }),
+      signal: input.signal,
+    });
+    if (!response.ok) throw new Error(`Scene analysis failed (${response.status})`);
+    const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) throw new Error('Scene analysis returned no content');
+    return studioSceneSchema.parse(extractJson(content));
+  }
 
   async analyze(input: VisionInput): Promise<AnalyzeResult> {
     return this.request(input, false);
@@ -149,6 +172,48 @@ export class QwenVisionProvider implements VisionProvider {
     const content = payload?.choices?.[0]?.message?.content;
     if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
     return vocabularyDetailsSchema.parse(extractJson(content));
+  }
+
+  async generateSocialCopy(input: SocialCopyInput): Promise<SocialCopy> {
+    if (!this.config.apiKey) throw new Error("QWEN_API_KEY is required");
+    const response = await fetch(qwenEndpoint(this.config.apiHost), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.config.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.config.model,
+        stream: false,
+        enable_thinking: false,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: socialCopyPrompt(input) }],
+      }),
+      signal: input.signal,
+    });
+    if (!response.ok) throw new Error(`Qwen social copy failed (${response.status})`);
+    const payload = await response.json() as any;
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
+    return socialCopySchema.parse(extractJson(content));
+  }
+
+  async generateCaptionVariants(input: CaptionVariantsInput): Promise<CaptionVariants> {
+    if (!this.config.apiKey) throw new Error("QWEN_API_KEY is required");
+    const response = await fetch(qwenEndpoint(this.config.apiHost), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.config.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.config.model,
+        stream: false,
+        enable_thinking: false,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: captionVariantsPrompt(input) }],
+      }),
+      signal: input.signal,
+    });
+    if (!response.ok) throw new Error(`Qwen caption variants failed (${response.status})`);
+    const payload = await response.json() as any;
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
+    return captionVariantsSchema.parse(extractJson(content));
   }
 }
 

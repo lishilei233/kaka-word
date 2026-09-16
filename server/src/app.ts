@@ -5,12 +5,15 @@ import { DisabledAccessService, type AccessService } from "./core/access/index.j
 import type { VisionProvider } from "./core/image-analysis/types.js";
 import type { AnalyzeUsageLimiter } from "./core/usage-limits/index.js";
 import { registerAccessRoutes } from "./routes/access.js";
+import { registerAppVersionRoute } from "./routes/app-version.js";
 import { registerAnalyzeRoute } from "./routes/analyze.js";
 import { registerContentRoute } from "./routes/content.js";
 import { registerMetricsRoute } from "./routes/metrics.js";
 import { registerMembershipRoute } from "./routes/membership.js";
 import { registerRecognitionFeedbackRoute } from "./routes/recognition-feedback.js";
 import { registerStoreRoutes } from "./routes/store.js";
+import { registerSocialCopyRoute } from "./routes/social-copy.js";
+import { registerStudioSceneRoute } from './routes/studio-scene.js';
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
 import { errorFields, type LogLevel, type Logger } from "./utils/logger.js";
 
@@ -39,6 +42,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
   app.use("*", requestLogger(logger, config.logLevel));
 
   app.get("/health", (c) => c.json({ ok: true, provider: config.vision.name }));
+  if (config.appVersion) registerAppVersionRoute(app, config.appVersion);
   registerContentRoute(app, config.access);
   registerMembershipRoute(app, config.access);
   registerAccessRoutes(app, { accessService, logger });
@@ -52,10 +56,13 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
     maxUploadBytes: config.maxUploadBytes,
     usageLimiter,
     accessService,
+    videoStudioAccessToken: config.videoStudioAccessToken,
     trustProxy: config.usageLimits.trustProxy,
     logLevel: config.logLevel,
     logger,
   });
+  registerSocialCopyRoute(app, { provider, videoStudioAccessToken: config.videoStudioAccessToken, logger });
+  registerStudioSceneRoute(app, { provider, videoStudioAccessToken: config.videoStudioAccessToken });
   registerVocabularyRoute(app, {
     provider,
     providerName: config.vision.name,

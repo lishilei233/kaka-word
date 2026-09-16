@@ -4,9 +4,28 @@ import type {
   VisionProvider,
   VocabularyDetails,
   VocabularyInput,
+  SocialCopyInput,
+  SocialCopy,
+  CaptionVariants,
+  CaptionVariantsInput,
 } from "../types.js";
 
 export class MockVisionProvider implements VisionProvider {
+  async generateCaptionVariants(input: CaptionVariantsInput): Promise<CaptionVariants> {
+    return {
+      serious: { caption: input.caption, captionChinese: input.captionChinese },
+      funny: { caption: "The mug is patiently waiting for its next coffee mission.", captionChinese: "这个杯子正耐心地等待下一次咖啡任务。" },
+      literary: { caption: "Soft light settles over the mug, the book, and the quiet plant.", captionChinese: "柔和的光落在杯子、书和安静的植物上。" },
+    };
+  }
+  async generateSocialCopy(input: SocialCopyInput): Promise<SocialCopy> {
+    const words = input.words.map((word) => word.english).join("、");
+    return {
+      xiaohongshu: { title: "一张照片能学几个英语单词？", body: `今天从生活照片里找到了 ${words}。你还看到了什么？`, hashtags: ["生活英语", "英语学习", "每日打卡"] },
+      douyin: { title: "跟我读照片里的英语", body: `看到这些你会怎么说？${words}，一起读一遍。`, hashtags: ["英语口语", "跟读", "单词积累"] },
+      channels: { title: "今天照片里的英语", body: `${input.captionChinese} 顺手记下 ${words}，把英语放回每天的生活里。`, hashtags: ["每日英语", "生活记录", "英语启蒙"] },
+    };
+  }
   async analyze(input: VisionInput): Promise<AnalyzeResult> {
     return mockResult(input);
   }

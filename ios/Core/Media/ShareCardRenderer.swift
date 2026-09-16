@@ -6,7 +6,8 @@ enum DecoratedPhotoRenderer {
     static let logicalWidth: CGFloat = 540
 
     static func logicalSize(for image: UIImage) -> CGSize {
-        let height = logicalWidth / DecoratedPhotoLayout.cardRatio(for: image)
+        let imageRatio = image.size.width / max(image.size.height, 1)
+        let height = logicalWidth / imageRatio
         return CGSize(width: logicalWidth, height: ceil(height * 2) / 2)
     }
 
@@ -14,7 +15,7 @@ enum DecoratedPhotoRenderer {
         image: UIImage,
         result: AnalyzeResult,
         revealsAnnotations: Bool = true
-    ) throws -> URL {
+    ) throws -> UIImage {
         let logicalSize = logicalSize(for: image)
         let content = ShareableDecoratedPhoto(
             image: image,
@@ -28,15 +29,10 @@ enum DecoratedPhotoRenderer {
         guard let renderedImage = renderer.uiImage,
               let renderedCGImage = renderedImage.cgImage,
               renderedCGImage.width == Int(logicalSize.width * renderer.scale),
-              renderedCGImage.height == Int(logicalSize.height * renderer.scale),
-              let data = renderedImage.jpegData(compressionQuality: 0.95) else {
+              renderedCGImage.height == Int(logicalSize.height * renderer.scale) else {
             throw DecoratedPhotoShareError.renderFailed
         }
-
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("picture-word-\(UUID().uuidString).jpg")
-        try data.write(to: url, options: .atomic)
-        return url
+        return renderedImage
     }
 }
 
@@ -61,9 +57,11 @@ private struct ShareableDecoratedPhoto: View {
                 image: image,
                 objects: result.objects,
                 revealsAnnotations: revealsAnnotations,
-                showsShadow: false
+                showsShadow: false,
+                usesOriginalAspectRatio: true,
+                supportsZoom: false
             ) { _ in }
-            .aspectRatio(DecoratedPhotoLayout.cardRatio(for: image), contentMode: .fit)
+            .aspectRatio(image.size.width / max(image.size.height, 1), contentMode: .fit)
             .frame(maxWidth: .infinity)
         }
         .dynamicTypeSize(.large)

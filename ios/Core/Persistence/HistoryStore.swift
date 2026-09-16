@@ -1,146 +1,158 @@
 import Foundation
+import SwiftData
 import UIKit
 
 enum HistoryStoreError: LocalizedError {
-    case imageEncoding
-    case storageUnavailable
-    case recordNotFound
-
+    case imageEncoding, storageUnavailable, recordNotFound
     var errorDescription: String? {
         switch self {
-        case .imageEncoding:
-            return "历史图片处理失败，本次识别结果没有保存。"
-        case .storageUnavailable:
-            return "历史记录保存失败，请检查设备可用空间。"
-        case .recordNotFound:
-            return "找不到这条历史记录，修改没有保存。"
+        case .imageEncoding: return "历史图片处理失败，本次识别结果没有保存。"
+        case .storageUnavailable: return "历史记录保存失败，请检查设备可用空间。"
+        case .recordNotFound: return "找不到这条历史记录，修改没有保存。"
         }
     }
 }
 
-/// 管理本地历史索引及图片文件；识别完成后不会再把历史数据发送到服务器。
 @MainActor
 final class HistoryStore: ObservableObject {
+    static let pageSize = 30
     @Published private(set) var records: [HistoryRecord] = []
+    @Published private(set) var hasMoreRecords = false
+    @Published private(set) var isLoadingPage = false
+    @Published private(set) var totalRecordCount = 0
+    var onHistoryChanged: (() -> Void)?
 
+    private let context: ModelContext
     private let fileManager: FileManager
     private let historyDirectory: URL
-    private let indexURL: URL
 
-    init(fileManager: FileManager = .default) {
+    init(container: ModelContainer, fileManager: FileManager = .default) {
+        context = ModelContext(container)
         self.fileManager = fileManager
-        let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        let root = applicationSupport?.appendingPathComponent("PictureWord", isDirectory: true)
-        historyDirectory = (root ?? fileManager.temporaryDirectory)
-            .appendingPathComponent("History", isDirectory: true)
-        indexURL = historyDirectory.appendingPathComponent("history.json")
+        let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let root = support?.appendingPathComponent("PictureWord", isDirectory: true)
+        historyDirectory = (root ?? fileManager.temporaryDirectory).appendingPathComponent("History", isDirectory: true)
         prepareDirectory()
-        loadIndex()
+        reload()
+    }
+
+    convenience init() {
+        self.init(container: try! PersistenceController.makeContainer(inMemory: true))
+    }
+
+    func reload() {
+        records = []
+        refreshCount()
+        loadNextPage()
+    }
+
+    func loadNextPage() {
+        guard !isLoadingPage, records.count < totalRecordCount else {
+            hasMoreRecords = records.count < totalRecordCount
+            return
+        }
+        isLoadingPage = true
+        defer { isLoadingPage = false }
+        var descriptor = FetchDescriptor<HistoryEntity>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+        descriptor.fetchOffset = records.count
+        descriptor.fetchLimit = Self.pageSize
+        guard let entities = try? context.fetch(descriptor) else { return }
+        records.append(contentsOf: entities.map(PersistenceMapper.historyRecord))
+        hasMoreRecords = records.count < totalRecordCount
     }
 
     @discardableResult
-    func save(
-        image: UIImage,
-        result: AnalyzeResult,
-        mode: LearningMode? = nil,
-        missionID: String? = nil,
-        earnedStickerID: String? = nil
-    ) throws -> HistoryRecord {
+    func save(image: UIImage, result: AnalyzeResult, mode: LearningMode? = nil, missionID: String? = nil, earnedStickerID: String? = nil) throws -> HistoryRecord {
         guard let imageData = ImageProcessor.jpegData(from: image),
               let thumbnailData = ImageProcessor.jpegData(from: image, maxDimension: 320) else {
             throw HistoryStoreError.imageEncoding
         }
-
         let id = UUID()
         let imageFilename = "\(id.uuidString).jpg"
         let thumbnailFilename = "\(id.uuidString)-thumb.jpg"
         let imageURL = historyDirectory.appendingPathComponent(imageFilename)
         let thumbnailURL = historyDirectory.appendingPathComponent(thumbnailFilename)
-        let record = HistoryRecord(
-            id: id,
-            createdAt: Date(),
-            imageFilename: imageFilename,
-            thumbnailFilename: thumbnailFilename,
-            result: result,
-            mode: mode,
-            missionID: missionID,
-            earnedStickerID: earnedStickerID
-        )
-
+        let record = HistoryRecord(id: id, createdAt: Date(), imageFilename: imageFilename, thumbnailFilename: thumbnailFilename, result: result, mode: mode, missionID: missionID, earnedStickerID: earnedStickerID)
         do {
-            // 原子写入可避免 App 被中断时留下不完整的图片或 JSON 索引。
             try imageData.write(to: imageURL, options: [.atomic, .completeFileProtection])
             try thumbnailData.write(to: thumbnailURL, options: [.atomic, .completeFileProtection])
-            records.insert(record, at: 0)
-            try persistIndex()
+            context.insert(HistoryEntity(record: record))
+            try context.save()
             excludeFromBackup(imageURL)
             excludeFromBackup(thumbnailURL)
+            records.insert(record, at: 0)
+            totalRecordCount += 1
+            hasMoreRecords = records.count < totalRecordCount
+            onHistoryChanged?()
             return record
         } catch {
-            records.removeAll { $0.id == id }
+            context.rollback()
             try? fileManager.removeItem(at: imageURL)
             try? fileManager.removeItem(at: thumbnailURL)
             throw HistoryStoreError.storageUnavailable
         }
     }
 
-    func image(for record: HistoryRecord) -> UIImage? {
-        loadImage(named: record.imageFilename)
-    }
+    func image(for record: HistoryRecord) -> UIImage? { loadImage(named: record.imageFilename) }
+    func thumbnail(for record: HistoryRecord) -> UIImage? { loadImage(named: record.thumbnailFilename) }
 
-    func thumbnail(for record: HistoryRecord) -> UIImage? {
-        loadImage(named: record.thumbnailFilename)
+    func record(id: UUID) -> HistoryRecord? {
+        if let loaded = records.first(where: { $0.id == id }) { return loaded }
+        let targetID = id
+        var descriptor = FetchDescriptor<HistoryEntity>(predicate: #Predicate { $0.id == targetID })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor).first).map(PersistenceMapper.historyRecord)
     }
 
     @discardableResult
     func updateResult(id: UUID, result: AnalyzeResult) throws -> HistoryRecord {
-        guard let index = records.firstIndex(where: { $0.id == id }) else {
-            throw HistoryStoreError.recordNotFound
-        }
-        let previous = records[index]
-        let updated = HistoryRecord(
-            id: previous.id,
-            createdAt: previous.createdAt,
-            imageFilename: previous.imageFilename,
-            thumbnailFilename: previous.thumbnailFilename,
-            result: result,
-            mode: previous.mode,
-            missionID: previous.missionID,
-            earnedStickerID: previous.earnedStickerID
-        )
-        records[index] = updated
+        let targetID = id
+        var descriptor = FetchDescriptor<HistoryEntity>(predicate: #Predicate { $0.id == targetID })
+        descriptor.fetchLimit = 1
+        guard let entity = try? context.fetch(descriptor).first else { throw HistoryStoreError.recordNotFound }
+        (entity.objects ?? []).forEach(context.delete)
+        entity.apply(result)
         do {
-            try persistIndex()
+            try context.save()
+            let updated = PersistenceMapper.historyRecord(from: entity)
+            if let index = records.firstIndex(where: { $0.id == id }) { records[index] = updated }
+            onHistoryChanged?()
             return updated
         } catch {
-            records[index] = previous
+            context.rollback()
             throw HistoryStoreError.storageUnavailable
         }
     }
 
     func delete(_ record: HistoryRecord) {
-        let previousRecords = records
+        let loadedCount = records.count
+        let targetID = record.id
+        var descriptor = FetchDescriptor<HistoryEntity>(predicate: #Predicate { $0.id == targetID })
+        descriptor.fetchLimit = 1
+        guard let entity = try? context.fetch(descriptor).first else { return }
+        context.delete(entity)
+        do { try context.save() } catch { context.rollback(); return }
+        removeFiles(for: record)
         records.removeAll { $0.id == record.id }
-        do {
-            // 先更新索引；如果失败，则同时保留元数据与文件，让操作仍可恢复。
-            try persistIndex()
-            removeFiles(for: record)
-        } catch {
-            records = previousRecords
-        }
+        refreshCount()
+        if records.count < min(loadedCount, totalRecordCount) { loadNextPage() }
+        onHistoryChanged?()
     }
 
     func deleteAll() {
-        let previousRecords = records
+        let entities = (try? context.fetch(FetchDescriptor<HistoryEntity>())) ?? []
+        let allRecords = entities.map(PersistenceMapper.historyRecord)
+        entities.forEach(context.delete)
+        do { try context.save() } catch { context.rollback(); return }
+        allRecords.forEach(removeFiles)
         records = []
-        do {
-            try persistIndex()
-            for record in previousRecords {
-                removeFiles(for: record)
-            }
-        } catch {
-            records = previousRecords
-        }
+        refreshCount()
+        onHistoryChanged?()
+    }
+
+    private func refreshCount() {
+        totalRecordCount = (try? context.fetchCount(FetchDescriptor<HistoryEntity>())) ?? records.count
+        hasMoreRecords = records.count < totalRecordCount
     }
 
     private func prepareDirectory() {
@@ -148,27 +160,8 @@ final class HistoryStore: ObservableObject {
         excludeFromBackup(historyDirectory)
     }
 
-    private func loadIndex() {
-        guard let data = try? Data(contentsOf: indexURL),
-              let decoded = try? JSONDecoder.historyDecoder.decode([HistoryRecord].self, from: data) else {
-            records = []
-            return
-        }
-        // 如果图片被系统或用户移除，不再展示对应的孤立元数据。
-        records = decoded
-            .filter { fileManager.fileExists(atPath: historyDirectory.appendingPathComponent($0.imageFilename).path) }
-            .sorted { $0.createdAt > $1.createdAt }
-    }
-
-    private func persistIndex() throws {
-        let data = try JSONEncoder.historyEncoder.encode(records)
-        try data.write(to: indexURL, options: [.atomic, .completeFileProtection])
-        excludeFromBackup(indexURL)
-    }
-
     private func loadImage(named filename: String) -> UIImage? {
-        let url = historyDirectory.appendingPathComponent(filename)
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? Data(contentsOf: historyDirectory.appendingPathComponent(filename)) else { return nil }
         return UIImage(data: data)
     }
 
@@ -178,27 +171,9 @@ final class HistoryStore: ObservableObject {
     }
 
     private func excludeFromBackup(_ url: URL) {
-        // 历史记录属于可重新生成的本地内容，不应占用用户的 iCloud 备份空间。
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         var mutableURL = url
         try? mutableURL.setResourceValues(values)
-    }
-}
-
-private extension JSONEncoder {
-    static var historyEncoder: JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        return encoder
-    }
-}
-
-private extension JSONDecoder {
-    static var historyDecoder: JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
     }
 }

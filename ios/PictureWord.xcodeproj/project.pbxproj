@@ -45,6 +45,9 @@
 		111111111111111111111124 /* PictureWordTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222C /* PictureWordTextField.swift */; };
 		111111111111111111111125 /* StoreKitTransactionGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222E /* StoreKitTransactionGateway.swift */; };
 		111111111111111111111126 /* EntitlementSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222F /* EntitlementSyncCoordinator.swift */; };
+		111111111111111111111127 /* PersistenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222230 /* PersistenceModels.swift */; };
+		111111111111111111111128 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222231 /* PersistenceController.swift */; };
+		111111111111111111111129 /* LegacyJSONMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222232 /* LegacyJSONMigration.swift */; };
 		A931C8C030407ED6002F4806 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A931C8BF30407ED6002F4806 /* StoreKit.framework */; };
 		A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96C244B303D79F8009BAAFD /* Assets.xcassets */; };
 		D00000000000000000000001 /* WordLearningStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* WordLearningStoreTests.swift */; };
@@ -52,6 +55,8 @@
 		D00000000000000000000010 /* MembershipStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* MembershipStoreTests.swift */; };
 		D00000000000000000000012 /* AnnotationLayoutEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */; };
 		D00000000000000000000015 /* AnalysisViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000014 /* AnalysisViewModelTests.swift */; };
+		D00000000000000000000016 /* AppVersionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000017 /* AppVersionCoordinatorTests.swift */; };
+		D00000000000000000000018 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000019 /* PersistenceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,6 +111,9 @@
 		22222222222222222222222D /* Info-Debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-Debug.plist"; sourceTree = "<group>"; };
 		22222222222222222222222E /* StoreKitTransactionGateway.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitTransactionGateway.swift; sourceTree = "<group>"; };
 		22222222222222222222222F /* EntitlementSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntitlementSyncCoordinator.swift; sourceTree = "<group>"; };
+		222222222222222222222230 /* PersistenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceModels.swift; sourceTree = "<group>"; };
+		222222222222222222222231 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
+		222222222222222222222232 /* LegacyJSONMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyJSONMigration.swift; sourceTree = "<group>"; };
 		A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = KakawordSubscriptions.storekit; sourceTree = "<group>"; };
 		A931C8BF30407ED6002F4806 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/StoreKit.framework; sourceTree = DEVELOPER_DIR; };
 		A96C244B303D79F8009BAAFD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -115,6 +123,8 @@
 		D00000000000000000000011 /* MembershipStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembershipStoreTests.swift; sourceTree = "<group>"; };
 		D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationLayoutEngineTests.swift; sourceTree = "<group>"; };
 		D00000000000000000000014 /* AnalysisViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisViewModelTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000017 /* AppVersionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersionCoordinatorTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000019 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -235,6 +245,9 @@
 		444444444444444444444409 /* Persistence */ = {
 			isa = PBXGroup;
 			children = (
+				222222222222222222222230 /* PersistenceModels.swift */,
+				222222222222222222222231 /* PersistenceController.swift */,
+				222222222222222222222232 /* LegacyJSONMigration.swift */,
 				222222222222222222222209 /* HistoryStore.swift */,
 				22222222222222222222221F /* LearningJourneyStore.swift */,
 				222222222222222222222229 /* WordLearningStore.swift */,
@@ -349,6 +362,8 @@
 				D00000000000000000000011 /* MembershipStoreTests.swift */,
 				D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */,
 				D00000000000000000000014 /* AnalysisViewModelTests.swift */,
+				D00000000000000000000017 /* AppVersionCoordinatorTests.swift */,
+				D00000000000000000000019 /* PersistenceTests.swift */,
 			);
 			path = PictureWordTests;
 			sourceTree = "<group>";
@@ -480,6 +495,9 @@
 				111111111111111111111122 /* WordLearningViews.swift in Sources */,
 				111111111111111111111123 /* WordFilterControls.swift in Sources */,
 				111111111111111111111124 /* PictureWordTextField.swift in Sources */,
+				111111111111111111111127 /* PersistenceModels.swift in Sources */,
+				111111111111111111111128 /* PersistenceController.swift in Sources */,
+				111111111111111111111129 /* LegacyJSONMigration.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -491,6 +509,8 @@
 				D00000000000000000000010 /* MembershipStoreTests.swift in Sources */,
 				D00000000000000000000012 /* AnnotationLayoutEngineTests.swift in Sources */,
 				D00000000000000000000015 /* AnalysisViewModelTests.swift in Sources */,
+				D00000000000000000000016 /* AppVersionCoordinatorTests.swift in Sources */,
+				D00000000000000000000018 /* PersistenceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -512,7 +532,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_TESTABILITY = YES;
@@ -521,7 +541,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词Test";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				PICTURE_WORD_API_BASE_URL = "http://192.168.0.106:8787";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -542,7 +562,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -550,7 +570,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				PICTURE_WORD_API_BASE_URL = "https://api.kakaword.com";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

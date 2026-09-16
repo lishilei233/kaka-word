@@ -169,6 +169,41 @@ struct PictureWordButton: View {
     }
 }
 
+/// An icon-only menu trigger that shares the standard notebook button treatment.
+struct PictureWordMenuButton<MenuContent: View>: View {
+    let systemImage: String
+    let accessibilityLabel: String
+    let style: PictureWordButton.Style
+    let size: PictureWordButton.Size
+    @ViewBuilder let menuContent: () -> MenuContent
+
+    init(
+        systemImage: String,
+        accessibilityLabel: String,
+        style: PictureWordButton.Style = .secondary,
+        size: PictureWordButton.Size = .large,
+        @ViewBuilder menuContent: @escaping () -> MenuContent
+    ) {
+        self.systemImage = systemImage
+        self.accessibilityLabel = accessibilityLabel
+        self.style = style
+        self.size = size
+        self.menuContent = menuContent
+    }
+
+    var body: some View {
+        Menu(content: menuContent) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .bold))
+                .frame(width: size.minimumHeight, height: size.minimumHeight)
+                .contentShape(size.shape)
+        }
+        .buttonStyle(PictureWordButtonPressStyle(style: style, size: size))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
 private struct PictureWordButtonPressStyle: ButtonStyle {
     let style: PictureWordButton.Style
     let size: PictureWordButton.Size

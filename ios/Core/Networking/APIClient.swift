@@ -52,7 +52,7 @@ protocol ContentProviding: Sendable {
     func fetchContent(for key: ContentKey) async throws -> ContentDocument
 }
 
-struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Sendable {
+struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppVersionProviding, Sendable {
     private let baseURL: URL
 
     init(environment: AppEnvironment = .current) {
@@ -169,6 +169,18 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, Send
             throw APIError.invalidResponse
         }
         return document
+    }
+
+    func fetchAppVersionConfiguration() async throws -> AppVersionConfiguration {
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/app-version"))
+        request.timeoutInterval = 10
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let configuration = try? JSONDecoder().decode(AppVersionConfiguration.self, from: data) else {
+            throw APIError.invalidResponse
+        }
+        return configuration
     }
 
     private func localizedMessage(for code: String?, retryAfterSeconds: Int? = nil) -> String {
