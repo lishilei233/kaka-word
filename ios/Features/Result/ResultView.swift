@@ -476,13 +476,6 @@ struct PhotoWordCardDetailView: View {
                 )
             }
 
-            resultActionButton(
-                "分享照片和单词",
-                systemImage: "square.and.arrow.up",
-                style: .primary,
-                action: onShare
-            )
-
             // 暂时隐藏反馈入口，后续恢复时取消下面这段注释。
             // resultActionButton(
             //     "反馈",
@@ -492,27 +485,41 @@ struct PhotoWordCardDetailView: View {
             // )
 
             HStack(spacing: 8) {
-                if onResultChange != nil {
-                    PictureWordButton(
-                        "添加单词",
-                        systemImage: "plus",
-                        style: .secondary,
-                        size: .large
+                PictureWordButton(
+                    "分享",
+                    systemImage: "square.and.arrow.up",
+                    style: .primary,
+                    size: .large
+                ) {
+                    finishAnnotationEditing()
+                    onShare()
+                }
+
+                if onRetry != nil || onResultChange != nil {
+                    PictureWordMenuButton(
+                        systemImage: "ellipsis",
+                        accessibilityLabel: "更多操作"
                     ) {
-                        finishAnnotationEditing()
-                        if membership.isMember {
-                            showAddWord = true
-                        } else {
-                            showVocabularyPaywall = true
+                        if let onRetry {
+                            Button("刷新", systemImage: "arrow.clockwise") {
+                                finishAnnotationEditing()
+                                onRetry()
+                            }
+                        }
+
+                        if onResultChange != nil {
+                            Button("添加单词", systemImage: "plus") {
+                                finishAnnotationEditing()
+                                if membership.isMember {
+                                    showAddWord = true
+                                } else {
+                                    showVocabularyPaywall = true
+                                }
+                            }
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                }
-                if let onRetry {
-                    resultIconActionButton(
-                        "重新识别",
-                        systemImage: "arrow.clockwise",
-                        action: onRetry
+                    .simultaneousGesture(
+                        TapGesture().onEnded(finishAnnotationEditing)
                     )
                 }
             }
@@ -735,22 +742,6 @@ struct PhotoWordCardDetailView: View {
             systemImage: systemImage,
             style: style,
             size: .compact
-        ) {
-            finishAnnotationEditing()
-            action()
-        }
-    }
-
-    private func resultIconActionButton(
-        _ accessibilityLabel: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        PictureWordButton(
-            systemImage: systemImage,
-            accessibilityLabel: accessibilityLabel,
-            style: .secondary,
-            size: .large
         ) {
             finishAnnotationEditing()
             action()
