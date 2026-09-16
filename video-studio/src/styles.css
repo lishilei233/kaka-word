@@ -84,3 +84,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible { 
 .publish-empty { min-height:520px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:42px;text-align:center;border:1px dashed #bcae96;border-radius:20px;background:radial-gradient(#c7bba533 .8px,transparent .8px) 0 0/10px 10px,#eee7da; }
 .publish-empty>span { display:grid;place-items:center;width:66px;height:66px;border-radius:50%;background:#f4c95d;font-size:26px;box-shadow:5px 6px 0 #24211e; }.publish-empty h2 { max-width:330px;margin:26px 0 10px;font:700 27px/1.25 Georgia,"Songti SC",serif; }.publish-empty p { max-width:360px;color:#776b58;line-height:1.8; }
 .publish-source { margin-top:18px;padding:15px;border:1px dashed #b9aa91;border-radius:14px;background:#f7f0e4; }.publish-source small { color:#c66c59;font-family:Menlo,monospace;font-size:9px;letter-spacing:.12em; }.publish-source p { margin:8px 0 12px;font-size:13px;line-height:1.6; }.publish-source div { display:flex;flex-wrap:wrap;gap:5px; }.publish-source span { padding:4px 7px;border-radius:10px;background:#f4c95d;font-size:10px;font-weight:800; }
+.drawer-layer { position:fixed; inset:0; z-index:30; display:flex; justify-content:flex-end; }
+.drawer-backdrop { position:absolute; inset:0; border:0; background:rgba(36,33,30,.28); cursor:pointer; }
+.drawer { position:relative; width:min(500px, calc(100vw - 24px)); height:100%; overflow:auto; background:#f6f0e4; box-shadow:-8px 0 30px rgba(36,33,30,.18); animation:drawer-in .2s ease-out both; }
+.drawer-header { position:sticky; top:0; z-index:2; display:flex; align-items:center; justify-content:space-between; padding:18px 22px; background:rgba(246,240,228,.96); border-bottom:1px solid #ded3c1; }
+.drawer-header h2 { margin:0; font-size:20px; }
+.drawer-close { display:grid; place-items:center; width:32px; height:32px; border:1px solid #cfc1ad; border-radius:50%; background:#fffdf8; color:#24211e; cursor:pointer; }
+.drawer-body { padding:18px 22px 28px; }
+.drawer-preview { width:min(100%, 360px); margin:0 auto 12px; border-radius:14px; overflow:hidden; background:#e9dec9; }
+@keyframes drawer-in { from { transform:translateX(100%); opacity:.7; } to { transform:translateX(0); opacity:1; } }
+@media(max-width:700px) { .drawer { width:100%; } .drawer-body { padding:14px 16px 24px; } }
