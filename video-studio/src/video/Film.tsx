@@ -113,7 +113,7 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
                     <div style={{ position: 'absolute', inset: 0, borderRadius: 18, boxShadow: 'inset 0 0 0 4px #fffdf8', pointerEvents: 'none' }} />
                 </>}
             </div>
-            {!opening && layout.sceneHeight > 0 && <div style={{ position: 'absolute', zIndex: 3, left: layout.sceneLeft, top: layout.sceneTop, width: layout.sceneWidth }}><SceneCards project={p} currentId={current?.id} frame={frame} /></div>}
+            {!opening && layout.sceneHeight > 0 && <div style={{ position: 'absolute', zIndex: 3, left: layout.sceneLeft, top: layout.sceneTop, width: layout.sceneWidth }}><SceneCards project={p} currentId={current?.id} frame={frame} width={layout.sceneWidth} /></div>}
             {!opening && frame >= t.captionFrom && <>
                 <div style={{ position: 'absolute', left: photo.x + photo.width - 102, top: photo.y - 12, width: 72, height: 18, background: '#f4c95dc7', transform: 'rotate(-4deg)' }} />
                     <div data-film-description style={{ position: 'absolute', zIndex: 4, top: layout.descriptionTop, left: layout.textLeft, width: textWidth, minHeight: 140, padding: '12px 14px', boxSizing: 'border-box', overflow: 'hidden', background: 'rgba(255,253,248,.94)', borderRadius: 22, border: '1px solid rgba(36,33,30,.08)', boxShadow: '2px 3px 0 rgba(36,33,30,.1)', ...(() => { const a = descriptionEntrance(frame, t.captionFrom); return { opacity: a.opacity, transform: `translateY(${a.translateY}px)` }; })() }}>

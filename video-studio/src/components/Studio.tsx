@@ -158,7 +158,7 @@ export function Studio() {
         await run(project.analysisMode === 'scene' ? '分析场景' : '识别物体', async () => {
             const version = revision.current;
             if (project.analysisMode === 'scene') {
-                const result = await api<StudioScene>('scene', { image: project.image, maxWords: count, context: project.sceneContext ?? '' });
+                const result = await api<StudioScene>('scene', { image: project.image, maxObjects: count, context: project.sceneContext ?? '' });
                 if (version !== revision.current) return;
                 const words: Word[] = [
                     ...sortByPhotoPosition(result.words.filter((w): w is Extract<StudioScene['words'][number], { kind: 'object' }> => w.kind === 'object')),
@@ -245,12 +245,12 @@ export function Studio() {
                     <label className="field-label" htmlFor="captionChinese">最终照片描述 · 中文</label>
                     <textarea id="captionChinese" className="input caption-input" maxLength={220} value={project.captionChinese} placeholder="AI 自动生成对应中文描述" onChange={e => update({ ...project, captionChinese: e.target.value, socialCopy: undefined })} />
                     <p className="hint">AI 根据照片生成描述；成片在全部单词读完后展示。</p>
-                    <div className="recognize-row"><label htmlFor="count">识别数量</label><select id="count" value={count} onChange={e => setCount(Number(e.target.value))}>{[4, 5, 6, 7, 8, 9, 10].map(n => <option key={n}>{n}</option>)}</select><Button size="sm" disabled={!project.image} onClick={analyze}><Sparkles />{project.words.length ? '重新识别' : 'AI 识别'}</Button></div>
+                    <div className="recognize-row"><label htmlFor="count">物体上限</label><select id="count" value={count} onChange={e => setCount(Number(e.target.value))}>{[3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n}>{n}</option>)}</select><Button size="sm" disabled={!project.image} onClick={analyze}><Sparkles />{project.words.length ? '重新识别' : 'AI 识别'}</Button></div>
                     {project.words.length > 0 && <p className="hint">重新识别会替换当前词表与配音。</p>}
                     <div className="list-heading"><span>本期词表</span><span className="count-pill">{project.words.length.toString().padStart(2, '0')}</span></div>
                     {!project.words.length && <div className="empty-words"><span>WORDS WILL FIND THEIR PLACE.</span><p>识别照片后，单词会出现在这里。</p></div>}
                     <div className="word-list">{project.words.map((w, index) => <div className={`word-row ${selected === w.id ? 'selected' : ''}`} key={w.id}><button className="word-select" onClick={() => selectWord(w)}><span className="word-no">{String(index+1).padStart(2,'0')}</span><span><strong>{w.english || '未命名单词'}</strong><small>{w.kind === 'action' ? '动作 · ' : w.kind === 'state' ? '状态 · ' : '物体 · '}{w.chinese || '添加中文释义'}</small></span>{w.audio && <Volume2 size={13} />}</button><div className="word-actions"><button aria-label={`上移 ${w.english}`} disabled={!index || ((project.words[index-1]?.kind ?? 'object') === 'object') !== ((w.kind ?? 'object') === 'object')} onClick={() => reorder(index,-1)}><ArrowUp size={13} /></button><button aria-label={`下移 ${w.english}`} disabled={index === project.words.length-1 || ((project.words[index+1]?.kind ?? 'object') === 'object') !== ((w.kind ?? 'object') === 'object')} onClick={() => reorder(index,1)}><ArrowDown size={13} /></button></div></div>)}</div>
-                    <Button variant="ghost" size="sm" className="w-full mt-3" disabled={!project.image || project.words.length >= 10} onClick={() => { const w: Word = { id: crypto.randomUUID(), english: 'word', chinese: '', ipa: '', box: { x: .5, y: .6, width: 0, height: 0 } }; update({ ...project, words: [...project.words,w] }); setSelected(w.id); }}><Plus />手动添加单词</Button>
+                    <Button variant="ghost" size="sm" className="w-full mt-3" disabled={!project.image || objectWords(project.words).length >= 10} onClick={() => { const w: Word = { id: crypto.randomUUID(), english: 'word', chinese: '', ipa: '', box: { x: .5, y: .6, width: 0, height: 0 } }; update({ ...project, words: [...project.words,w] }); setSelected(w.id); }}><Plus />手动添加物体词</Button>
                 </fieldset>
             </aside>
             {mode === 'publish' ? <section className="preview-column publish-column">
@@ -303,7 +303,14 @@ export function Studio() {
             {coverConflicts.length > 0 && <p role="alert" className="cover-conflict">以下胶囊重叠或越界：{project.words.filter(w => coverConflicts.includes(w.id)).map(w => w.english).join('、')}</p>}
             <Button className="w-full" disabled={!project.image || !project.words.length || coverConflicts.length > 0} onClick={() => run('导出封面', async () => { const result = await api<{ file: string }>('render-cover', { project }); const a = document.createElement('a'); a.href = result.file; a.download = 'kakaword-cover.png'; a.click(); setMessage('封面已导出'); })}><ImageDown />导出封面 PNG</Button>
         </Drawer>
-        <Drawer title="发布助手" open={drawer === 'publish'} onClose={() => setDrawer(null)}><PublishPanel project={project} update={update} /></Drawer>
+        <Drawer title="发布助手" open={drawer === 'publish'} onClose={() => setDrawer(null)}>
+            <div className="editor-note"><span>一套内容，三种说法。</span><p>生成时会使用最终照片描述、全部词汇和封面高亮词。</p></div>
+            <div className="publish-source"><small>PHOTO NOTE</small><p>{project.captionChinese || '请先完成 AI 识别并选定照片描述。'}</p><div>{project.words.map(word => <span key={word.id}>{word.english}</span>)}</div></div>
+            <Button className="w-full mt-4" disabled={!!busy || !ready || !project.caption.trim() || !project.words.length} onClick={generatePublishingCopy}><Sparkles />{busy === '生成发布文案' ? '正在生成…' : project.socialCopy ? '重新生成三平台文案' : '生成三平台文案'}</Button>
+            {project.socialCopyStale && <p role="status" className="notice notice-warning">内容已修改，请重新生成发布文案。</p>}
+            <p className="hint">重新生成会替换三个平台当前的编辑内容。文案只保存在本地草稿，不会自动发布。</p>
+            <PublishPanel project={project} update={update} />
+        </Drawer>
         <footer className="studio-footer"><span>KAKAWORD · CREATIVE NOTEBOOK</span><span>每日一拍，每日一词。让学习留在生活里。</span></footer>
     </div>;
 }

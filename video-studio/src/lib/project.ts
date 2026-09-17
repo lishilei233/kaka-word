@@ -76,8 +76,8 @@ const projectFields = {
     captureSeconds: z.number().min(0).max(3600), introSeconds: z.number().min(0.5).max(10),
     pauseSeconds: z.number().min(0).max(5),
 };
-const currentProjectSchema = z.object({ version: z.literal(2), ...projectFields, words: z.array(currentWordSchema).max(10) });
-const legacyProjectSchema = z.object({ version: z.literal(1), ...projectFields, words: z.array(legacyWordSchema).max(10) });
+const currentProjectSchema = z.object({ version: z.literal(2), ...projectFields, words: z.array(currentWordSchema).max(20) });
+const legacyProjectSchema = z.object({ version: z.literal(1), ...projectFields, words: z.array(legacyWordSchema).max(20) });
 export const projectSchema = z.preprocess(input => {
     const legacy = legacyProjectSchema.safeParse(input);
     if (!legacy.success) return input;

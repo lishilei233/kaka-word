@@ -10,25 +10,26 @@ function sceneTextWidth(english: string) {
 export function sceneCardWidth(english: string) {
     return Math.max(64, Math.min(235, sceneTextWidth(english) + 32));
 }
-export function sceneCardFontSize(english: string, highlighted: boolean) {
+export function sceneCardFontSize(english: string, highlighted: boolean, cardWidth = sceneCardWidth(english)) {
     const preferred = highlighted ? 20 : 16;
-    const available = sceneCardWidth(english) - 30;
+    const available = cardWidth - 20;
     return Math.min(preferred, preferred * available / Math.max(1, sceneTextWidth(english)));
 }
 
-export function SceneCards({ project, currentId, cover = false, frame }: { project: Project; currentId?: string; cover?: boolean; frame?: number }) {
+export function SceneCards({ project, currentId, cover = false, frame, width = 496 }: { project: Project; currentId?: string; cover?: boolean; frame?: number; width?: number }) {
     const words = sceneWords(project.words);
     const segments = frame === undefined ? undefined : timeline(project).words;
-    return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,max-content)', justifyContent: 'center', alignItems: 'end', gap: 6 }}>
-        {words.map((word, index) => {
+    const gap = 6;
+    const availableCardWidth = words.length ? (width - gap * (words.length - 1)) / words.length : width;
+    return <div style={{ display: 'flex', flexWrap: 'nowrap', justifyContent: 'center', alignItems: 'end', gap, width }}>
+        {words.map(word => {
             const highlighted = cover ? !!project.cover?.words[word.id]?.highlighted : word.id === currentId;
-            const lastOdd = words.length % 2 === 1 && index === words.length - 1;
-            const width = sceneCardWidth(word.english);
+            const cardWidth = Math.max(1, Math.min(sceneCardWidth(word.english), availableCardWidth));
             const segment = segments?.find(item => item.word.id === word.id);
             const pulse = highlighted && frame !== undefined && segment ? sceneHighlightScale(frame, segment.from) : 1;
-            return <div key={word.id} style={{ position: 'relative', zIndex: highlighted ? 2 : 1, gridColumn: lastOdd ? '1 / -1' : undefined, justifySelf: 'center', width, height: SCENE_CARD_HEIGHT }}>
+            return <div key={word.id} style={{ position: 'relative', zIndex: highlighted ? 2 : 1, flex: `0 1 ${cardWidth}px`, width: cardWidth, minWidth: 0, height: SCENE_CARD_HEIGHT }}>
                 <div style={{ position: 'absolute', left: 0, bottom: 0, width: '100%', height: highlighted ? SCENE_CARD_HEIGHT + 10 : SCENE_CARD_HEIGHT, boxSizing: 'border-box', borderRadius: 9, padding: '0 15px', border: highlighted ? `${annotationHighlight.border}px solid ${annotationHighlight.ink}` : '1.5px solid #24211e30', background: highlighted ? annotationHighlight.fill : 'rgba(255,253,248,.88)', color: '#24211e', overflow: 'hidden', boxShadow: highlighted ? `0 0 0 3px rgba(255,255,255,.94), ${annotationHighlight.shadow}` : 'none', transform: `translateY(${highlighted ? -4 * (pulse - 1) / .08 : 0}px) scale(${pulse})`, transformOrigin: 'center bottom', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <strong style={{ fontFamily: 'Georgia, serif', fontSize: sceneCardFontSize(word.english, highlighted), lineHeight: 1.05, whiteSpace: 'nowrap' }}>{word.english}</strong>
+                    <strong style={{ fontFamily: 'Georgia, serif', fontSize: sceneCardFontSize(word.english, highlighted, cardWidth), lineHeight: 1.05, whiteSpace: 'nowrap' }}>{word.english}</strong>
                 </div>
             </div>;
         })}

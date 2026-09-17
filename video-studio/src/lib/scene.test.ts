@@ -45,14 +45,15 @@ test('scene-card highlight keeps width, grows upward and enlarges text', () => {
     assert.equal(sceneCardWidth('broken'), 104);
     assert.equal(sceneCardWidth('supercalifragilisticexpialidocious'), 235);
     assert.ok(sceneCardFontSize('supercalifragilisticexpialidocious', true) < 20);
-    assert.ok(base.includes('width:104px;height:44px'));
-    assert.ok(highlighted.includes('width:104px;height:44px'));
+    assert.ok(base.includes('width:104px;min-width:0;height:44px'));
+    assert.ok(highlighted.includes('width:104px;min-width:0;height:44px'));
     assert.ok(base.includes('bottom:0;width:100%;height:44px'));
     assert.ok(highlighted.includes('bottom:0;width:100%;height:54px'));
     assert.ok(highlighted.includes('font-size:20px'));
     assert.ok(highlighted.includes('0 0 0 3px rgba(255,255,255,.94)'));
     assert.ok(!highlighted.includes('text-overflow:ellipsis'));
     assert.ok(!base.includes('<path'));
+    assert.ok(base.includes('display:flex;flex-wrap:nowrap'));
     assert.ok(base.includes('broken') && !base.includes('破碎的') && !base.includes('状态'));
 });
 
@@ -80,12 +81,14 @@ test('up to ten scene cards float inside an unchanged portrait, landscape or pan
             assert.ok(layout.sceneTop + layout.sceneHeight <= layout.photo.y + layout.photo.height);
             assert.equal(layout.sceneLeft, layout.photo.x + 12);
             assert.equal(layout.sceneWidth, layout.photo.width - 24);
+            assert.equal(layout.sceneHeight, 44);
         }
         const cover = coverLayout(p);
         assert.equal(cover.placements.length, 0);
         assert.equal(cover.sceneTop + cover.sceneHeight, 1416);
         assert.equal(cover.sceneLeft, 24);
         assert.equal(cover.sceneWidth, 1032);
+        assert.equal(cover.sceneHeight, count ? 88 : 0);
         assert.ok(cover.photo.x <= 0 && cover.photo.y <= 0);
         assert.ok(cover.photo.width >= 1080 && cover.photo.height >= 1440);
     }

@@ -1,12 +1,11 @@
 import { annotationHighlight } from '../video/annotation-style';
-import { filmLayout, SCENE_CARD_GAP, SCENE_CARD_HEIGHT } from './film-layout';
+import { filmLayout, SCENE_CARD_HEIGHT } from './film-layout';
 import { annotationLayout, completeAnnotationLayout } from './annotation-layout';
 import { objectWords, sceneWords, type Project, type CoverConfig } from './project';
 
 export const defaultCover: CoverConfig = { template: 'learning-card', scale: 1.3, words: {} };
 export function coverLayout(project: Project) {
-    const sceneRows = Math.ceil(sceneWords(project.words).length / 2);
-    const sceneHeight = sceneRows ? (sceneRows * SCENE_CARD_HEIGHT + (sceneRows - 1) * SCENE_CARD_GAP) * 2 : 0;
+    const sceneHeight = sceneWords(project.words).length ? SCENE_CARD_HEIGHT * 2 : 0;
     const scale = Math.max(1080 / project.imageWidth, 1440 / project.imageHeight);
     const width = project.imageWidth * scale, height = project.imageHeight * scale;
     const photo = { x: (1080-width)/2, y: (1440-height)/2, width, height };

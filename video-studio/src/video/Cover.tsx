@@ -47,6 +47,6 @@ export function Cover({ project, onMove }: { project: Project; onMove?: CoverMov
                 <text x={item.labelCenter.x} y={item.labelCenter.y} dominantBaseline="central" textAnchor="middle" fill={'#24211e'} fontFamily="'SF Pro Rounded', ui-rounded, system-ui, sans-serif" fontWeight="900" fontSize={16*item.object.labelScale}>{item.object.english}</text>
             </g>
         </g>; })}
-        {layout.sceneHeight > 0 && <foreignObject x={layout.sceneLeft} y={layout.sceneTop} width={layout.sceneWidth} height={layout.sceneHeight} style={{ overflow: 'visible' }}><div style={{ width: layout.sceneWidth/2, transform: 'scale(2)', transformOrigin: 'top left' }}><SceneCards project={project} cover /></div></foreignObject>}
+        {layout.sceneHeight > 0 && <foreignObject x={layout.sceneLeft} y={layout.sceneTop} width={layout.sceneWidth} height={layout.sceneHeight} style={{ overflow: 'visible' }}><div style={{ width: layout.sceneWidth/2, transform: 'scale(2)', transformOrigin: 'top left' }}><SceneCards project={project} cover width={layout.sceneWidth/2} /></div></foreignObject>}
     </svg>;
 }

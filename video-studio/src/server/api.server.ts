@@ -112,7 +112,10 @@ async function render(id: string, p: Project, origin: string) {
         const inputProps = { project: absoluteProject(p, origin), renderScale: 2 };
         const composition = await selectComposition({ serveUrl, id: 'Kakaword', inputProps, browserExecutable });
         await renderMedia({ composition, serveUrl, codec: 'h264', inputProps, browserExecutable,
-            outputLocation: join(exportsDir, `${id}.mp4`), concurrency: 2,
+            // Render one frame at a time. Parallel Chromium pages occasionally
+            // rasterize the source photo as repeated horizontal strips for a
+            // single frame, which appears as a flash in the exported video.
+            outputLocation: join(exportsDir, `${id}.mp4`), concurrency: 1,
             // Photo details and small type degrade badly with Remotion's default
             // H.264 settings. Render lossless intermediate frames and use a
             // visually high-quality CRF while retaining social-app compatible MP4.
@@ -168,10 +171,10 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             return send({ url: `/studio-api/assets/${name}` });
         }
         if (req.method === 'POST' && path === '/studio-api/scene') {
-            const input = z.object({ image: z.string(), maxWords: z.number().int().min(4).max(10), context: z.string().max(500).default('') }).parse(await json(req));
+            const input = z.object({ image: z.string(), maxObjects: z.number().int().min(3).max(10), context: z.string().max(500).default('') }).parse(await json(req));
             const bytes = await readFile(assetFile(input.image));
             if (!input.image.endsWith('.jpg') || !getImageDimensions(bytes)) throw new Error('请先选择有效照片');
-            return send(await analyzeScene(bytes, input.maxWords, input.context, req.signal));
+            return send(await analyzeScene(bytes, input.maxObjects, input.context, req.signal));
         }
         if (req.method === 'POST' && path === '/studio-api/analyze') {
             const { image, maxObjects } = z.object({ image: z.string(), maxObjects: z.number().int().min(3).max(10) }).parse(await json(req));
@@ -192,7 +195,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             if (state.speechBusy) return send({ error: '正在生成配音，请稍后重试' }, 409);
             const { words, caption, voiceId, speechSpeed, interaction } = z.object({
                 interaction: z.string().trim().min(1).max(220).optional(),
-                words: z.array(z.object({ id: z.string().max(80), english: z.string().trim().min(1).max(60) })).min(1).max(10),
+                words: z.array(z.object({ id: z.string().max(80), english: z.string().trim().min(1).max(60) })).min(1).max(20),
                 caption: z.string().trim().min(1).max(220),
                 voiceId: voiceIdSchema,
                 speechSpeed: z.number().min(0.5).max(2),

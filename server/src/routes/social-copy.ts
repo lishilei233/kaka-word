@@ -10,7 +10,7 @@ const requestSchema = z.object({
   interaction: z.object({ english: z.string().max(220), chinese: z.string().max(220) }).optional(),
   caption: z.string().trim().min(1).max(220),
   captionChinese: z.string().trim().max(220),
-  words: z.array(z.object({ english: z.string().trim().min(1).max(60), chinese: z.string().max(60), ipa: z.string().max(80).optional(), kind: z.enum(['object', 'action', 'state']).optional() })).min(1).max(10),
+  words: z.array(z.object({ english: z.string().trim().min(1).max(60), chinese: z.string().max(60), ipa: z.string().max(80).optional(), kind: z.enum(['object', 'action', 'state']).optional() })).min(1).max(20),
   highlightedWords: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
 });
 const captionRequestSchema = requestSchema.pick({ caption: true, captionChinese: true, words: true });
