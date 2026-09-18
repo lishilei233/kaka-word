@@ -161,10 +161,30 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             if (ext === 'heic' || ext === 'heif') {
                 const id = randomUUID(); const source = join(root, `${id}.${ext}`); const output = join(assets, `${id}.jpg`);
                 await writeFile(source, bytes);
-                try { await exec(process.env.HEIF_CONVERT_PATH || 'heif-convert', [source, output], { timeout: 60000 }); }
-                finally { await unlink(source).catch(() => undefined); }
-                const jpeg = await readFile(output); const dimensions = getImageDimensions(jpeg);
-                if (!dimensions) throw new Error('无法转换 Apple 动态照片');
+                const failures: string[] = [];
+                let jpeg: Buffer | undefined; let dimensions: ReturnType<typeof getImageDimensions> | undefined;
+                try {
+                    try {
+                        await exec(process.env.HEIF_CONVERT_PATH || 'heif-convert', ['--auto-correct', '-q', '93', source, output], { timeout: 60000 });
+                        jpeg = await readFile(output).catch(() => undefined); dimensions = jpeg && getImageDimensions(jpeg);
+                        if (!dimensions) throw new Error('heif-convert did not produce a readable JPEG');
+                    } catch (error) {
+                        failures.push(error instanceof Error ? error.message : 'heif-convert failed');
+                        await unlink(output).catch(() => undefined);
+                        try {
+                            await exec('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '93', source, '--out', output], { timeout: 60000 });
+                            jpeg = await readFile(output).catch(() => undefined); dimensions = jpeg && getImageDimensions(jpeg);
+                            if (!dimensions) throw new Error('sips did not produce a readable JPEG');
+                        } catch (fallbackError) {
+                            failures.push(fallbackError instanceof Error ? fallbackError.message : 'sips failed');
+                        }
+                    }
+                } finally { await unlink(source).catch(() => undefined); }
+                if (!dimensions) {
+                    await unlink(output).catch(() => undefined);
+                    console.error('HEIC conversion failed:', failures.join(' | '));
+                    throw new Error('无法转换 HEIC 图片，请确认文件完整，或从“照片”中导出未修改的原片后重试');
+                }
                 return send({ url: `/studio-api/assets/${id}.jpg`, imageWidth: dimensions.width, imageHeight: dimensions.height });
             }
             const name = `${randomUUID()}.${ext}`; await writeFile(join(assets, name), bytes);
@@ -260,7 +280,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
     } catch (error) {
         const message = error instanceof Error ? error.message : '';
         const safe = /^(请|素材|无法|无效|单词|识别)/.test(message) ? message : '处理失败，请检查素材和网页服务终端。';
-        console.error('Studio request failed:', error instanceof z.ZodError ? 'Invalid input' : error instanceof Error ? error.name : 'Unknown error');
+        console.error('Studio request failed:', error instanceof z.ZodError ? 'Invalid input' : error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown error');
         return send({ error: safe }, 400);
     }
 }

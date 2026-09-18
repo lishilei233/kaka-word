@@ -9,7 +9,7 @@ export function SceneEditor({ project: p, update, onEditArrow }: { project: Proj
         <select id="analysisMode" className="input" value={p.analysisMode ?? 'objects'} onChange={e => update({ ...p, analysisMode: e.target.value as Project['analysisMode'] })}>
             <option value="scene">场景学词 · 物体、动作、状态</option><option value="objects">物体识别 · 照片标签</option>
         </select>
-        {p.analysisMode === 'scene' && <><label className="field-label" htmlFor="sceneContext">这张照片发生了什么？（可选）</label><textarea id="sceneContext" className="input caption-input" maxLength={500} placeholder="例如：鸡蛋刚掉到地上。没有背景也可以，只描述看得见的内容。" value={p.sceneContext ?? ''} onChange={e => update({ ...p, sceneContext: e.target.value })} /><p className="hint">修改后点击 AI 识别生效。动作、状态词将展示在照片底部。</p></>}
+        {p.analysisMode === 'scene' && <p className="hint scene-mode-hint">AI 会从照片中识别物体、动作和状态，并将动作、状态词展示在照片底部。</p>}
         {p.sceneTheme && <p className="scene-theme">本期场景 · {p.sceneTheme}</p>}
         <details className="interaction-editor"><summary>结尾互动句 {interaction.enabled ? '· 已开启' : '· 未开启'}</summary>
             <label className="safe-toggle"><input type="checkbox" checked={interaction.enabled} onChange={e => update({ ...p, interaction: { ...interaction, enabled: e.target.checked } })} />在场景句之后展示并朗读</label>

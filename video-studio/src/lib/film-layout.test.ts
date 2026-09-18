@@ -6,6 +6,10 @@ import { FILM_HEIGHT, FILM_WIDTH, filmLayout } from './film-layout.ts';
 test('result photo keeps its source aspect ratio with 10 point side margins', () => {
     const l = filmLayout(emptyProject);
     assert.deepEqual(l.camera, { x: 0, y: 0, width: FILM_WIDTH, height: FILM_HEIGHT });
+    assert.equal(l.viewfinder.x + l.viewfinder.width / 2, l.cameraImage.x + l.cameraImage.width / 2);
+    assert.equal(l.viewfinder.y + l.viewfinder.height / 2, l.cameraImage.y + l.cameraImage.height / 2);
+    assert.ok(l.viewfinder.width < l.cameraImage.width);
+    assert.ok(l.viewfinder.height < l.cameraImage.height);
     assert.equal(l.photo.x, 10);
     assert.equal(l.photo.width, FILM_WIDTH - 20);
     assert.deepEqual(l.photoImage, l.photo);

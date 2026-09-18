@@ -3,10 +3,11 @@ import { objectWords, sceneWords, readingWords } from '../lib/project';
 import type { StudioScene } from '../../../server/src/core/image-analysis/studio-scene';
 import { Cover } from '../video/Cover';
 import { PublishPanel } from './PublishPanel';
+import { Toast, type ToastKind } from './Toast';
 import { coverLayout, defaultCover } from '../lib/cover-layout';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
-import { ArrowDown, ArrowUp, Camera, Check, ChevronRight, Download, Film as FilmIcon, ImageDown, ImagePlus, LoaderCircle, Play, Plus, Save, Sparkles, Trash2, Volume2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Camera, ChevronRight, Download, Film as FilmIcon, ImageDown, ImagePlus, LoaderCircle, Play, Plus, Save, Sparkles, Trash2, Volume2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Film } from '../video/Film';
 import { api, snapshot, upload, uploadApplePhoto } from '../lib/media';
@@ -22,7 +23,6 @@ export function Studio() {
     const [project, setProject] = useState<Project>(emptyProject);
     const [drawer, setDrawer] = useState<'cover' | 'publish' | null>(null);
     const mode = 'video' as 'video' | 'cover' | 'publish';
-    const setMode = (value: 'video' | 'cover' | 'publish') => setDrawer(value === 'video' ? null : value);
     const [ready, setReady] = useState(false);
     const [busy, setBusy] = useState(''); const [message, setMessage] = useState(''); const [error, setError] = useState('');
     const [selected, setSelected] = useState(''); const [count, setCount] = useState(10);
@@ -31,7 +31,15 @@ export function Studio() {
     const input = useRef<HTMLInputElement>(null); const video = useRef<HTMLVideoElement>(null); const player = useRef<PlayerRef>(null);
     const revision = useRef(0); const initialLoad = useRef(false); const pendingLivePhotoVideo = useRef('');
     const coverConflicts = useMemo(() => drawer === 'cover' ? coverLayout(project).conflicts : [], [drawer, project.cover, project.words, project.imageWidth, project.imageHeight]);
+    const coverScale = Math.max(.6, Math.min(1.15, project.cover?.scale ?? defaultCover.scale));
     const t = timeline(project); const word = project.words.find(w => w.id === selected); const exportIssues = exportBlockers(project);
+    const warningText = project.socialCopyStale
+        ? '内容已修改，请重新生成发布文案。'
+        : coverConflicts.length > 0
+            ? '封面胶囊需要缩小后才能导出。'
+            : ready && project.image && exportIssues.length > 0
+                ? `导出前还需要：${exportIssues.join('；')}`
+                : undefined;
     const imageFrame = filmLayout(project).photoImage;
     const selectedPlacement = annotationLayout(objectWords(project.words), imageFrame, selected).placements.find(placement => placement.id === selected);
     const selectedCenter = selectedPlacement ? {
@@ -83,6 +91,10 @@ export function Studio() {
     function moveInteractionTarget(point: { x: number; y: number }) {
         if (!project.interaction) return;
         update({ ...project, interaction: { ...project.interaction, arrowEnabled: true, arrowTarget: point } });
+    }
+    function seekForEditing(frame: number) {
+        player.current?.pause();
+        player.current?.seekTo(frame);
     }
     async function run(label: string, work: () => Promise<void>) {
         setBusy(label); setError(''); setMessage('');
@@ -190,6 +202,7 @@ export function Studio() {
             const result = await api<{ words: Pick<Word, 'id' | 'english' | 'audio' | 'audioSeconds'>[]; captionAudio: string; captionAudioSeconds: number; interactionSpeech?: { audio: string; audioSeconds: number } }>('speech', { words: project.words.map(({ id, english }) => ({ id, english })), caption: project.caption, interaction: project.interaction?.enabled ? project.interaction.english : undefined, voiceId: project.voiceId, speechSpeed: project.speechSpeed });
             if (revision.current !== version) return;
             update({ ...project, interaction: project.interaction && { ...project.interaction, ...result.interactionSpeech }, captionAudio: result.captionAudio, captionAudioSeconds: result.captionAudioSeconds, words: project.words.map(w => ({ ...w, ...result.words.find(a => a.id === w.id && a.english === w.english) })) });
+            seekForEditing(project.videoTemplate === 'direct' ? 0 : t.intro + t.reveal);
             setMessage('配音已就绪，点击预览播放即可跟读');
         });
     }
@@ -198,14 +211,6 @@ export function Studio() {
             const socialCopy = await api<Project['socialCopy']>('social-copy', project);
             update({ ...project, socialCopy, socialCopyStale: false });
             setMessage('三个平台的发布文案已生成，可以继续校对或复制');
-        });
-    }
-    async function exportCurrentFrame() {
-        await run('导出当前帧', async () => {
-            const frame = player.current?.getCurrentFrame() ?? 0;
-            const result = await api<{ file: string; frame: number }>('render-still', { project, frame });
-            const link = document.createElement('a'); link.href = result.file; link.download = `kakaword-frame-${result.frame}.png`; link.click();
-            setMessage(`第 ${result.frame} 帧已导出为 PNG`);
         });
     }
     function selectWord(w: Word) {
@@ -219,18 +224,23 @@ export function Studio() {
     return <div className="studio-shell">
         <header className="studio-header">
             <div className="brand"><span className="brand-stamp"><Camera size={23} strokeWidth={1.7} /></span><div><strong>咔咔单词<span className="brand-dot">.</span></strong><span className="eyebrow">VIDEO STUDIO / 视频工作室</span></div></div>
-            <div className="header-actions"><span className="local-badge"><span />本地创作</span><Button variant="outline" onClick={() => setDrawer('cover')}><ImageDown />设计封面</Button><Button variant="outline" onClick={() => setDrawer('publish')}><Sparkles />发布文案</Button><Button variant="outline" disabled={!ready || !!busy} onClick={() => run('保存草稿', async () => { await api('project', project); setMessage('草稿已保存在本机'); })}><Save />保存草稿</Button><Button variant="outline" disabled={!project.image || !!busy || !!job} onClick={exportCurrentFrame}><ImageDown />导出当前帧</Button><Button disabled={!!busy || !!job || !exportReady(project)} onClick={() => run('提交导出', async () => { const r = await api<{ id: string }>('render', project); setJob(r.id); setProgress(0); setDownload(''); })}>{job ? <LoaderCircle className="animate-spin" /> : <Download />}{job ? `导出 ${Math.round(progress * 100)}%` : '导出视频'}</Button></div>
+            <div className="header-actions"><span className="local-badge"><span />本地创作</span><Button variant="outline" onClick={() => setDrawer('cover')}><ImageDown />设计封面</Button><Button variant="outline" onClick={() => setDrawer('publish')}><Sparkles />发布文案</Button><Button variant="outline" disabled={!ready || !!busy} onClick={() => run('保存草稿', async () => { await api('project', project); setMessage('草稿已保存在本机'); })}><Save />保存草稿</Button><Button disabled={!!busy || !!job || !exportReady(project)} onClick={() => run('提交导出', async () => { const r = await api<{ id: string }>('render', project); setJob(r.id); setProgress(0); setDownload(''); })}>{job ? <LoaderCircle className="animate-spin" /> : <Download />}{job ? `导出 ${Math.round(progress * 100)}%` : '导出视频'}</Button></div>
         </header>
         <div className="page-intro"><div><span className="eyebrow">EVERYDAY ENGLISH, ONE PHOTO AT A TIME</span><h1>把生活，拍成一堂小课。</h1></div><div className="workflow"><span>01 素材</span><ChevronRight /><span>02 单词</span><ChevronRight /><span>03 成片</span></div></div>
-        {(error || message || busy) && <div role={error ? 'alert' : 'status'} className={`notice ${error ? 'notice-error' : ''}`}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : error ? '！' : <Check size={16} />}{error || busy || message}{download && <a className="download-link" href={download}>下载 MP4 →</a>}</div>}
-        {ready && project.image && exportIssues.length > 0 && !busy && <div role="status" className="notice notice-warning">导出前还需要：{exportIssues.join('；')}</div>}
+        <Toast
+            kind={(error ? 'error' : busy || job ? 'loading' : message ? 'success' : warningText ? 'warning' : undefined) as ToastKind | undefined}
+            text={error || busy || (job ? `正在导出视频 · ${Math.round(progress * 100)}%` : message) || warningText}
+            download={download}
+            persistent={!error && !busy && !message && !job}
+            onDismiss={() => { if (error) setError(''); else if (message) setMessage(''); }}
+        />
         <main className="workspace">
             <aside className="panel materials"><div className="panel-heading"><span className="section-number">01</span><h2>素材与单词</h2><ImagePlus size={17} /></div>
                 <fieldset disabled={!!busy || !!job || !ready} className="panel-body">
                     <input ref={input} type="file" multiple accept="image/*,.heic,.heif,video/mp4,video/quicktime,video/webm" className="sr-only" aria-label="上传图片、视频或 Apple 动态照片" onChange={e => { void importFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
                     <button className="upload-zone" onClick={() => input.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (!busy) void importFiles(Array.from(e.dataTransfer.files)); }}><span className="upload-icon"><ImagePlus size={24} /></span><strong>{project.image || source ? '更换图片或视频' : '放进一张生活的切片'}</strong><span>拖入素材，或点击选择</span><small>图片 / 视频 / Apple 动态照片（同时选择 HEIC + MOV）</small></button>
                     {source && <div className="video-picker"><video key={source} ref={video} src={source} controls preload="metadata" onError={() => setError('无法播放这个视频，请转换为 H.264 MP4 后重试')} onLoadedMetadata={e => { const duration=e.currentTarget.duration; setSourceDuration(duration); if (pendingLivePhotoVideo.current === source) { pendingLivePhotoVideo.current=''; update({ ...project, captureSeconds: duration, introSeconds: 2 }); } }} /><Button variant="secondary" size="sm" onClick={capture}><Camera />使用这一帧</Button><small>{project.video === source ? `快门时刻：${project.captureSeconds.toFixed(2)} 秒 / ${sourceDuration.toFixed(1)} 秒` : `尚未选定拍摄帧 · 视频 ${sourceDuration.toFixed(1)} 秒`}</small></div>}
-                    <SceneEditor project={project} update={update} onEditArrow={() => { player.current?.pause(); player.current?.seekTo(t.interactionFrom+12); }} /><label className="field-label" htmlFor="title">本期标题</label><input id="title" className="input" value={project.title} maxLength={80} onChange={e => update({ ...project, title: e.target.value })} />
+                    <SceneEditor project={project} update={update} onEditArrow={() => seekForEditing(t.interactionFrom+12)} />
                     {project.captionVariants && <div className="caption-variants" role="radiogroup" aria-label="照片描述风格">
                         {([['serious', '认真', '准确清楚'], ['funny', '搞笑', '轻松有趣'], ['literary', '文艺', '克制有画面感']] as const).map(([style, label, note]) => {
                             const variant = project.captionVariants![style];
@@ -254,27 +264,22 @@ export function Studio() {
                 </fieldset>
             </aside>
             {mode === 'publish' ? <section className="preview-column publish-column">
-                <div className="cover-tabs"><Button variant="ghost" onClick={() => setDrawer(null)}>视频</Button><Button variant="ghost" onClick={() => setDrawer('cover')}>封面</Button><Button variant="secondary">发布</Button><span>3 PLATFORMS</span></div>
                 <PublishPanel project={project} update={update} />
             </section> : mode === 'cover' ? <section className="preview-column">
-                <div className="cover-tabs"><Button variant="ghost" onClick={() => setDrawer(null)}>视频</Button><Button variant="secondary">封面</Button><Button variant="ghost" onClick={() => setDrawer('publish')}>发布</Button><span>3:4 · 1080 × 1440</span></div>
-                <div className="preview-stage"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project, onMove:(id, kind, point) => {
-                    setSelected(id); const c = project.cover ?? defaultCover;
-                    update({ ...project, cover: { ...c, words: { ...c.words, [id]: { ...(c.words[id] ?? { scale: 1 }), [kind === 'label' ? 'labelCenterOverride' : 'targetCenterOverride']: point } } } });
-                } }} /></div>
-                <p className="hint">拖动胶囊或圆点调整封面；松手后重新规划引导线。</p>
-            </section> : <section className="preview-column"><div className="cover-tabs"><Button variant="secondary" onClick={() => setMode('video')}>视频</Button><Button variant="ghost" onClick={() => { player.current?.pause(); setMode('cover'); }}>封面</Button><Button variant="ghost" onClick={() => { player.current?.pause(); setMode('publish'); }}>发布</Button></div><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, onAnnotationMove: moveAnnotation, onInteractionTargetMove: moveInteractionTarget, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
-                </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊、圆点或互动箭头调整位置</span></div><div className={`timeline-strip ${project.videoTemplate === 'direct' ? 'timeline-direct' : ''}`}>{project.videoTemplate === 'camera' ? <><button onClick={() => player.current?.seekTo(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => player.current?.seekTo(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button></> : <button onClick={() => player.current?.seekTo(0)}><Sparkles size={15} /><span>完整单词图</span><small>0.5s</small></button>}<button onClick={() => player.current?.seekTo(t.intro+t.reveal)}><Volume2 size={15} /><span>高亮跟读</span><small>{project.words.length} 词</small></button><button onClick={() => player.current?.seekTo(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>3s</small></button>{project.interaction?.enabled && <button onClick={() => player.current?.seekTo(t.interactionFrom+12)}><FilmIcon size={15} /><span>互动提问</span><small>{project.interaction.arrowEnabled ? '拖动箭头' : '3s'}</small></button>}</div></section>}
+                <div className="preview-stage"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project }} /></div>
+                <p className="hint">主标题突出“真实场景学英语”，本期场景作为副标题；物体词自动整齐排列。</p>
+            </section> : <section className="preview-column"><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, onAnnotationMove: moveAnnotation, onInteractionTargetMove: moveInteractionTarget, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
+                </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊、圆点或互动箭头调整位置</span></div><div className={`timeline-strip ${project.videoTemplate === 'direct' ? 'timeline-direct' : ''}`}>{project.videoTemplate === 'camera' ? <><button onClick={() => seekForEditing(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => seekForEditing(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button></> : <button onClick={() => seekForEditing(0)}><Sparkles size={15} /><span>完整单词图</span><small>0.5s</small></button>}<button onClick={() => seekForEditing(t.intro+t.reveal)}><Volume2 size={15} /><span>高亮跟读</span><small>{project.words.length} 词</small></button><button onClick={() => seekForEditing(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>3s</small></button>{project.interaction?.enabled && <button onClick={() => seekForEditing(t.interactionFrom+12)}><FilmIcon size={15} /><span>互动提问</span><small>{project.interaction.arrowEnabled ? '拖动箭头' : '3s'}</small></button>}</div></section>}
             {mode === 'publish' ? <aside className="panel settings publish-settings"><div className="panel-heading"><h2>发布助手</h2><Sparkles size={17} /></div><fieldset className="panel-body" disabled={!!busy || !ready}>
                 <div className="editor-note"><span>一套内容，三种说法。</span><p>生成时会使用最终照片描述、全部词汇和封面高亮词。</p></div>
                 <div className="publish-source"><small>PHOTO NOTE</small><p>{project.captionChinese || '请先完成 AI 识别并选定照片描述。'}</p><div>{project.words.map(word => <span key={word.id}>{word.english}</span>)}</div></div>
                 <Button className="w-full mt-4" disabled={!project.caption.trim() || !project.words.length} onClick={generatePublishingCopy}><Sparkles />{project.socialCopy ? '重新生成三平台文案' : '生成三平台文案'}</Button>
-                {project.socialCopyStale && <p role="status" className="notice notice-warning">内容已修改，请重新生成发布文案。</p>}<p className="hint">重新生成会替换三个平台当前的编辑内容。文案只保存在本地草稿，不会自动发布。</p>
+                <p className="hint">重新生成会替换三个平台当前的编辑内容。文案只保存在本地草稿，不会自动发布。</p>
             </fieldset></aside> : mode === 'cover' ? <aside className="panel settings"><div className="panel-heading"><h2>学习卡片封面</h2></div><fieldset className="panel-body" disabled={!!busy || !ready}>
-                <p className="hint">完整照片 · 全部单词<br />尺寸与位置仅用于封面，随草稿保存。</p>
-                <label className="range-field"><span>全部胶囊 <strong>{Math.round((project.cover?.scale ?? 1)*100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".6" max="1.6" step=".01" value={project.cover?.scale ?? 1} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), scale: Number(e.target.value) } })} /></label>
+                <p className="hint">3:4 满版照片 · 场景标题 · 物体词自动换行 · 场景词单行显示。</p>
+                <label className="range-field"><span>全部胶囊 <strong>{Math.round(coverScale*100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".6" max="1.15" step=".01" value={coverScale} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), scale: Number(e.target.value) } })} /></label>
                 {word && (word.kind ?? 'object') === 'object' ? <label className="range-field"><span>{word.english} <strong>{Math.round((project.cover?.words[word.id]?.scale ?? 1)*100)}%</strong></span><input aria-label="当前胶囊大小" type="range" min=".75" max="1.5" step=".01" value={project.cover?.words[word.id]?.scale ?? 1} onChange={e => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: { ...c.words, [word.id]: { ...c.words[word.id], scale: Number(e.target.value) } } } }); }} /></label> : <p className="hint">选择左侧单词，可单独调整大小。</p>}
-                <div className="cover-highlight-picker"><h3>高亮单词</h3><p className="hint">可多选，与视频一致：物体胶囊和场景词都会放大；物体引导线同时高亮。</p>
+                <div className="cover-highlight-picker"><h3>高亮单词</h3><p className="hint">物体词使用黄色胶囊，场景词使用蓝色胶囊；高亮时增强描边和阴影。</p>
                     <div className="cover-highlight-list">{project.words.map(w => <label key={w.id}><input type="checkbox" checked={project.cover?.words[w.id]?.highlighted ?? false} onChange={e => {
                         const c = project.cover ?? defaultCover;
                         update({ ...project, cover: { ...c, words: { ...c.words, [w.id]: { ...(c.words[w.id] ?? { scale: 1 }), highlighted: e.target.checked } } } });
@@ -284,8 +289,6 @@ export function Studio() {
                         update({ ...project, cover: { ...c, words: Object.fromEntries(Object.entries(c.words).map(([id, value]) => [id, { ...value, highlighted: false }])) } });
                     }}>清除高亮</Button>
                 </div>
-                <Button variant="outline" className="w-full" onClick={() => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: Object.fromEntries(Object.entries(c.words).map(([id, value]) => [id, { scale: value.scale, highlighted: value.highlighted }])) } }); }}>恢复视频位置</Button>
-                {coverConflicts.length > 0 && <p role="alert" className="cover-conflict">以下胶囊重叠或超出安全边距：{project.words.filter(w => coverConflicts.includes(w.id)).map(w => w.english).join('、')}。请缩小或移动后再导出。</p>}
                 <Button className="w-full mt-4" disabled={!project.image || !project.words.length || project.words.some(w => !w.english.trim()) || coverConflicts.length > 0} onClick={() => run('导出封面', async () => { const result = await api<{ file: string }>('render-cover', { project }); const a = document.createElement('a'); a.href = result.file; a.download = 'kakaword-cover.png'; a.click(); setMessage('封面已导出'); })}><ImageDown />导出封面 PNG</Button>
             </fieldset></aside> : <aside className="panel settings"><div className="panel-heading"><span className="section-number">02</span><h2>校对与节奏</h2><Volume2 size={17} /></div><fieldset disabled={!!busy || !!job || !ready} className="panel-body">
                 <div className="editor-note"><span>一张照片，一点新发现。</span><p>画面保持安静，让正在读的单词亮起来。</p></div>
@@ -295,19 +298,17 @@ export function Studio() {
             </fieldset></aside>}
         </main>
         <Drawer title="封面设计" open={drawer === 'cover'} onClose={() => setDrawer(null)}>
-            <div className="drawer-preview"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project, onMove: (id, kind, point) => { setSelected(id); const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: { ...c.words, [id]: { ...(c.words[id] ?? { scale: 1 }), [kind === 'label' ? 'labelCenterOverride' : 'targetCenterOverride']: point } } } }); } }} /></div>
-            <p className="hint">拖动胶囊或圆点调整封面位置；封面使用 3:4 比例。</p>
-            <label className="range-field"><span>全部胶囊 <strong>{Math.round((project.cover?.scale ?? 1) * 100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".6" max="1.6" step=".01" value={project.cover?.scale ?? 1} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), scale: Number(e.target.value) } })} /></label>
+            <div className="drawer-preview"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project }} /></div>
+            <p className="hint">封面固定使用 3:4 比例，标题和单词都位于图片内。</p>
+            <label className="range-field"><span>全部胶囊 <strong>{Math.round(coverScale * 100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".6" max="1.15" step=".01" value={coverScale} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), scale: Number(e.target.value) } })} /></label>
             {word && (word.kind ?? 'object') === 'object' && <label className="range-field"><span>{word.english} <strong>{Math.round((project.cover?.words[word.id]?.scale ?? 1) * 100)}%</strong></span><input aria-label="当前胶囊大小" type="range" min=".75" max="1.5" step=".01" value={project.cover?.words[word.id]?.scale ?? 1} onChange={e => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: { ...c.words, [word.id]: { ...c.words[word.id], scale: Number(e.target.value) } } } }); }} /></label>}
             <div className="cover-highlight-picker"><h3>高亮单词</h3><div className="cover-highlight-list">{project.words.map(w => <label key={w.id}><input type="checkbox" checked={project.cover?.words[w.id]?.highlighted ?? false} onChange={e => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: { ...c.words, [w.id]: { ...(c.words[w.id] ?? { scale: 1 }), highlighted: e.target.checked } } } }); }} /><span>{w.english}</span></label>)}</div></div>
-            {coverConflicts.length > 0 && <p role="alert" className="cover-conflict">以下胶囊重叠或越界：{project.words.filter(w => coverConflicts.includes(w.id)).map(w => w.english).join('、')}</p>}
             <Button className="w-full" disabled={!project.image || !project.words.length || coverConflicts.length > 0} onClick={() => run('导出封面', async () => { const result = await api<{ file: string }>('render-cover', { project }); const a = document.createElement('a'); a.href = result.file; a.download = 'kakaword-cover.png'; a.click(); setMessage('封面已导出'); })}><ImageDown />导出封面 PNG</Button>
         </Drawer>
         <Drawer title="发布助手" open={drawer === 'publish'} onClose={() => setDrawer(null)}>
             <div className="editor-note"><span>一套内容，三种说法。</span><p>生成时会使用最终照片描述、全部词汇和封面高亮词。</p></div>
             <div className="publish-source"><small>PHOTO NOTE</small><p>{project.captionChinese || '请先完成 AI 识别并选定照片描述。'}</p><div>{project.words.map(word => <span key={word.id}>{word.english}</span>)}</div></div>
             <Button className="w-full mt-4" disabled={!!busy || !ready || !project.caption.trim() || !project.words.length} onClick={generatePublishingCopy}><Sparkles />{busy === '生成发布文案' ? '正在生成…' : project.socialCopy ? '重新生成三平台文案' : '生成三平台文案'}</Button>
-            {project.socialCopyStale && <p role="status" className="notice notice-warning">内容已修改，请重新生成发布文案。</p>}
             <p className="hint">重新生成会替换三个平台当前的编辑内容。文案只保存在本地草稿，不会自动发布。</p>
             <PublishPanel project={project} update={update} />
         </Drawer>

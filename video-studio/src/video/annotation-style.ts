@@ -1,3 +1,32 @@
+import type { CSSProperties } from 'react';
+
+export const objectCapsuleStyle: CSSProperties = {
+    borderRadius: 999,
+    background: '#f4c95d',
+    color: '#24211e',
+    border: '1px solid rgba(36,33,30,.18)',
+    fontFamily: '"SF Pro Rounded", ui-rounded, system-ui, sans-serif',
+    fontWeight: 700,
+    lineHeight: 1,
+};
+
+export const sceneCapsuleStyle: CSSProperties = {
+    borderRadius: 999,
+    background: '#b9dde6',
+    color: '#294f59',
+    border: '1.5px solid rgba(41,79,89,.24)',
+    fontFamily: '"SF Pro Rounded", ui-rounded, system-ui, sans-serif',
+    fontWeight: 700,
+    lineHeight: 1,
+};
+
+export const sceneCapsuleHighlight = {
+    fill: '#8fcfe0',
+    ink: 'rgba(36,73,82,.9)',
+    ring: 'rgba(226,247,250,.9)',
+    shadow: '0 5px 12px rgba(36,73,82,.28)',
+};
+
 export const annotationHighlight = {
     scale: 1.08,
     fill: '#ffdc62',

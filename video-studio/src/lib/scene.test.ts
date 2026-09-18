@@ -50,7 +50,10 @@ test('scene-card highlight keeps width, grows upward and enlarges text', () => {
     assert.ok(base.includes('bottom:0;width:100%;height:44px'));
     assert.ok(highlighted.includes('bottom:0;width:100%;height:54px'));
     assert.ok(highlighted.includes('font-size:20px'));
-    assert.ok(highlighted.includes('0 0 0 3px rgba(255,255,255,.94)'));
+    assert.ok(base.includes('background:#b9dde6'));
+    assert.ok(highlighted.includes('background:#8fcfe0'));
+    assert.ok(highlighted.includes('0 0 0 3px rgba(226,247,250,.9)'));
+    assert.ok(!base.includes('rgba(255,253,248,.88)'));
     assert.ok(!highlighted.includes('text-overflow:ellipsis'));
     assert.ok(!base.includes('<path'));
     assert.ok(base.includes('display:flex;flex-wrap:nowrap'));
@@ -84,22 +87,19 @@ test('up to ten scene cards float inside an unchanged portrait, landscape or pan
             assert.equal(layout.sceneHeight, 44);
         }
         const cover = coverLayout(p);
-        assert.equal(cover.placements.length, 0);
-        assert.equal(cover.sceneTop + cover.sceneHeight, 1416);
-        assert.equal(cover.sceneLeft, 24);
-        assert.equal(cover.sceneWidth, 1032);
-        assert.equal(cover.sceneHeight, count ? 88 : 0);
+        assert.equal(cover.objects.length, 0);
+        assert.equal(cover.scenes.length, count);
         assert.ok(cover.photo.x <= 0 && cover.photo.y <= 0);
         assert.ok(cover.photo.width >= 1080 && cover.photo.height >= 1440);
     }
 });
 
-test('cover shows scene words without speech or fake photo markers; pending locations block export', () => {
-    assert.deepEqual(coverLayout(project).placements.map(p => p.id), ['egg']);
+test('cover shows object and scene words without requiring photo markers', () => {
+    assert.deepEqual(coverLayout(project).objects.map(word => word.id), ['egg']);
     assert.equal(coverExportReady(project), true);
     const pending = { ...project, words: [{ ...project.words[0], kind: 'object' as const, needsLocation: true }] };
     assert.equal(projectSchema.safeParse(pending).success, true);
-    assert.equal(coverExportReady(pending), false);
+    assert.equal(coverExportReady(pending), true);
     assert.ok(exportBlockers(pending).includes('物体词需要完成定位'));
 });
 

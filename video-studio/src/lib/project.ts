@@ -40,7 +40,7 @@ export const socialCopySchema = z.object({ xiaohongshu: socialPostSchema, douyin
 export type SocialCopy = z.infer<typeof socialCopySchema>;
 export const coverSchema = z.object({
     template: z.literal('learning-card').default('learning-card'),
-    scale: z.number().min(.6).max(1.6).default(1.3),
+    scale: z.number().min(.6).max(1.6).default(.9),
     words: z.record(z.object({
         scale: z.number().min(.75).max(1.5).default(1),
         highlighted: z.boolean().optional(),

@@ -36,7 +36,7 @@ export function InteractionArrow({ photo, descriptionTop, target, progress, onMo
         return { x: Math.min(.98, Math.max(.02, (logical.x - photo.x) / photo.width)), y: Math.min(.98, Math.max(.02, (logical.y - photo.y) / photo.height)) };
     }
     function move(event: ReactPointerEvent<SVGCircleElement>) {
-        if (!onMove || event.buttons !== 1) return;
+        if (!onMove || !drag.current) return;
         const point = pointFromEvent(event); drag.current = point;
         const svg = event.currentTarget.ownerSVGElement!;
         const next = interactionArrowGeometry(start, { x: photo.x + point.x * photo.width, y: photo.y + point.y * photo.height });

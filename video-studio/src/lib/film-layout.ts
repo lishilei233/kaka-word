@@ -32,9 +32,18 @@ export function filmLayout(p: Project) {
     const wordTop = belowPhoto + WORD_DETAIL_HEIGHT <= FILM_HEIGHT - 12 ? belowPhoto : Math.min(FILM_HEIGHT - WORD_DETAIL_HEIGHT - 12, Math.max(12, sceneTop - WORD_DETAIL_HEIGHT - 12));
     const descriptionTop = belowPhoto + 140 <= FILM_HEIGHT - 12 ? belowPhoto : Math.min(FILM_HEIGHT - 152, Math.max(12, sceneTop - 152));
     const closingTop = Math.min(descriptionTop + 154, FILM_HEIGHT - WORD_DETAIL_HEIGHT - 12);
-    // CameraView.swift covers the full screen and uses resizeAspect for the sensor image.
+    // Keep the sensor image full-screen; the smaller viewfinder is an overlay only.
     const camera = { x: 0, y: 0, width: FILM_WIDTH, height: FILM_HEIGHT };
+    const cameraImage = fitImage(camera, aspect);
+    const viewfinderWidth = Math.min(456, cameraImage.width * .84);
+    const viewfinderHeight = Math.min(560, cameraImage.height * .84);
+    const viewfinder = {
+        x: cameraImage.x + (cameraImage.width - viewfinderWidth) / 2,
+        y: cameraImage.y + (cameraImage.height - viewfinderHeight) / 2,
+        width: viewfinderWidth,
+        height: viewfinderHeight,
+    };
     return { top, bottom, textLeft, textRight, wordTop, descriptionTop, closingTop, sceneTop, sceneLeft, sceneWidth, sceneHeight,
-        wordDetailHeight: WORD_DETAIL_HEIGHT, wordOverPhoto: wordTop < photo.y + photo.height, descriptionOverPhoto: descriptionTop < photo.y + photo.height, photo, camera,
-        photoImage: photo, cameraImage: fitImage(camera, aspect), shutterTop: bottom - 104 };
+        wordDetailHeight: WORD_DETAIL_HEIGHT, wordOverPhoto: wordTop < photo.y + photo.height, descriptionOverPhoto: descriptionTop < photo.y + photo.height, photo, camera, viewfinder,
+        photoImage: photo, cameraImage, shutterTop: bottom - 104 };
 }
