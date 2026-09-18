@@ -16,6 +16,6 @@ export function Toast({ kind, text, download, persistent = false, onDismiss }: {
         <Icon size={17} className={kind === 'loading' ? 'animate-spin' : undefined} />
         <span>{text}</span>
         {download && <a className="toast-download" href={download}>下载 MP4 →</a>}
-        {!persistent && kind !== 'loading' && <button type="button" className="toast-close" aria-label="关闭提示" onClick={() => { setVisible(false); onDismiss?.(); }}><X size={15} /></button>}
+        {kind !== 'loading' && <button type="button" className="toast-close" aria-label="关闭提示" onClick={() => { setVisible(false); onDismiss?.(); }}><X size={15} /></button>}
     </div></div>;
 }

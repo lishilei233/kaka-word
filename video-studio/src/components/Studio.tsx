@@ -231,8 +231,8 @@ export function Studio() {
             kind={(error ? 'error' : busy || job ? 'loading' : message ? 'success' : warningText ? 'warning' : undefined) as ToastKind | undefined}
             text={error || busy || (job ? `正在导出视频 · ${Math.round(progress * 100)}%` : message) || warningText}
             download={download}
-            persistent={!error && !busy && !message && !job}
-            onDismiss={() => { if (error) setError(''); else if (message) setMessage(''); }}
+            persistent={Boolean(download) || (!error && !busy && !message && !job)}
+            onDismiss={() => { if (download) setDownload(''); if (error) setError(''); else if (message) setMessage(''); }}
         />
         <main className="workspace">
             <aside className="panel materials"><div className="panel-heading"><span className="section-number">01</span><h2>素材与单词</h2><ImagePlus size={17} /></div>

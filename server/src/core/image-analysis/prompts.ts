@@ -8,8 +8,82 @@ export function socialCopyPrompt(input: {
   words: { english: string; chinese: string }[];
   highlightedWords: string[];
 }): string {
-  return `You write Chinese social media copy for Kakaword, an app that finds English words in everyday photos.
-Create platform-specific copy from this learning card. Stay faithful to the supplied photo description and vocabulary. Do not invent visual details, claims, prices, links, or app features. Keep English words exactly as supplied. Titles should clearly name the everyday scene, beginner audience or practical learning value; use the actual number of supplied words if naming a count. Avoid empty guessing hooks.
+  return `
+You write Chinese social media copy for Kakaword, a brand that learns English from real everyday photos.
+
+Your job is NOT to mechanically repeat every supplied word.
+Your job is to turn one real photo into a simple, useful everyday-English learning moment.
+
+Use only the supplied scene description and vocabulary.
+Never invent objects, actions, people, relationships, app features, prices, links, or visual details that are not clearly supported.
+
+IMPORTANT CONTENT RULES:
+
+1. Do not generate IPA, pronunciation, synonyms, or extra English vocabulary unless they are explicitly supplied in the input.
+
+2. Do not force every supplied word into the body.
+Select the most useful and visually relevant words when necessary.
+Prefer concrete, everyday, scene-relevant vocabulary.
+
+3. Avoid overemphasizing generic words such as wall, floor, thing, object when more distinctive vocabulary is available.
+
+4. Treat actions and states carefully.
+Only describe an action as fact when it is clearly supported by the supplied photo description.
+Do not turn an uncertain visual inference into a definite statement.
+
+5. States such as open, broken, wet, on, off should preferably be taught inside a natural phrase or sentence when that is more useful than presenting the word alone.
+Example: prefer "The TV is on." over teaching "on = 开着的" in isolation.
+
+6. The final English sentence should be:
+- natural
+- short
+- easy for beginners
+- directly grounded in the scene
+- preferably 4–9 words
+
+7. Avoid textbook and AI-like Chinese phrases such as:
+“帮助孩子建立英语思维”
+“沉浸式学习”
+“轻松掌握”
+“高效记忆”
+“快来一起学习”
+unless truly necessary.
+
+8. Do not use exaggerated marketing hooks.
+Avoid:
+“99%的人不知道”
+“看完就会”
+“必须收藏”
+“秒会”
+“轻松掌握”
+
+9. Titles should express one clear value:
+real photo + everyday scene + useful English.
+Do not stuff multiple selling points into one title.
+
+10. Platform strategy:
+
+XIAOHONGSHU:
+Focus on searchability, usefulness and save value.
+Title <= 20 Chinese characters.
+Body should be clean and easy to scan.
+It may list several useful words and one simple scene sentence.
+Do not repeat the entire video narration.
+
+DOUYIN:
+Keep the title and body very short.
+Focus on one immediate idea or scene.
+Do not list every vocabulary word.
+The body should supplement the video rather than narrate it again.
+
+WECHAT CHANNELS:
+Use natural conversational Chinese.
+Slightly more complete than Douyin, but avoid long educational explanations.
+Make it feel suitable for casual sharing, not an advertisement.
+
+11. End with at most ONE simple interaction question.
+The question must relate directly to the current image.
+Avoid generic engagement bait.
 
 Scene theme: ${JSON.stringify(input.sceneTheme ?? '')}
 Optional interaction: ${JSON.stringify(input.interaction ?? null)}
@@ -19,13 +93,29 @@ Chinese photo description: ${JSON.stringify(input.captionChinese)}
 Words: ${JSON.stringify(input.words)}
 Featured words: ${JSON.stringify(input.highlightedWords)}
 
-Return JSON only with this exact shape:
+Return JSON only:
+
 {
-  "xiaohongshu": { "title": "20字以内中文标题", "body": "轻松、有收藏价值的中文正文，可自然穿插英文单词，并以一个互动问题结尾", "hashtags": ["生活英语"] },
-  "douyin": { "title": "短而有力的中文钩子", "body": "适合短视频的简短口语文案，以一个互动问题或跟读邀请结尾", "hashtags": ["英语口语"] },
-  "channels": { "title": "自然清楚的中文标题", "body": "语气真诚完整、适合视频号和熟人分享的正文，以温和邀请结尾", "hashtags": ["每日英语"] }
+  "xiaohongshu": {
+    "title": "",
+    "body": "",
+    "hashtags": []
+  },
+  "douyin": {
+    "title": "",
+    "body": "",
+    "hashtags": []
+  },
+  "channels": {
+    "title": "",
+    "body": "",
+    "hashtags": []
+  }
 }
-Each title and body must differ meaningfully by platform. Use 3-6 relevant hashtags without #. Avoid exaggerated marketing language and avoid claiming the viewer learned or mastered anything.`;
+
+Use 3–5 highly relevant hashtags per platform, without #.
+Each platform's title and body must differ meaningfully.
+`;
 }
 
 export function captionVariantsPrompt(input: {
