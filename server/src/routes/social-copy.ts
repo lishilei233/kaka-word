@@ -8,8 +8,8 @@ import { authenticateVideoStudio, unauthorized } from "./access-auth.js";
 const requestSchema = z.object({
   sceneTheme: z.string().max(100).optional(),
   interaction: z.object({ english: z.string().max(220), chinese: z.string().max(220) }).optional(),
-  caption: z.string().trim().min(1).max(220),
-  captionChinese: z.string().trim().max(220),
+  caption: z.string().trim().min(1).max(441),
+  captionChinese: z.string().trim().max(440),
   words: z.array(z.object({ english: z.string().trim().min(1).max(60), chinese: z.string().max(60), ipa: z.string().max(80).optional(), kind: z.enum(['object', 'action', 'state']).optional() })).min(1).max(20),
   highlightedWords: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
 });

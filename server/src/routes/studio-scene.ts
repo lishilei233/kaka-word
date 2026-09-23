@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AppEnv } from '../app.js';
 import type { VisionProvider } from '../core/image-analysis/types.js';
 import { studioSceneSchema } from '../core/image-analysis/studio-scene.js';
-import { photoCaptionSchema } from '../core/image-analysis/types.js';
+import { photoCaptionSchema, normalizeCaption } from '../core/image-analysis/types.js';
 import { authenticateVideoStudio, unauthorized } from './access-auth.js';
 import { getImageDimensions } from '../utils/image-dimensions.js';
 
@@ -75,7 +75,7 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
                 words: words.map(({ english, chinese, kind }) => ({ english, chinese, kind })),
                 signal,
             });
-            return c.json(studioSceneSchema.parse({ ...scene, ...reviewed, words }));
+            return c.json(studioSceneSchema.parse({ ...scene, ...reviewed, captionSentences: reviewed.captionSentences, words }));
         } catch { return c.json({ message: '场景分析失败，请重试或切换物体识别' }, 502); }
     });
 
@@ -98,8 +98,8 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
             try { words = wordsSchema.safeParse(JSON.parse(wordsJSON)); } catch { words = null; }
         }
         if (!(image instanceof File) || image.type !== 'image/jpeg' || image.size > 10 * 1024 * 1024
-            || typeof caption !== 'string' || !caption.trim() || caption.length > 220
-            || typeof captionChinese !== 'string' || captionChinese.length > 220
+            || typeof caption !== 'string' || !caption.trim() || caption.length > 441
+            || typeof captionChinese !== 'string' || captionChinese.length > 440
             || typeof context !== 'string' || context.length > 500 || !words?.success) {
             return c.json({ message: '请提供有效照片、描述和词表' }, 400);
         }
@@ -107,10 +107,10 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
         if (!getImageDimensions(bytes)) return c.json({ message: '请提供有效 JPEG 照片' }, 400);
         try {
             const signal = AbortSignal.any([c.req.raw.signal, AbortSignal.timeout(120000)]);
-            return c.json(photoCaptionSchema.parse(await dependencies.provider.reviewCaption({
+            return c.json(normalizeCaption(photoCaptionSchema.parse(await dependencies.provider.reviewCaption({
                 image: bytes, mimeType: 'image/jpeg', caption, captionChinese,
                 context, words: words.data, signal,
-            })));
+            }))));
         } catch {
             return c.json({ message: '照片描述审校失败，原内容未改变，请重试' }, 502);
         }
@@ -135,9 +135,9 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
         if (!getImageDimensions(bytes)) return c.json({ message: '请提供有效 JPEG 照片' }, 400);
         try {
             const signal = AbortSignal.any([c.req.raw.signal, AbortSignal.timeout(120000)]);
-            const draft = photoCaptionSchema.parse(await dependencies.provider.generateCaption({ image: bytes, mimeType: 'image/jpeg', words, context, signal }));
+            const draft = normalizeCaption(photoCaptionSchema.parse(await dependencies.provider.generateCaption({ image: bytes, mimeType: 'image/jpeg', words, context, signal })));
             const reviewed = await dependencies.provider.reviewCaption({ image: bytes, mimeType: 'image/jpeg', ...draft, words, context, signal });
-            return c.json(photoCaptionSchema.parse(reviewed));
+            return c.json(normalizeCaption(photoCaptionSchema.parse(reviewed)));
         } catch {
             return c.json({ message: '照片描述生成或审校失败，原内容未改变，请重试' }, 502);
         }

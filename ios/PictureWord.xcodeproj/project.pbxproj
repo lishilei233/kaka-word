@@ -7,49 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		111111111111111111111101 /* PictureWordApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222201 /* PictureWordApp.swift */; };
-		111111111111111111111102 /* AnalyzeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222202 /* AnalyzeModels.swift */; };
-		111111111111111111111103 /* ImageProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222203 /* ImageProcessor.swift */; };
-		111111111111111111111104 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222204 /* APIClient.swift */; };
-		111111111111111111111105 /* SpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222205 /* SpeechService.swift */; };
-		111111111111111111111106 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222206 /* CameraView.swift */; };
-		111111111111111111111107 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222207 /* HomeView.swift */; };
-		111111111111111111111108 /* HistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222209 /* HistoryStore.swift */; };
-		111111111111111111111109 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222211 /* AppEnvironment.swift */; };
-		11111111111111111111110A /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222212 /* AppTheme.swift */; };
-		11111111111111111111110B /* HistoryRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222213 /* HistoryRecord.swift */; };
-		11111111111111111111110C /* HistoryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222214 /* HistoryRow.swift */; };
-		11111111111111111111110D /* AnalysisViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222215 /* AnalysisViewModel.swift */; };
-		11111111111111111111110E /* RecognitionFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222216 /* RecognitionFlowView.swift */; };
-		11111111111111111111110F /* ResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222217 /* ResultView.swift */; };
-		111111111111111111111110 /* AnnotatedImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222218 /* AnnotatedImageView.swift */; };
-		111111111111111111111111 /* AnnotationLayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222219 /* AnnotationLayoutEngine.swift */; };
-		111111111111111111111112 /* WordDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221A /* WordDetailSheet.swift */; };
-		111111111111111111111113 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221B /* AppSettings.swift */; };
-		111111111111111111111114 /* ContentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221C /* ContentModels.swift */; };
-		111111111111111111111115 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221D /* SettingsView.swift */; };
-		111111111111111111111116 /* LearningJourneyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221E /* LearningJourneyModels.swift */; };
-		111111111111111111111117 /* LearningJourneyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222221F /* LearningJourneyStore.swift */; };
-		111111111111111111111118 /* ModeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222220 /* ModeSelectionView.swift */; };
-		111111111111111111111119 /* ShareCardRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222221 /* ShareCardRenderer.swift */; };
-		11111111111111111111111A /* ShareCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222222 /* ShareCardView.swift */; };
-		11111111111111111111111B /* PageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222223 /* PageHeader.swift */; };
-		11111111111111111111111C /* PictureWordButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222224 /* PictureWordButton.swift */; };
-		11111111111111111111111D /* PictureWordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222225 /* PictureWordSheet.swift */; };
-		11111111111111111111111E /* MembershipStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222226 /* MembershipStore.swift */; };
-		11111111111111111111111F /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222227 /* PaywallView.swift */; };
-		111111111111111111111120 /* WordLearningModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222228 /* WordLearningModels.swift */; };
-		111111111111111111111121 /* WordLearningStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222229 /* WordLearningStore.swift */; };
-		111111111111111111111122 /* WordLearningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222A /* WordLearningViews.swift */; };
-		111111111111111111111123 /* WordFilterControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222B /* WordFilterControls.swift */; };
-		111111111111111111111124 /* PictureWordTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222C /* PictureWordTextField.swift */; };
-		111111111111111111111125 /* StoreKitTransactionGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222E /* StoreKitTransactionGateway.swift */; };
-		111111111111111111111126 /* EntitlementSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22222222222222222222222F /* EntitlementSyncCoordinator.swift */; };
-		111111111111111111111127 /* PersistenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222230 /* PersistenceModels.swift */; };
-		111111111111111111111128 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222231 /* PersistenceController.swift */; };
-		111111111111111111111129 /* LegacyJSONMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222232 /* LegacyJSONMigration.swift */; };
-		A931C8C030407ED6002F4806 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A931C8BF30407ED6002F4806 /* StoreKit.framework */; };
-		A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A96C244B303D79F8009BAAFD /* Assets.xcassets */; };
 		D00000000000000000000001 /* WordLearningStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* WordLearningStoreTests.swift */; };
 		D00000000000000000000003 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D00000000000000000000004 /* XCTest.framework */; };
 		D00000000000000000000010 /* MembershipStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* MembershipStoreTests.swift */; };
@@ -58,16 +15,6 @@
 		D00000000000000000000016 /* AppVersionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000017 /* AppVersionCoordinatorTests.swift */; };
 		D00000000000000000000018 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000019 /* PersistenceTests.swift */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		D00000000000000000000006 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 999999999999999999999901 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 555555555555555555555501;
-			remoteInfo = PictureWord;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		222222222222222222222201 /* PictureWordApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureWordApp.swift; sourceTree = "<group>"; };
@@ -79,7 +26,6 @@
 		222222222222222222222207 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		222222222222222222222208 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		222222222222222222222209 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
-		222222222222222222222210 /* PictureWord.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PictureWord.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		222222222222222222222211 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		222222222222222222222212 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		222222222222222222222213 /* HistoryRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRecord.swift; sourceTree = "<group>"; };
@@ -128,14 +74,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		333333333333333333333301 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A931C8C030407ED6002F4806 /* StoreKit.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		D00000000000000000000007 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -175,7 +113,6 @@
 		444444444444444444444403 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				222222222222222222222210 /* PictureWord.app */,
 				D00000000000000000000005 /* PictureWordTests.xctest */,
 			);
 			name = Products;
@@ -371,23 +308,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		555555555555555555555501 /* PictureWord */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 888888888888888888888801 /* Build configuration list for PBXNativeTarget "PictureWord" */;
-			buildPhases = (
-				666666666666666666666601 /* Sources */,
-				333333333333333333333301 /* Frameworks */,
-				777777777777777777777701 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = PictureWord;
-			productName = PictureWord;
-			productReference = 222222222222222222222210 /* PictureWord.app */;
-			productType = "com.apple.product-type.application";
-		};
 		D00000000000000000000009 /* PictureWordTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = D0000000000000000000000F /* Build configuration list for PBXNativeTarget "PictureWordTests" */;
@@ -398,7 +318,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				D0000000000000000000000B /* PBXTargetDependency */,
 			);
 			name = PictureWordTests;
 			productName = PictureWordTests;
@@ -413,9 +332,6 @@
 			attributes = {
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
-					555555555555555555555501 = {
-						CreatedOnToolsVersion = 26.0;
-					};
 					D00000000000000000000009 = {
 						CreatedOnToolsVersion = 26.0;
 						TestTargetID = 555555555555555555555501;
@@ -435,72 +351,12 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				555555555555555555555501 /* PictureWord */,
 				D00000000000000000000009 /* PictureWordTests */,
 			);
 		};
 /* End PBXProject section */
 
-/* Begin PBXResourcesBuildPhase section */
-		777777777777777777777701 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
-		666666666666666666666601 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				111111111111111111111101 /* PictureWordApp.swift in Sources */,
-				111111111111111111111102 /* AnalyzeModels.swift in Sources */,
-				111111111111111111111103 /* ImageProcessor.swift in Sources */,
-				111111111111111111111104 /* APIClient.swift in Sources */,
-				111111111111111111111105 /* SpeechService.swift in Sources */,
-				111111111111111111111106 /* CameraView.swift in Sources */,
-				111111111111111111111107 /* HomeView.swift in Sources */,
-				111111111111111111111108 /* HistoryStore.swift in Sources */,
-				111111111111111111111109 /* AppEnvironment.swift in Sources */,
-				11111111111111111111110A /* AppTheme.swift in Sources */,
-				11111111111111111111110B /* HistoryRecord.swift in Sources */,
-				11111111111111111111110C /* HistoryRow.swift in Sources */,
-				11111111111111111111110D /* AnalysisViewModel.swift in Sources */,
-				11111111111111111111110E /* RecognitionFlowView.swift in Sources */,
-				11111111111111111111110F /* ResultView.swift in Sources */,
-				111111111111111111111110 /* AnnotatedImageView.swift in Sources */,
-				111111111111111111111111 /* AnnotationLayoutEngine.swift in Sources */,
-				111111111111111111111112 /* WordDetailSheet.swift in Sources */,
-				111111111111111111111113 /* AppSettings.swift in Sources */,
-				111111111111111111111114 /* ContentModels.swift in Sources */,
-				111111111111111111111115 /* SettingsView.swift in Sources */,
-				111111111111111111111116 /* LearningJourneyModels.swift in Sources */,
-				111111111111111111111117 /* LearningJourneyStore.swift in Sources */,
-				111111111111111111111118 /* ModeSelectionView.swift in Sources */,
-				111111111111111111111119 /* ShareCardRenderer.swift in Sources */,
-				11111111111111111111111A /* ShareCardView.swift in Sources */,
-				11111111111111111111111B /* PageHeader.swift in Sources */,
-				11111111111111111111111C /* PictureWordButton.swift in Sources */,
-				11111111111111111111111D /* PictureWordSheet.swift in Sources */,
-				11111111111111111111111E /* MembershipStore.swift in Sources */,
-				111111111111111111111125 /* StoreKitTransactionGateway.swift in Sources */,
-				111111111111111111111126 /* EntitlementSyncCoordinator.swift in Sources */,
-				11111111111111111111111F /* PaywallView.swift in Sources */,
-				111111111111111111111120 /* WordLearningModels.swift in Sources */,
-				111111111111111111111121 /* WordLearningStore.swift in Sources */,
-				111111111111111111111122 /* WordLearningViews.swift in Sources */,
-				111111111111111111111123 /* WordFilterControls.swift in Sources */,
-				111111111111111111111124 /* PictureWordTextField.swift in Sources */,
-				111111111111111111111127 /* PersistenceModels.swift in Sources */,
-				111111111111111111111128 /* PersistenceController.swift in Sources */,
-				111111111111111111111129 /* LegacyJSONMigration.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		D0000000000000000000000A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -516,73 +372,7 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
-/* Begin PBXTargetDependency section */
-		D0000000000000000000000B /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 555555555555555555555501 /* PictureWord */;
-			targetProxy = D00000000000000000000006 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
-
 /* Begin XCBuildConfiguration section */
-		BBBBBBBBBBBBBBBBBBBBBB01 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
-				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_TESTABILITY = YES;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "Info-Debug.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词Test";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.2.0;
-				PICTURE_WORD_API_BASE_URL = "http://192.168.0.104:8787";
-				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Debug;
-		};
-		BBBBBBBBBBBBBBBBBBBBBB02 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
-				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.2.0;
-				PICTURE_WORD_API_BASE_URL = "https://api.kakaword.com";
-				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Release;
-		};
 		CCCCCCCCCCCCCCCCCCCCCC01 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -641,15 +431,6 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		888888888888888888888801 /* Build configuration list for PBXNativeTarget "PictureWord" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				BBBBBBBBBBBBBBBBBBBBBB01 /* Debug */,
-				BBBBBBBBBBBBBBBBBBBBBB02 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		AAAAAAAAAAAAAAAAAAAAAA01 /* Build configuration list for PBXProject "PictureWord" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

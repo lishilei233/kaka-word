@@ -1,3 +1,4 @@
+import { captionSentenceSchema, descriptionSentences, type CaptionSentence } from '../lib/project';
 import { coverExportReady } from '../lib/cover-layout.ts';
 import 'dotenv/config';
 import { mkdir, readFile, writeFile, stat, rename, unlink } from 'node:fs/promises';
@@ -72,6 +73,7 @@ async function serveFile(req: Request, path: string, download = false): Promise<
 function absoluteProject(p: Project, origin: string): Project {
     return { ...p, image: p.image && origin + p.image, video: p.video && origin + p.video,
         captionAudio: p.captionAudio && origin + p.captionAudio,
+        captionSentences: p.captionSentences?.map(s => ({ ...s, audio: s.audio && origin + s.audio })),
         interaction: p.interaction && { ...p.interaction, audio: p.interaction.audio && origin + p.interaction.audio },
         words: p.words.map(w => ({ ...w, audio: w.audio && origin + w.audio })) };
 }
@@ -226,8 +228,8 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         if (req.method === 'POST' && path === '/studio-api/caption-review') {
             const input = z.object({
                 image: z.string(),
-                caption: z.string().trim().min(1).max(220),
-                captionChinese: z.string().max(220),
+                caption: z.string().trim().min(1).max(441),
+                captionChinese: z.string().max(440),
                 context: z.string().max(500).optional(),
                 words: z.array(z.object({
                     english: z.string().trim().min(1).max(60),
@@ -246,10 +248,11 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         }
         if (req.method === 'POST' && path === '/studio-api/speech') {
             if (state.speechBusy) return send({ error: '正在生成配音，请稍后重试' }, 409);
-            const { words, caption, voiceId, speechSpeed, interaction } = z.object({
+            const { words, caption, captionSentences, voiceId, speechSpeed, interaction } = z.object({
                 interaction: z.string().trim().min(1).max(220).optional(),
                 words: z.array(z.object({ id: z.string().max(80), english: z.string().trim().min(1).max(60) })).min(1).max(20),
-                caption: z.string().trim().min(1).max(220),
+                caption: z.string().trim().min(1).max(441),
+                captionSentences: z.array(captionSentenceSchema.extend({ english: z.string().trim().min(1).max(220), chinese: z.string().trim().min(1).max(220) })).min(1).max(2).optional(),
                 voiceId: voiceIdSchema,
                 speechSpeed: z.number().min(0.5).max(2),
             }).parse(await json(req));
@@ -259,9 +262,11 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
                 for (const word of words) {
                     output.push({ id: word.id, english: word.english, ...await synthesizeSpeech(word.english, voiceId, speechSpeed) });
                 }
-                const captionSpeech = await synthesizeSpeech(caption, voiceId, speechSpeed, 60);
+                const sentenceSpeech: CaptionSentence[] | undefined = captionSentences ? [] : undefined;
+                for (const sentence of captionSentences ?? []) sentenceSpeech!.push({ english: sentence.english, chinese: sentence.chinese, ...await synthesizeSpeech(sentence.english, voiceId, speechSpeed, 60) });
+                const captionSpeech = captionSentences ? undefined : await synthesizeSpeech(caption, voiceId, speechSpeed, 60);
                 const interactionSpeech = interaction ? await synthesizeSpeech(interaction, voiceId, speechSpeed, 60) : undefined;
-                return send({ words: output, captionAudio: captionSpeech.audio, captionAudioSeconds: captionSpeech.audioSeconds, interactionSpeech });
+                return send({ words: output, captionSentences: sentenceSpeech, captionAudio: captionSpeech?.audio, captionAudioSeconds: captionSpeech?.audioSeconds, interactionSpeech });
             } finally { state.speechBusy = false; }
         }
         if (req.method === 'POST' && path === '/studio-api/social-copy') {
@@ -282,7 +287,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             const blockers = exportBlockers(p);
             if (blockers.length) throw new Error(`导出前还需要：${blockers.join('；')}`);
             if (state.rendering) return send({ error: '已有导出正在进行，请等待完成' }, 409);
-            await Promise.all([p.image!, p.captionAudio!, ...(p.interaction?.enabled ? [p.interaction.audio!] : []), ...(p.video ? [p.video] : []), ...p.words.map(w => w.audio!)].map(asset => stat(assetFile(asset))));
+            await Promise.all([p.image!, ...descriptionSentences(p).map(s => s.audio!), ...(p.interaction?.enabled ? [p.interaction.audio!] : []), ...(p.video ? [p.video] : []), ...p.words.map(w => w.audio!)].map(asset => stat(assetFile(asset))));
             const id = randomUUID(); state.rendering = true; state.jobs.set(id, { status: 'rendering', progress: 0 });
             void render(id, p, url.origin);
             return send({ id }, 202);

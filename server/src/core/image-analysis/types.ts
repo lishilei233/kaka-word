@@ -62,13 +62,26 @@ export const vocabularyDetailsSchema = z.object({
   exampleChinese: z.string().min(1).max(180).optional(),
 });
 
+export const captionSentenceSchema = z.object({
+  english: z.string().trim().min(1).max(220).refine(text => (text.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) ?? []).length <= 18, "Each caption sentence must have at most 18 words"),
+  chinese: z.string().trim().min(1).max(220),
+});
+export const captionSentencesSchema = z.array(captionSentenceSchema).min(1).max(2);
+export function normalizeCaption<T extends { caption: string; captionChinese: string; captionSentences?: { english: string; chinese: string }[] }>(value: T): T {
+  return value.captionSentences ? { ...value,
+    caption: value.captionSentences.map(s => s.english).join(" "),
+    captionChinese: value.captionSentences.map(s => s.chinese).join(""),
+  } : value;
+}
+
 export const analyzeResultSchema = z.object({
   imageWidth: z.number().int().positive(),
   imageHeight: z.number().int().positive(),
   objects: z.array(learningObjectSchema).max(10),
   sceneWords: z.array(sceneWordSchema).max(5).default([]),
-  caption: z.string().min(1).max(220),
-  captionChinese: z.string().min(1).max(220),
+  caption: z.string().min(1).max(441),
+  captionSentences: captionSentencesSchema.optional(),
+  captionChinese: z.string().min(1).max(440),
   captionStyle: captionStyleSchema,
 });
 
@@ -121,9 +134,11 @@ export type SocialCopyInput = {
   signal?: AbortSignal;
 };
 export const photoCaptionSchema = z.object({
-  caption: z.string().trim().min(1).max(220),
-  captionChinese: z.string().trim().min(1).max(220),
+  caption: z.string().trim().min(1).max(441),
+  captionSentences: captionSentencesSchema.optional(),
+  captionChinese: z.string().trim().min(1).max(440),
 });
+export const generatedPhotoCaptionSchema = photoCaptionSchema.extend({ captionSentences: captionSentencesSchema }).transform(normalizeCaption);
 export type PhotoCaption = z.infer<typeof photoCaptionSchema>;
 export type CaptionGenerationInput = {
   image: Uint8Array;

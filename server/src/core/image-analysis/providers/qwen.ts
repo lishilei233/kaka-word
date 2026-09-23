@@ -1,3 +1,4 @@
+import { hasRecognizableSize } from "../object-size.js";
 import { QwenResponseReader, QwenResponseError } from "../qwen-response.js";
 import { normalizeVisibleAnchor, markSuspiciousAnchors, validVisibleAnchor } from "../visible-anchor.js";
 import { z } from "zod";
@@ -7,9 +8,11 @@ import { extractJson } from "../response-json.js";
 import { ObjectArrayStreamParser, readSSEData } from "../streaming-json.js";
 import {
   analyzeResultSchema,
+  normalizeCaption,
+  captionSentencesSchema,
   vocabularyDetailsSchema,
   socialCopySchema,
-  photoCaptionSchema,
+  generatedPhotoCaptionSchema,
   type AnalyzeResult,
   type VisionInput,
   type VisionProvider,
@@ -44,8 +47,9 @@ const qwenResultSchema = z.object({
     })).min(2).max(3).optional(),
     confirmationStatus: z.enum(["confirmed", "needsConfirmation", "userConfirmed"]).default("confirmed"),
   })).max(10),
-  caption: z.string().min(1).max(220),
-  captionChinese: z.string().min(1).max(220),
+  caption: z.string().min(1).max(441),
+  captionSentences: captionSentencesSchema,
+  captionChinese: z.string().min(1).max(440),
 });
 
 export class QwenVisionProvider implements VisionProvider {
@@ -64,7 +68,9 @@ export class QwenVisionProvider implements VisionProvider {
     const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
     const content = payload.choices?.[0]?.message?.content;
     if (!content) throw new Error('Scene analysis returned no content');
-    return studioSceneSchema.parse(extractJson(content));
+    const data = extractJson(content);
+    generatedPhotoCaptionSchema.parse(data);
+    return studioSceneSchema.parse(data);
   }
 
   async analyze(input: VisionInput): Promise<AnalyzeResult> {
@@ -159,7 +165,7 @@ export class QwenVisionProvider implements VisionProvider {
         const parsedObject = qwenResultSchema.shape.objects.element.parse(rawObject);
         const object = normalizeObject(parsedObject, objectIndex);
         objectIndex += 1;
-        await onObject?.(object);
+        if (hasRecognizableSize(object)) await onObject?.(object);
       }
     }
 
@@ -167,14 +173,15 @@ export class QwenVisionProvider implements VisionProvider {
   }
 
   private parseResult(content: unknown, input: VisionInput): AnalyzeResult {
-    const parsed = qwenResultSchema.parse(content);
+    const parsed = normalizeCaption(qwenResultSchema.parse(content));
 
     return analyzeResultSchema.parse({
       imageWidth: input.imageWidth,
       imageHeight: input.imageHeight,
-      objects: markSuspiciousAnchors(parsed.objects.map(normalizeObject)),
+      objects: markSuspiciousAnchors(parsed.objects.map(normalizeObject).filter(hasRecognizableSize)),
       caption: parsed.caption,
       captionChinese: parsed.captionChinese,
+      captionSentences: parsed.captionSentences,
       captionStyle: input.captionStyle,
     });
   }
@@ -288,7 +295,7 @@ Choose pixels of the object's own visible surface, away from edges and occluders
     const payload = await response.json() as any;
     const content = payload?.choices?.[0]?.message?.content;
     if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
-    return photoCaptionSchema.parse(extractJson(content));
+    return generatedPhotoCaptionSchema.parse(extractJson(content));
   }
 
   async generateCaption(input: CaptionGenerationInput): Promise<PhotoCaption> {
@@ -310,7 +317,7 @@ Choose pixels of the object's own visible surface, away from edges and occluders
     const payload = await response.json() as any;
     const content = payload?.choices?.[0]?.message?.content;
     if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
-    return photoCaptionSchema.parse(extractJson(content));
+    return generatedPhotoCaptionSchema.parse(extractJson(content));
   }
 }
 

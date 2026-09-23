@@ -70,7 +70,7 @@ test('scene schema rejects invented geometry and duplicate IDs and prompt requir
     assert.match(studioScenePrompt({ context: '', objects: [] }), /Never say an inanimate object “waits”/);
     assert.match(studioScenePrompt({ context: '', objects: [] }), /Drinks and paper bags sit on the counter/);
     assert.match(studioScenePrompt({ context: '', objects: [] }), /Return one factual English description and one natural Chinese description/);
-    assert.match(studioScenePrompt({ context: '', objects: [] }), /no more than 40 words/);
+    assert.match(studioScenePrompt({ context: '', objects: [] }), /never more than 18/);
     assert.match(studioScenePrompt({ context: '', objects: [{ english: 'window', chinese: '窗户' }] }), /Use as many supplied object words as fit naturally/);
 });
 
@@ -97,7 +97,7 @@ test('caption review requires image-grounded facts and natural bilingual output'
     });
     assert.match(objectPrompt, /return one corrected final description/);
     assert.match(objectPrompt, /visible vocabulary is authoritative and locked/);
-    assert.match(learningObjectPrompt(8, 'serious'), /no more than 24 words/);
+    assert.match(learningObjectPrompt(8, 'serious'), /never more than 18/);
     assert.match(learningObjectPrompt(8, 'serious'), /Use as many clearly visible supplied object words as naturally fit/);
 });
 
@@ -167,4 +167,33 @@ test('caption regeneration uses the submitted final vocabulary for both generati
     assert.deepEqual(await response.json(), {
         caption: 'Drinks and paper bags are on the counter.', captionChinese: '柜台上放着饮料和纸袋。',
     });
+});
+
+test('scene, regeneration and review return canonical paired sentences', async () => {
+    const app = new Hono<AppEnv>();
+    const provider = new MockVisionProvider();
+    const captionSentences = [
+        { english: 'An egg lies on the floor.', chinese: '地板上有一个鸡蛋。' },
+        { english: 'Its shell is broken.', chinese: '蛋壳破了。' },
+    ];
+    const paired = { caption: 'Stale draft.', captionChinese: '旧草稿。', captionSentences };
+    Object.assign(provider, {
+        analyze: async () => recognized,
+        analyzeStudioScene: async () => ({ ...fixture, ...paired }),
+        generateCaption: async () => paired,
+        reviewCaption: async () => paired,
+    });
+    registerStudioSceneRoute(app, { provider, videoStudioAccessToken: token });
+    for (const [path, body] of [
+        ['/v1/studio/scene', form()],
+        ['/v1/studio/caption-regenerate', regenerateForm()],
+        ['/v1/studio/caption-review', reviewForm()],
+    ] as const) {
+        const response = await app.request(path, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body });
+        assert.equal(response.status, 200);
+        const result = await response.json();
+        assert.deepEqual(result.captionSentences, captionSentences);
+        assert.equal(result.caption, 'An egg lies on the floor. Its shell is broken.');
+        assert.equal(result.captionChinese, '地板上有一个鸡蛋。蛋壳破了。');
+    }
 });

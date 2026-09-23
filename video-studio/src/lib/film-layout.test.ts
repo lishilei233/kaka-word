@@ -42,7 +42,7 @@ test('portrait photos keep the original card size and use visible overlay fallba
 test('old drafts migrate label and target coordinates while receiving new defaults', () => {
     const {caption,captionChinese,safeTop,safeBottom,safeRight,version,words,...rest}=emptyProject;
     const restored=projectSchema.parse({ ...rest, version: 1, words: [{ id:'old', english:'lamp', chinese:'灯', ipa:'', x:.2, y:.3, targetX:.6, targetY:.7 }] });
-    assert.equal(restored.version,3); assert.equal(restored.caption,''); assert.equal(restored.captionReviewRequired,true); assert.equal(restored.safeTop,120); assert.equal(restored.safeBottom,240);
+    assert.equal(restored.version,4); assert.equal(restored.caption,''); assert.equal(restored.captionReviewRequired,true); assert.equal(restored.safeTop,120); assert.equal(restored.safeBottom,240);
     assert.deepEqual(restored.words[0].labelCenterOverride,{x:.2,y:.3});
     assert.deepEqual(restored.words[0].targetCenterOverride,{x:.6,y:.7});
     assert.deepEqual(restored.words[0].box,{x:.6,y:.7,width:0,height:0});

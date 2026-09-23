@@ -1,9 +1,53 @@
 import UIKit
+import SwiftUI
 import XCTest
 @testable import PictureWord
 
 @MainActor
 final class AnalysisViewModelTests: XCTestCase {
+    func testPairedCaptionsRoundTripAndSurviveObjectEdits() throws {
+        let data = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[],"caption":"stale","captionChinese":"旧文字","captionSentences":[{"english":"A cup sits on the table.","chinese":"桌上放着一个杯子。"},{"english":"A plant stands beside it.","chinese":"旁边摆着一盆植物。"}]}"#.utf8)
+        let result = try JSONDecoder().decode(AnalyzeResult.self, from: data)
+        XCTAssertEqual(result.caption, "A cup sits on the table. A plant stands beside it.")
+        XCTAssertEqual(result.captionChinese, "桌上放着一个杯子。旁边摆着一盆植物。")
+        XCTAssertEqual(result.descriptionSentences.count, 2)
+        XCTAssertEqual(result.removingObject(id: "missing").captionSentences, result.captionSentences)
+        XCTAssertEqual(try JSONDecoder().decode(AnalyzeResult.self, from: JSONEncoder().encode(result)), result)
+    }
+
+    func testLegacyCaptionRemainsOneUnsplitReadingSegment() throws {
+        let data = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[],"caption":"Dr. Smith has a cup. It is blue.","captionChinese":"史密斯有一个蓝色杯子。"}"#.utf8)
+        let result = try JSONDecoder().decode(AnalyzeResult.self, from: data)
+        XCTAssertNil(result.captionSentences)
+        XCTAssertEqual(result.descriptionSentences.count, 1)
+        XCTAssertEqual(result.descriptionSentences.first?.english, result.caption)
+    }
+
+    func testCaptionCardFitsSmallAndLargeWidthsAndAccessibilityType() throws {
+        let sentences = [
+            CaptionSentence(english: "A blue cup and a yellow book sit together on the wooden table.", chinese: "木桌上放着一个蓝色杯子和一本黄色的书。"),
+            CaptionSentence(english: "A small green plant stands beside the book near the edge of the table.", chinese: "书旁边摆着一盆小绿植，靠近桌子边缘。")
+        ]
+        for width: CGFloat in [320, 430] {
+            var previousHeight: CGFloat = 0
+            for size: DynamicTypeSize in [.large, .accessibility3] {
+                let card = PhotoCaptionCard(sentences: sentences, words: [], speechEnabled: true, onSpeak: { _ in })
+                    .frame(width: width)
+                    .environment(\.dynamicTypeSize, size)
+                    .padding(8)
+                let renderer = ImageRenderer(content: card)
+                let image = try XCTUnwrap(renderer.uiImage)
+                XCTAssertEqual(image.size.width, width + 16, accuracy: 1)
+                XCTAssertGreaterThan(image.size.height, previousHeight)
+                previousHeight = image.size.height
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "caption-\(Int(width))-\(size)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
+    }
+
     func testDecodesLegacyObjectAsConfirmedWithoutCandidates() throws {
         let data = Data(#"{"id":"legacy","english":"cup","chinese":"杯子","ipa":"/kʌp/","confidence":0.9,"box":{"x":0.1,"y":0.1,"width":0.2,"height":0.2},"example":"This is a cup."}"#.utf8)
         let object = try JSONDecoder().decode(LearningObject.self, from: data)

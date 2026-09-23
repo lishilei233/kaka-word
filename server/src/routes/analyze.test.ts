@@ -11,6 +11,7 @@ import type {
   EntitlementSummary,
   QuotaReservation,
 } from "../core/access/types.js";
+import { GeminiVisionProvider } from "../core/image-analysis/providers/gemini.js";
 import { MockVisionProvider } from "../core/image-analysis/providers/mock.js";
 import type {
   AnalyzeResult,
@@ -200,7 +201,7 @@ test("uses the requested caption style and resolves random to an actual style", 
   const funnyResponse = await app.request("/v1/analyze", analyzeRequest("203.0.113.20", "funny"));
   const funnyBody = await funnyResponse.text();
   assert.match(funnyBody, /"captionStyle":"funny"/);
-  assert.match(funnyBody, /coffee mission/);
+  assert.match(funnyBody, /all on one table/);
 
   const randomResponse = await app.request("/v1/analyze", analyzeRequest("203.0.113.21", "random"));
   const randomBody = await randomResponse.text();
@@ -623,3 +624,48 @@ function freeEntitlement(used: number): EntitlementSummary {
     vocabularyCorrectionEnabled: false,
   };
 }
+
+test("all size-filtered objects release quota and leave the downstream vocabulary empty", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+    objects: [{ id: "tiny", english: "button", chinese: "纽扣", confidence: 0.9,
+      box: { x: 0.2, y: 0.2, width: 0.01, height: 0.01 }, example: "A button." }],
+    imageWidth: 1, imageHeight: 1, caption: "A scene.", captionChinese: "一个场景。",
+    captionSentences: [{ english: "A scene.", chinese: "一个场景。" }],
+  }) }] } }] }));
+  const provider = new GeminiVisionProvider({ apiKey: "test", model: "test" });
+  let sceneCalls = 0;
+  Object.assign(provider, {
+    analyzeStudioScene: async (input: { objects: unknown[] }) => {
+      sceneCalls++;
+      assert.deepEqual(input.objects, []);
+      throw new Error("No scene words");
+    },
+  });
+  const access = new FakeAccessService(freeEntitlement(0));
+  const response = await makeApp(new FakeUsageLimiter(), provider, access).request("/v1/analyze", analyzeRequest());
+  const body = await response.text();
+  assert.match(body, /event: complete/);
+  assert.doesNotMatch(body, /event: object\n/);
+  assert.match(body, /"objects":\[\]/);
+  assert.equal(sceneCalls, 1);
+  assert.equal(access.commitCalls, 0);
+  assert.equal(access.releaseCalls, 1);
+});
+
+test("scene caption pairs replace object caption pairs in the complete App event", async () => {
+  const provider = new MockVisionProvider();
+  const captionSentences = [
+    { english: "A cup sits on the table.", chinese: "桌上放着一个杯子。" },
+    { english: "A plant stands beside it.", chinese: "旁边摆着一盆植物。" },
+  ];
+  Object.assign(provider, {
+    analyzeStudioScene: async () => ({ theme: "桌面", words: [], caption: "Draft.", captionChinese: "草稿。", interaction: { english: "What is green?", chinese: "什么是绿色的？" } }),
+    reviewCaption: async () => ({ caption: "Stale draft.", captionChinese: "旧草稿。", captionSentences }),
+  });
+  const response = await makeApp(new FakeUsageLimiter(), provider).request("/v1/analyze", analyzeRequest());
+  const body = await response.text();
+  const result = JSON.parse(body.match(/event: complete\ndata: (.+)/)![1]);
+  assert.deepEqual(result.captionSentences, captionSentences);
+  assert.equal(result.caption, captionSentences.map(s => s.english).join(" "));
+  assert.equal(result.captionChinese, captionSentences.map(s => s.chinese).join(""));
+});

@@ -10,6 +10,26 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(restored, record)
     }
 
+    func testPairedCaptionsSurviveDatabaseSaveAndReload() throws {
+        let original = makeRecord(index: 1)
+        let sentences = [CaptionSentence(english: "A cup sits on the table.", chinese: "桌上放着一个杯子。"),
+                         CaptionSentence(english: "A plant stands beside it.", chinese: "旁边摆着一盆植物。")]
+        let result = AnalyzeResult(imageWidth: 100, imageHeight: 200, objects: original.result.objects,
+                                   caption: nil, captionChinese: nil, captionStyle: .serious, captionSentences: sentences)
+        let entity = HistoryEntity(record: original)
+        entity.apply(result)
+        let container = try PersistenceController.makeContainer(inMemory: true)
+        let context = ModelContext(container)
+        context.insert(entity)
+        try context.save()
+        let restored = try XCTUnwrap(ModelContext(container).fetch(FetchDescriptor<HistoryEntity>()).first)
+        let restoredResult = PersistenceMapper.historyRecord(from: restored).result
+        XCTAssertEqual(restoredResult.captionSentences, sentences)
+        XCTAssertEqual(restoredResult.caption, result.caption)
+        XCTAssertEqual(restoredResult.captionChinese, result.captionChinese)
+        XCTAssertEqual(result.replacingObject(original.result.objects[0]).captionSentences, sentences)
+    }
+
     func testVisibleAndManualAnchorProvenanceSurvivesPersistence() throws {
         let object = LearningObject(id: "table", english: "table", chinese: "桌子", ipa: "", confidence: 1,
                                     box: ObjectBox(x: 0.1, y: 0.1, width: 0.8, height: 0.8),

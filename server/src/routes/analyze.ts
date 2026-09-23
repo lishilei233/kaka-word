@@ -11,6 +11,8 @@ import {
 } from "../core/access/index.js";
 import {
   requestedCaptionStyleSchema,
+  normalizeCaption,
+  type PhotoCaption,
   type AnalyzeResult,
   type CaptionStyle,
   type VisionProvider,
@@ -298,7 +300,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
                     exampleChinese: word.exampleChinese ?? scene.captionChinese,
                   };
                 });
-              let caption = { caption: scene.caption, captionChinese: scene.captionChinese };
+              let caption: PhotoCaption = { caption: scene.caption, captionChinese: scene.captionChinese, captionSentences: scene.captionSentences };
               if (provider.reviewCaption) {
                 caption = await provider.reviewCaption({
                   image: bytes,
@@ -312,7 +314,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
                   signal: abortController.signal,
                 });
               }
-              result = { ...objectResult, ...caption, captionStyle: "serious", sceneWords };
+              result = normalizeCaption({ ...objectResult, ...caption, captionSentences: caption.captionSentences, captionStyle: "serious", sceneWords });
               for (const word of sceneWords) {
                 await stream.writeSSE({ event: "sceneWord", data: JSON.stringify(word) });
               }

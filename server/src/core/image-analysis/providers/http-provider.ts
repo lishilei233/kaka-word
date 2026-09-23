@@ -1,7 +1,10 @@
+import { hasRecognizableSize } from "../object-size.js";
 import { normalizeVisibleAnchor, markSuspiciousAnchors } from "../visible-anchor.js";
 import { extractJson } from "../response-json.js";
 import {
   providerAnalyzeResultSchema,
+  normalizeCaption,
+  captionSentencesSchema,
   vocabularyDetailsSchema,
   type AnalyzeResult,
   type VisionInput,
@@ -18,8 +21,8 @@ export abstract class HttpVisionProvider implements VisionProvider {
     }
     const payload = await response.json() as unknown;
     const text = this.extractText(payload);
-    const result = providerAnalyzeResultSchema.parse(extractJson(text));
-    return { ...result, objects: markSuspiciousAnchors(result.objects.map(normalizeVisibleAnchor)) };
+    const result = normalizeCaption(providerAnalyzeResultSchema.extend({ captionSentences: captionSentencesSchema }).parse(extractJson(text)));
+    return { ...result, objects: markSuspiciousAnchors(result.objects.filter(hasRecognizableSize).map(normalizeVisibleAnchor)) };
   }
 
   protected async parseVocabularyResponse(response: Response): Promise<VocabularyDetails> {

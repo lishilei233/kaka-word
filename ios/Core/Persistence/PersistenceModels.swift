@@ -33,6 +33,7 @@ final class HistoryEntity {
     var imageHeight: Int = 0
     var caption: String?
     var captionChinese: String?
+    var captionSentencesData: Data?
     var captionStyleRawValue: String?
     var modeRawValue: String?
     var missionID: String?
@@ -57,6 +58,7 @@ final class HistoryEntity {
         imageHeight = result.imageHeight
         caption = result.caption
         captionChinese = result.captionChinese
+        captionSentencesData = result.captionSentences.flatMap { try? JSONEncoder().encode($0) }
         captionStyleRawValue = result.captionStyle?.rawValue
         objects = result.allWords.enumerated().map { LearningObjectEntity(object: $0.element, sortIndex: $0.offset) }
     }
@@ -241,7 +243,8 @@ enum PersistenceMapper {
                     .map(learningObject).filter { $0.kind != .object }.map(SceneWord.init),
                 caption: entity.caption,
                 captionChinese: entity.captionChinese,
-                captionStyle: entity.captionStyleRawValue.flatMap(CaptionStyle.init(rawValue:))
+                captionStyle: entity.captionStyleRawValue.flatMap(CaptionStyle.init(rawValue:)),
+                captionSentences: entity.captionSentencesData.flatMap { try? JSONDecoder().decode([CaptionSentence].self, from: $0) }
             ),
             mode: entity.modeRawValue.flatMap(LearningMode.init(rawValue:)),
             missionID: entity.missionID,

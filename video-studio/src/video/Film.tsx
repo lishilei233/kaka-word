@@ -23,6 +23,8 @@ type AnnotationMove = (id: string, kind: 'label' | 'target', point: { x: number;
 export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteractionTargetMove, onAnnotationDragStart }: { project: Project; renderScale?: number; onAnnotationMove?: AnnotationMove; onInteractionTargetMove?: (point: { x: number; y: number }) => void; onAnnotationDragStart?: () => void }) {
     const frame = useCurrentFrame();
     const t = timeline(p), current = activeWord(p, frame), direct = p.videoTemplate === 'direct';
+    const captionSegment = t.captions.find(s => frame >= s.from && frame < s.from + s.duration) ?? t.captions[0];
+    const interactionActive = !!p.interaction?.enabled && frame >= t.interactionFrom;
     const opening = !direct && frame < t.intro;
     const layout = filmLayout(p);
     const photo = opening ? layout.camera : layout.photo;
@@ -122,7 +124,7 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
                 <div style={{ position: 'absolute', left: photo.x + photo.width - 102, top: photo.y - 12, width: 72, height: 18, background: '#f4c95dc7', transform: 'rotate(-4deg)' }} />
                     <div data-film-description style={{ position: 'absolute', zIndex: 4, top: layout.descriptionTop, left: layout.textLeft, width: textWidth, minHeight: 140, padding: '12px 14px', boxSizing: 'border-box', overflow: 'hidden', background: 'rgba(255,253,248,.94)', borderRadius: 22, border: '1px solid rgba(36,33,30,.08)', boxShadow: '2px 3px 0 rgba(36,33,30,.1)', ...(() => { const a = descriptionEntrance(frame, t.captionFrom); return { opacity: a.opacity, transform: `translateY(${a.translateY}px)` }; })() }}>
                     <div style={{ position: 'absolute', left: 20, right: 20, top: 0, height: 3, borderRadius: 3, background: 'rgba(210,118,95,.72)' }} />
-                    <SceneSentence audioFrame={p.captionAudio && !(p.interaction?.enabled && frame >= t.interactionFrom) ? frame - t.captionFrom - AUDIO_LEAD_FRAMES : undefined} audioDurationFrames={t.captionAudioFrames} width={textWidth} english={p.interaction?.enabled && frame >= t.interactionFrom ? p.interaction.english : p.caption} chinese={p.interaction?.enabled && frame >= t.interactionFrom ? p.interaction.chinese : p.captionChinese} vocabulary={p.interaction?.enabled && frame >= t.interactionFrom ? [] : readingWords(p.words).map(word => word.english)} chineseOpacity={descriptionEntrance(frame, t.captionFrom).chineseOpacity} />
+                    <SceneSentence audioFrame={captionSegment.sentence.audio && !interactionActive ? frame - captionSegment.from - AUDIO_LEAD_FRAMES : undefined} audioDurationFrames={captionSegment.audioFrames} width={textWidth} english={interactionActive ? p.interaction!.english : captionSegment.sentence.english} chinese={interactionActive ? p.interaction!.chinese : captionSegment.sentence.chinese} vocabulary={interactionActive ? [] : readingWords(p.words).map(word => word.english)} chineseOpacity={descriptionEntrance(frame, interactionActive ? t.interactionFrom : captionSegment.from).chineseOpacity} />
                 </div>
             </>}
             {!opening && p.interaction?.enabled && p.interaction.arrowEnabled && frame >= t.interactionFrom && <InteractionArrow
@@ -144,7 +146,7 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
         </div>
         {!direct && <Sequence from={Math.max(0, t.intro - 3)} durationInFrames={45}><Audio src={staticFile('camera-shutter.mp3')} volume={0.72} pauseWhenBuffering /></Sequence>}
         {t.words.map(({ word, from, audioFrames }) => word.audio ? <Sequence key={word.id} from={from + AUDIO_LEAD_FRAMES} durationInFrames={audioFrames + AUDIO_TAIL_FRAMES}><Audio src={word.audio} pauseWhenBuffering /></Sequence> : null)}
-        {p.captionAudio && <Sequence from={t.captionFrom + AUDIO_LEAD_FRAMES} durationInFrames={t.captionAudioFrames + AUDIO_TAIL_FRAMES}><Audio src={p.captionAudio} pauseWhenBuffering /></Sequence>}
+        {t.captions.map(({ sentence, from, audioFrames }, index) => sentence.audio ? <Sequence key={`caption-${index}`} from={from + AUDIO_LEAD_FRAMES} durationInFrames={audioFrames + AUDIO_TAIL_FRAMES}><Audio src={sentence.audio} pauseWhenBuffering /></Sequence> : null)}
         {p.interaction?.enabled && p.interaction.audio && <Sequence from={t.interactionFrom + AUDIO_LEAD_FRAMES} durationInFrames={t.interactionAudioFrames + AUDIO_TAIL_FRAMES}><Audio src={p.interaction.audio} pauseWhenBuffering /></Sequence>}
     </AbsoluteFill>;
 }

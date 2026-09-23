@@ -73,7 +73,7 @@ test("buffered JSON response to stream request still emits validated objects", a
     assert.match(request.messages[0].content[0].text, /JSON/);
     return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ objects: [
       { id: "book", english: "book", chinese: "书", confidence: 0.9, bbox: [100, 100, 800, 800], anchor: [200, 200], example: "A book." },
-    ], caption: "A book.", captionChinese: "一本书。" }) } }] });
+    ], caption: "A book.", captionChinese: "一本书。", captionSentences: [{ english: "A book.", chinese: "一本书。" }] }) } }] });
   });
   const input: VisionInput = { image: new Uint8Array([1]), mimeType: "image/jpeg", imageWidth: 100, imageHeight: 100,
     language: "zh-CN", maxObjects: 4, captionStyle: "serious", masteredWords: [] };
@@ -88,7 +88,7 @@ test("buffered JSON response to stream request still emits validated objects", a
 const retryInput: VisionInput = { image: new Uint8Array([1]), mimeType: "image/jpeg", imageWidth: 100, imageHeight: 100,
   language: "zh-CN", maxObjects: 4, captionStyle: "serious", masteredWords: [] };
 const validResult = { objects: [{ id: "book", english: "book", chinese: "书", confidence: 0.9,
-  bbox: [100, 100, 800, 800], anchor: [200, 200], example: "A book." }], caption: "A book.", captionChinese: "一本书。" };
+  bbox: [100, 100, 800, 800], anchor: [200, 200], example: "A book." }], caption: "A book.", captionChinese: "一本书。", captionSentences: [{ english: "A book.", chinese: "一本书。" }] };
 const completion = (content: string) => Response.json({ choices: [{ message: { content }, finish_reason: "stop" }] });
 const sse = (content: string, reason = "stop") => new Response(`data: ${chunk(content, reason)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
 const provider = () => new QwenVisionProvider({ apiKey: "test", apiHost: "https://example.test", model: "qwen3.8-flash" });
@@ -180,7 +180,7 @@ test("retry emits a complete object before the upstream stream finishes", async 
         const prefix = '{"objects":[' + JSON.stringify(validResult.objects[0]);
         controller.enqueue(encoder.encode(`data: ${chunk(prefix)}\n\n`));
         finishStream = () => {
-          const suffix = '],"caption":"A book.","captionChinese":"一本书。"}';
+          const suffix = '],"caption":"A book.","captionChinese":"一本书。","captionSentences":[{"english":"A book.","chinese":"一本书。"}]}';
           controller.enqueue(encoder.encode(`data: ${chunk(suffix, "stop")}\n\ndata: [DONE]\n\n`));
           controller.close();
         };

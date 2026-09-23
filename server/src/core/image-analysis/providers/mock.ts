@@ -11,17 +11,21 @@ import type {
   PhotoCaption,
 } from "../types.js";
 
+function pairedCaption(caption: string, captionChinese: string) {
+  return { caption, captionChinese, captionSentences: [{ english: caption, chinese: captionChinese }] };
+}
+
 export class MockVisionProvider implements VisionProvider {
   async generateCaption(input: CaptionGenerationInput): Promise<PhotoCaption> {
-    const english = input.words.map(word => word.english).join(" and ");
-    const chinese = input.words.map(word => word.chinese).join("和");
-    return { caption: `${english} are visible in the photo.`, captionChinese: `照片里可以看到${chinese}。` };
+    const english = input.words.slice(0, 2).map(word => word.english).join(" and ");
+    const chinese = input.words.slice(0, 2).map(word => word.chinese).join("和");
+    return pairedCaption(`${english} are visible in the photo.`, `照片里可以看到${chinese}。`);
   }
   async reviewCaption(input: CaptionReviewInput): Promise<PhotoCaption> {
     if (/ready|wait|prepared|because|\bso\b/i.test(input.caption)) {
-      return { caption: "Colorful drinks and paper bags are on the counter.", captionChinese: "柜台上放着彩色饮料和纸袋。" };
+      return pairedCaption("Colorful drinks and paper bags are on the counter.", "柜台上放着彩色饮料和纸袋。");
     }
-    return { caption: input.caption, captionChinese: input.captionChinese };
+    return pairedCaption(input.caption, input.captionChinese);
   }
   async generateSocialCopy(input: SocialCopyInput): Promise<SocialCopy> {
     const words = input.words.map((word) => word.english).join("、");
@@ -61,12 +65,10 @@ function mockResult(input: VisionInput): AnalyzeResult {
     imageWidth: input.imageWidth,
     imageHeight: input.imageHeight,
     sceneWords: [],
-    caption: input.captionStyle === "funny"
-      ? "The mug is patiently waiting for its next coffee mission."
-      : "A mug, a book, and a plant sit together on the table.",
-    captionChinese: input.captionStyle === "funny"
-      ? "这个杯子正耐心地等待下一次咖啡任务。"
-      : "一个杯子、一本书和一盆植物摆在一起。",
+    ...pairedCaption(
+      input.captionStyle === "funny" ? "A mug, a book, a plant — all on one table!" : "A mug, a book, and a plant sit together on the table.",
+      input.captionStyle === "funny" ? "杯子、书和植物，全都摆在一张桌上！" : "一个杯子、一本书和一盆植物摆在一起。",
+    ),
     captionStyle: input.captionStyle,
     objects: [
       {

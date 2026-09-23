@@ -28,6 +28,7 @@ test('editing text invalidates its speech and blocks export', () => {
     assert.equal(exportReady(updated), false);
 });
 test('export blockers explain missing word and sentence speech', () => {
+    assert.equal(exportReady({ ...p, captionReviewRequired: true }), true);
     const withoutSpeech = { ...p, captionAudio: undefined, captionAudioSeconds: undefined, words: p.words.map(word => ({ ...word, audio: undefined, audioSeconds: undefined })) };
     assert.deepEqual(exportBlockers(withoutSpeech), ['2 个单词尚未生成配音', '照片句子尚未生成配音']);
 });
@@ -72,13 +73,13 @@ test('recognized objects sort by photo rows, then from left to right', () => {
     assert.deepEqual(sortByPhotoPosition(objects).map(object => object.id), ['top-left', 'top-right', 'middle', 'bottom']);
 });
 
-test('legacy version two drafts discard old variants and require a reviewed caption', () => {
+test('legacy version two drafts preserve descriptions and existing audio', () => {
     const old = { ...p, version: 2, captionVariants: { serious: { caption: 'A.', captionChinese: '甲。' }, funny: { caption: 'B.', captionChinese: '乙。' }, literary: { caption: 'C.', captionChinese: '丙。' } }, selectedCaptionStyle: 'funny' };
     const migrated = projectSchema.parse(old);
-    assert.equal(migrated.version, 3);
-    assert.equal(migrated.caption, '');
-    assert.equal(migrated.captionChinese, '');
-    assert.equal(migrated.captionReviewRequired, true);
-    assert.equal(migrated.captionAudio, undefined);
-    assert.ok(exportBlockers(migrated).includes('照片描述需要重新生成并完成审校'));
+    assert.equal(migrated.version, 4);
+    assert.equal(migrated.caption, p.caption);
+    assert.equal(migrated.captionChinese, p.captionChinese);
+    assert.equal(migrated.captionReviewRequired, false);
+    assert.equal(migrated.captionAudio, p.captionAudio);
+    assert.equal(migrated.captionSentences, undefined);
 });

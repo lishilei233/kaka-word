@@ -476,11 +476,10 @@ struct PhotoWordCardDetailView: View {
 
             if let caption = result.caption, !caption.isEmpty {
                 PhotoCaptionCard(
-                    caption: caption,
-                    captionChinese: result.captionChinese,
+                    sentences: result.descriptionSentences,
                     words: result.allWords,
                     speechEnabled: speechEnabled,
-                    onSpeak: { speech.speak(caption, rate: speechRate) }
+                    onSpeak: { speech.speak($0, rate: speechRate) }
                 )
             }
 
@@ -735,7 +734,8 @@ struct PhotoWordCardDetailView: View {
             sceneWords: result.sceneWords,
             caption: result.caption,
             captionChinese: result.captionChinese,
-            captionStyle: result.captionStyle
+            captionStyle: result.captionStyle,
+            captionSentences: result.captionSentences
         )
         return onResultChange?(updated)
     }
@@ -980,81 +980,75 @@ private struct RecognitionProgressBar: View {
     }
 }
 
-private struct PhotoCaptionCard: View {
-    let caption: String
-    let captionChinese: String?
+struct PhotoCaptionCard: View {
+    let sentences: [CaptionSentence]
     let words: [LearningObject]
     let speechEnabled: Bool
-    let onSpeak: () -> Void
-
-    private var visibleChineseCaption: String? {
-        guard let captionChinese else { return nil }
-        let trimmed = captionChinese.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
+    let onSpeak: (String) -> Void
 
     var body: some View {
-        Button(action: onSpeak) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Label("PHOTO NOTE", systemImage: "quote.opening")
-                        .font(.system(.caption2, design: .monospaced, weight: .black))
-                        .tracking(1.6)
-                        .foregroundStyle(Color.coral)
-
-                    Spacer(minLength: 8)
-
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label("PHOTO NOTE", systemImage: "quote.opening")
+                    .font(.system(.caption2, design: .monospaced, weight: .black))
+                    .tracking(1.6)
+                    .foregroundStyle(Color.coral)
+                Spacer(minLength: 8)
+                Button { onSpeak(sentences.map(\.english).joined(separator: " ")) } label: {
                     Image(systemName: speechEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.ink.opacity(speechEnabled ? 0.72 : 0.34))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 44, height: 44)
                         .background(Color.sky.opacity(0.38), in: Circle())
                 }
-
-                Text(CaptionHighlighter.english(caption, words: words.map(\.english)))
-                    .font(.system(.body, design: .serif, weight: .bold))
-                    .foregroundStyle(Color.ink.opacity(0.86))
-                    .multilineTextAlignment(.leading)
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let visibleChineseCaption {
-                    Text(CaptionHighlighter.chinese(visibleChineseCaption, words: words.map(\.chinese)))
-                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                        .foregroundStyle(Color.ink.opacity(0.56))
-                        .multilineTextAlignment(.leading)
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(!speechEnabled)
+                .accessibilityLabel("播放全部图片描述")
+                .accessibilityHint(speechEnabled ? "按顺序朗读英文描述" : "请先在设置中开启英文发音")
+            }
+            ForEach(Array(sentences.enumerated()), id: \.offset) { index, sentence in
+                if index > 0 {
+                    Divider().overlay(Color.ink.opacity(0.08)).accessibilityHidden(true)
                 }
+                Button { onSpeak(sentence.english) } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(CaptionHighlighter.english(sentence.english, words: words.map(\.english)))
+                            .font(.system(.body, design: .serif, weight: .bold))
+                            .foregroundStyle(Color.ink.opacity(0.86))
+                            .lineSpacing(4)
+                        if !sentence.chinese.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(CaptionHighlighter.chinese(sentence.chinese, words: words.map(\.chinese)))
+                                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                                .foregroundStyle(Color.ink.opacity(0.56))
+                                .lineSpacing(3)
+                        }
+                    }
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .disabled(!speechEnabled)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("图片描述，第 \(index + 1) 句，\(sentence.english)，\(sentence.chinese)")
+                .accessibilityHint(speechEnabled ? "点击播放这一句英文" : "请先在设置中开启英文发音")
             }
-            .padding(17)
-            .background(Color.paperLight.opacity(0.9), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(alignment: .top) {
-                WashiTape(color: .sky, showsShadow: false)
-                    .scaleEffect(0.62)
-                    .offset(y: -11)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.ink.opacity(0.08), lineWidth: 1)
-            }
-            .shadow(color: Color.ink.opacity(0.1), radius: 0, x: 2, y: 3)
         }
         .buttonStyle(.plain)
-        .disabled(!speechEnabled)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityDescription)
-        .accessibilityHint(speechEnabled ? "点击播放英文句子" : "请先在设置中开启英文发音")
-        .padding(.top, 8)
-    }
-
-    private var accessibilityDescription: String {
-        if let visibleChineseCaption {
-            return "图片描述，\(caption)，\(visibleChineseCaption)"
+        .padding(17)
+        .background(Color.paperLight.opacity(0.9), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(alignment: .top) {
+            WashiTape(color: .sky, showsShadow: false)
+                .scaleEffect(0.62)
+                .offset(y: -11)
+                .accessibilityHidden(true)
         }
-        return "图片描述，\(caption)"
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.ink.opacity(0.08), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .shadow(color: Color.ink.opacity(0.1), radius: 0, x: 2, y: 3)
+        .padding(.top, 8)
     }
 }
 

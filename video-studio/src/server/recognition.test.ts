@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { forwardRecognition, generateSocialCopy, regenerateCaption, reviewCaption } from './recognition.server.ts';
-const result = { imageWidth: 800, imageHeight: 600, objects: [], caption: 'A quiet room.', captionChinese: '安静的房间。', captionStyle: 'serious' };
+const result = { imageWidth: 800, imageHeight: 600, objects: [], sceneWords: [], caption: 'A quiet room.', captionChinese: '安静的房间。', captionStyle: 'serious' };
 
 test('forwards multipart image and existing access headers, decodes chunked SSE with photo descriptions', async () => {
     const transport: typeof fetch = async (input, init) => {

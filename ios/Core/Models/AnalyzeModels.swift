@@ -300,6 +300,11 @@ struct SceneWord: Codable, Identifiable, Hashable {
     }
 }
 
+struct CaptionSentence: Codable, Hashable {
+    let english: String
+    let chinese: String
+}
+
 struct AnalyzeResult: Codable, Hashable {
     let imageWidth: Int
     let imageHeight: Int
@@ -307,6 +312,7 @@ struct AnalyzeResult: Codable, Hashable {
     let sceneWords: [SceneWord]
     let caption: String?
     let captionChinese: String?
+    let captionSentences: [CaptionSentence]?
     let captionStyle: CaptionStyle?
 
     init(
@@ -316,15 +322,23 @@ struct AnalyzeResult: Codable, Hashable {
         sceneWords: [SceneWord] = [],
         caption: String?,
         captionChinese: String?,
-        captionStyle: CaptionStyle?
+        captionStyle: CaptionStyle?,
+        captionSentences: [CaptionSentence]? = nil
     ) {
         self.imageWidth = imageWidth
         self.imageHeight = imageHeight
         self.objects = objects
         self.sceneWords = sceneWords
-        self.caption = caption
-        self.captionChinese = captionChinese
+        self.captionSentences = captionSentences?.isEmpty == false ? captionSentences : nil
+        self.caption = self.captionSentences?.map(\.english).joined(separator: " ") ?? caption
+        self.captionChinese = self.captionSentences?.map(\.chinese).joined() ?? captionChinese
         self.captionStyle = captionStyle
+    }
+
+    var descriptionSentences: [CaptionSentence] {
+        if let captionSentences { return captionSentences }
+        guard let caption, !caption.isEmpty else { return [] }
+        return [CaptionSentence(english: caption, chinese: captionChinese ?? "")]
     }
 
     var allWords: [LearningObject] { objects + sceneWords.map(\.learningObject) }
@@ -335,8 +349,10 @@ struct AnalyzeResult: Codable, Hashable {
         imageHeight = try container.decode(Int.self, forKey: .imageHeight)
         objects = try container.decode([LearningObject].self, forKey: .objects)
         sceneWords = try container.decodeIfPresent([SceneWord].self, forKey: .sceneWords) ?? []
-        caption = try container.decodeIfPresent(String.self, forKey: .caption)
-        captionChinese = try container.decodeIfPresent(String.self, forKey: .captionChinese)
+        let sentences = try container.decodeIfPresent([CaptionSentence].self, forKey: .captionSentences)
+        captionSentences = sentences?.isEmpty == false ? sentences : nil
+        caption = try captionSentences?.map(\.english).joined(separator: " ") ?? container.decodeIfPresent(String.self, forKey: .caption)
+        captionChinese = try captionSentences?.map(\.chinese).joined() ?? container.decodeIfPresent(String.self, forKey: .captionChinese)
         captionStyle = try container.decodeIfPresent(CaptionStyle.self, forKey: .captionStyle)
     }
 
@@ -348,7 +364,8 @@ struct AnalyzeResult: Codable, Hashable {
             sceneWords: sceneWords.map { $0.id == updatedObject.id ? SceneWord(object: updatedObject) : $0 },
             caption: caption,
             captionChinese: captionChinese,
-            captionStyle: captionStyle
+            captionStyle: captionStyle,
+            captionSentences: captionSentences
         )
     }
 
@@ -360,7 +377,8 @@ struct AnalyzeResult: Codable, Hashable {
             sceneWords: sceneWords.filter { $0.id != id },
             caption: caption,
             captionChinese: captionChinese,
-            captionStyle: captionStyle
+            captionStyle: captionStyle,
+            captionSentences: captionSentences
         )
     }
 }

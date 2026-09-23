@@ -32,7 +32,7 @@ const input: VisionInput = { image: new Uint8Array([1]), mimeType: "image/jpeg",
 const raw = { objects: [{ id: "table", english: "table", chinese: "桌子", confidence: 0.9,
   bbox: [100, 100, 900, 900], anchor: [500, 500], example: "A table." },
   { id: "book", english: "book", chinese: "书", confidence: 0.9,
-    bbox: [400, 400, 600, 600], anchor: [500, 500], example: "A book." }], caption: "A book on a table.", captionChinese: "桌上的书。" };
+    bbox: [400, 400, 600, 600], anchor: [500, 500], example: "A book." }], caption: "A book on a table.", captionChinese: "桌上的书。", captionSentences: [{ english: "A book on a table.", chinese: "桌上的书。" }] };
 const reply = (content: unknown) => Response.json({ choices: [{ message: { content: JSON.stringify(content) } }] });
 
 for (const stream of [false, true]) {
