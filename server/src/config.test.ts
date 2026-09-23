@@ -39,6 +39,17 @@ test("reads a strong dedicated video-studio credential", () => {
   }), /VIDEO_STUDIO_ACCESS_TOKEN/);
 });
 
+test("reads and validates the admin dashboard credential", () => {
+  const key = "admin-dashboard-test-key-with-32-characters";
+  const config = readServerConfig({
+    VISION_PROVIDER: "mock", USAGE_LIMIT_ENABLED: "false", ADMIN_DASHBOARD_KEY: key,
+  });
+  assert.equal(config.adminDashboard?.key, key);
+  assert.throws(() => readServerConfig({
+    VISION_PROVIDER: "mock", USAGE_LIMIT_ENABLED: "false", ADMIN_DASHBOARD_KEY: "too-short",
+  }), /ADMIN_DASHBOARD_KEY/);
+});
+
 test("reads a configurable non-negative member quota default", () => {
   const config = readServerConfig({
     VISION_PROVIDER: "mock",

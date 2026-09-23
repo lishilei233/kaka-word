@@ -10,7 +10,7 @@ import { learningPost } from './learning-post';
 import { interactionArrowGeometry } from '../video/InteractionArrow';
 
 const audio = '/studio-api/assets/abcd.wav';
-const project: Project = { ...emptyProject, image: '/studio-api/assets/abcd.jpg', caption: 'The shell is broken.', captionChinese: '蛋壳破了。', captionAudio: audio, captionAudioSeconds: 2,
+const project: Project = { ...emptyProject, image: '/studio-api/assets/abcd.jpg', caption: 'The shell is broken.', captionChinese: '蛋壳破了。', captionReviewRequired: false, captionAudio: audio, captionAudioSeconds: 2,
     words: [
         { id: 'state', kind: 'state', english: 'broken', chinese: '破碎的', ipa: '/ˈbroʊkən/', audio, audioSeconds: 1 },
         { id: 'egg', kind: 'object', english: 'egg', chinese: '鸡蛋', ipa: '/eɡ/', box: { x: .2, y: .2, width: .2, height: .2 }, audio, audioSeconds: 1 },
@@ -58,6 +58,15 @@ test('scene-card highlight keeps width, grows upward and enlarges text', () => {
     assert.ok(!base.includes('<path'));
     assert.ok(base.includes('display:flex;flex-wrap:nowrap'));
     assert.ok(base.includes('broken') && !base.includes('破碎的') && !base.includes('状态'));
+});
+
+test('scene cards stay hidden until their word segment begins', () => {
+    const sceneOnly = { ...project, videoTemplate: 'direct' as const, words: [project.words[0]] };
+    const segment = timeline(sceneOnly).words[0];
+    const before = renderToStaticMarkup(createElement(SceneCards, { project: sceneOnly, frame: segment.from - 1 }));
+    const visible = renderToStaticMarkup(createElement(SceneCards, { project: sceneOnly, frame: segment.from + 8 }));
+    assert.ok(before.includes('opacity:0'));
+    assert.ok(visible.includes('opacity:1'));
 });
 
 test('interaction arrow position survives drafts and creates deterministic geometry', () => {

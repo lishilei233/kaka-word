@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "db:migrate": "node scripts/migrate.mjs",
-    "test": "node --import tsx --test src/config.test.ts src/core/access/quota-period.test.ts src/core/image-analysis/streaming-json.test.ts src/routes/analyze.test.ts src/routes/studio-scene.test.ts src/routes/app-version.test.ts src/routes/content.test.ts src/routes/membership.test.ts src/routes/recognition-feedback.test.ts src/routes/store.test.ts",
+    "test": "node --import tsx --test src/config.test.ts src/core/access/quota-period.test.ts src/core/image-analysis/streaming-json.test.ts src/core/image-analysis/visible-anchor.test.ts src/core/image-analysis/qwen-response.test.ts src/utils/logger.test.ts src/routes/analyze.test.ts src/routes/studio-scene.test.ts src/routes/app-version.test.ts src/routes/content.test.ts src/routes/membership.test.ts src/routes/recognition-feedback.test.ts src/routes/store.test.ts src/routes/admin-stats.test.ts",
     "test:postgres": "node --import tsx --test src/core/usage-limits/postgres.integration.test.ts src/core/access/postgres.integration.test.ts",
     "start": "node dist/index.js"
   },

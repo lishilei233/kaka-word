@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, CAPTION_FRAMES, changeEnglish, openingMedia, emptyProject, exportBlockers, exportReady, projectSchema, selectCaptionVariant, sortByPhotoPosition, timeline, type Project } from './project.ts';
-const p: Project = { ...emptyProject, image: '/studio-api/assets/1234.jpg', caption: 'A quiet room.', captionAudio: '/studio-api/assets/abcd.wav', captionAudioSeconds: 1.8, words: [
+import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, CAPTION_FRAMES, changeEnglish, openingMedia, emptyProject, exportBlockers, exportReady, projectSchema, sortByPhotoPosition, timeline, type Project } from './project.ts';
+const p: Project = { ...emptyProject, image: '/studio-api/assets/1234.jpg', caption: 'A quiet room.', captionReviewRequired: false, captionAudio: '/studio-api/assets/abcd.wav', captionAudioSeconds: 1.8, words: [
     { id: '1', english: 'window', chinese: '窗户', ipa: '', box: { x: .05, y: .1, width: .1, height: .2 }, audio: '/studio-api/assets/1234.wav', audioSeconds: .8 },
     { id: '2', english: 'trash can', chinese: '垃圾桶', ipa: '', box: { x: .4, y: .5, width: .2, height: .2 }, audio: '/studio-api/assets/5678.wav', audioSeconds: 1.4 },
 ] };
@@ -46,11 +46,16 @@ test('opening video always reaches the selected capture frame without looping', 
         assert.equal(media.startFrom + media.playFrames, Math.round(captureSeconds * 30));
     }
 });
-test('direct template holds the complete annotated image before reading immediately', () => {
+test('direct template waits for its configurable photo hold before word-by-word reading', () => {
     const direct = timeline({ ...p, videoTemplate: 'direct' });
     assert.equal(direct.intro, 15);
     assert.equal(direct.reveal, 0);
     assert.equal(direct.words[0].from, 15);
+    assert.equal(direct.words[1].from, direct.words[0].from + direct.words[0].duration);
+
+    const adjustedDirect = timeline({ ...p, videoTemplate: 'direct', directIntroSeconds: 1.3 });
+    assert.equal(adjustedDirect.intro, 39);
+    assert.equal(adjustedDirect.words[0].from, 39);
 
     const camera = timeline({ ...p, videoTemplate: 'camera', introSeconds: 2 });
     assert.equal(camera.intro, 60);
@@ -67,16 +72,13 @@ test('recognized objects sort by photo rows, then from left to right', () => {
     assert.deepEqual(sortByPhotoPosition(objects).map(object => object.id), ['top-left', 'top-right', 'middle', 'bottom']);
 });
 
-test('selecting an AI caption variant replaces both languages and invalidates old speech', () => {
-    const variants = {
-        serious: { caption: 'A cat sits here.', captionChinese: '一只猫坐在这里。' },
-        funny: { caption: 'The cat owns this chair.', captionChinese: '这把椅子归猫所有。' },
-        literary: { caption: 'Soft light finds the quiet cat.', captionChinese: '柔光落在安静的猫身上。' },
-    };
-    const selected = selectCaptionVariant({ ...p, captionVariants: variants }, 'literary');
-    assert.equal(selected.caption, variants.literary.caption);
-    assert.equal(selected.captionChinese, variants.literary.captionChinese);
-    assert.equal(selected.selectedCaptionStyle, 'literary');
-    assert.equal(selected.captionAudio, undefined);
-    assert.equal(selected.captionAudioSeconds, undefined);
+test('legacy version two drafts discard old variants and require a reviewed caption', () => {
+    const old = { ...p, version: 2, captionVariants: { serious: { caption: 'A.', captionChinese: '甲。' }, funny: { caption: 'B.', captionChinese: '乙。' }, literary: { caption: 'C.', captionChinese: '丙。' } }, selectedCaptionStyle: 'funny' };
+    const migrated = projectSchema.parse(old);
+    assert.equal(migrated.version, 3);
+    assert.equal(migrated.caption, '');
+    assert.equal(migrated.captionChinese, '');
+    assert.equal(migrated.captionReviewRequired, true);
+    assert.equal(migrated.captionAudio, undefined);
+    assert.ok(exportBlockers(migrated).includes('照片描述需要重新生成并完成审校'));
 });

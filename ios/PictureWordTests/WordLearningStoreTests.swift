@@ -5,6 +5,33 @@ import XCTest
 
 @MainActor
 final class WordLearningStoreTests: XCTestCase {
+    func testWordDetailInitializationDoesNotCropImageBeforePresentation() {
+        let object = LearningObject(
+            id: "book",
+            english: "book",
+            chinese: "书",
+            ipa: "/bʊk/",
+            confidence: 1,
+            box: ObjectBox(x: 0.2, y: 0.2, width: 0.4, height: 0.4),
+            anchor: ObjectAnchor(x: 0.4, y: 0.4),
+            example: "This is a book.",
+            exampleChinese: "这是一本书。",
+            labelCenterOverride: nil,
+            targetOverride: nil
+        )
+        var imageProviderCalls = 0
+
+        _ = WordDetailSheet(
+            object: object,
+            imageProvider: { _, _ in
+                imageProviderCalls += 1
+                return nil
+            }
+        )
+
+        XCTAssertEqual(imageProviderCalls, 0)
+    }
+
     func testEnglishVoiceSelectionDefaultsToSystemAndPersistsIdentifier() {
         XCTAssertEqual(AppSettings.defaultEnglishVoiceIdentifier, "")
 
@@ -134,6 +161,20 @@ final class WordLearningStoreTests: XCTestCase {
         service.speak("second")
         XCTAssertEqual(synthesizer.stopCallCount, 2)
         XCTAssertEqual(synthesizer.utterances.map(\.speechString), ["first", "second"])
+    }
+
+    func testSpeechServiceCanDeferVoiceEnumerationForDetailPresentation() {
+        var voiceProviderCalls = 0
+        _ = SpeechService(
+            synthesizer: SpeechSynthesizerSpy(),
+            voiceProvider: {
+                voiceProviderCalls += 1
+                return []
+            },
+            refreshesVoicesOnInit: false
+        )
+
+        XCTAssertEqual(voiceProviderCalls, 0)
     }
 
     func testWordDetailAutoPlayDefaultsToEnabled() {

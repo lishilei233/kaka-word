@@ -6,13 +6,17 @@ import { createAccessService } from "./core/access/index.js";
 import { createVisionProvider } from "./core/image-analysis/providers/index.js";
 import { createAnalyzeUsageLimiter } from "./core/usage-limits/index.js";
 import { createLogger } from "./utils/logger.js";
+import { PostgresAdminStatsRepository } from "./core/admin-stats.js";
 
 const config = readServerConfig();
 const logger = createLogger(config.logLevel);
 const provider = createVisionProvider(config.vision);
 const usageLimiter = createAnalyzeUsageLimiter(config.usageLimits, logger);
 const accessService = await createAccessService(config.access, logger);
-const app = createApp({ config, provider, usageLimiter, accessService, logger });
+const adminStatsRepository = config.adminDashboard?.key && config.adminDashboard.databaseURL
+  ? new PostgresAdminStatsRepository(config.adminDashboard.databaseURL)
+  : undefined;
+const app = createApp({ config, provider, usageLimiter, accessService, logger, adminStatsRepository });
 
 // Bind IPv4 explicitly so a real device on the local network can reach the
 // development server via its LAN address (for example, 192.168.x.x).

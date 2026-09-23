@@ -125,14 +125,17 @@ final class SpeechService: NSObject, ObservableObject {
     init(
         synthesizer: any SpeechSynthesizing = AVSpeechSynthesizer(),
         voiceProvider: @escaping () -> [AVSpeechSynthesisVoice] = AVSpeechSynthesisVoice.speechVoices,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        refreshesVoicesOnInit: Bool = true
     ) {
         self.synthesizer = synthesizer
         self.voiceProvider = voiceProvider
         self.defaults = defaults
         availableEnglishVoices = []
         super.init()
-        refreshAvailableVoices()
+        if refreshesVoicesOnInit {
+            refreshAvailableVoices()
+        }
     }
 
     func isVoiceAvailable(identifier: String) -> Bool {

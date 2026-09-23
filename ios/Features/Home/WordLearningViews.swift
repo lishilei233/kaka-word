@@ -33,10 +33,19 @@ struct WordLearningRow: View {
                 .allowsHitTesting(false)
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(entry.object.english)
-                        .font(.system(.title3, design: .serif, weight: .bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                    HStack(spacing: 7) {
+                        Text(entry.object.english)
+                            .font(.system(.title3, design: .serif, weight: .bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                        if entry.object.kind != .object {
+                            Text("\(entry.object.kind.title)词")
+                                .font(.system(size: 9, weight: .black, design: .rounded))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background((entry.object.kind == .action ? Color.sun : Color.sky).opacity(0.3), in: Capsule())
+                        }
+                    }
 
                     Text("\(entry.object.chinese) · \(entry.object.ipa)")
                         .font(.system(.subheadline, design: .rounded, weight: .semibold))
@@ -99,6 +108,8 @@ enum WordImageCropper {
                   let image = historyStore.image(for: record),
                   let cgImage = image.cgImage else { continue }
 
+            if occurrence.object.kind != .object { return image }
+
             let box = occurrence.object.box
             let padding = 0.08
             let left = max(0, box.x - box.width * padding)
@@ -122,7 +133,10 @@ enum WordImageCropper {
         for occurrence in entry.occurrences {
             guard let record = historyStore.record(id: occurrence.recordID),
                   let image = historyStore.image(for: record) else { continue }
-            return ReviewPhoto(image: image, targetBox: normalizedBox(occurrence.object.box))
+            return ReviewPhoto(
+                image: image,
+                targetBox: occurrence.object.kind == .object ? normalizedBox(occurrence.object.box) : nil
+            )
         }
         return nil
     }

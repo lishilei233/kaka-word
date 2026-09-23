@@ -257,12 +257,74 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             await stream.writeSSE({ event: "object", data: JSON.stringify(object) });
           };
 
-          const result = provider.analyzeStream
+          const objectResult = provider.analyzeStream
             ? await provider.analyzeStream(input, sendObject)
             : await provider.analyze(input);
 
           if (!provider.analyzeStream) {
-            for (const object of result.objects) await sendObject(object);
+            for (const object of objectResult.objects) await sendObject(object);
+          }
+
+          let result: AnalyzeResult = { ...objectResult, sceneWords: [] };
+          if (provider.analyzeStudioScene) {
+            stage = "scene_analysis";
+            await stream.writeSSE({ event: "sceneAnalyzing", data: "{}" });
+            try {
+              const scene = await provider.analyzeStudioScene({
+                image: bytes,
+                mimeType: input.mimeType,
+                context: "",
+                objects: objectResult.objects.map(({ english, chinese }) => ({ english, chinese })),
+                masteredWords,
+                maxSceneWords: 5,
+                signal: abortController.signal,
+              });
+              const usedIDs = new Set(objectResult.objects.map((object) => object.id));
+              const sceneWords = scene.words
+                .filter((word) => word.kind === "action" || word.kind === "state")
+                .slice(0, 5)
+                .map((word, index) => {
+                  let id = word.id;
+                  let suffix = index + 1;
+                  while (usedIDs.has(id)) id = `scene_${suffix++}`;
+                  usedIDs.add(id);
+                  return {
+                    id,
+                    kind: word.kind,
+                    english: word.english,
+                    chinese: word.chinese,
+                    ipa: word.ipa,
+                    example: word.example ?? scene.caption,
+                    exampleChinese: word.exampleChinese ?? scene.captionChinese,
+                  };
+                });
+              let caption = { caption: scene.caption, captionChinese: scene.captionChinese };
+              if (provider.reviewCaption) {
+                caption = await provider.reviewCaption({
+                  image: bytes,
+                  mimeType: input.mimeType,
+                  caption: scene.caption,
+                  captionChinese: scene.captionChinese,
+                  words: [
+                    ...objectResult.objects.map(({ english, chinese }) => ({ english, chinese, kind: "object" as const })),
+                    ...sceneWords.map(({ english, chinese, kind }) => ({ english, chinese, kind })),
+                  ],
+                  signal: abortController.signal,
+                });
+              }
+              result = { ...objectResult, ...caption, captionStyle: "serious", sceneWords };
+              for (const word of sceneWords) {
+                await stream.writeSSE({ event: "sceneWord", data: JSON.stringify(word) });
+              }
+            } catch (error) {
+              if (abortController.signal.aborted) throw error;
+              logger.warn("vision.scene_analysis_failed", {
+                requestId,
+                provider: providerName,
+                model: providerModel,
+                ...errorFields(error, logLevel === "debug"),
+              });
+            }
           }
 
           stage = "serialize_response";

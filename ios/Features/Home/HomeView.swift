@@ -530,13 +530,13 @@ private struct MyWordsDashboard: View {
             dismissSearch()
         }
         .sheet(item: $selectedWord) { entry in
+            let pageEntries = filteredWords
             WordDetailSheet(
                 object: entry.object,
-                objects: filteredWords.map(\.object),
-                imageProvider: { object in
-                    filteredWords.first(where: { $0.object.id == object.id }).flatMap {
-                        WordImageCropper.image(for: $0, historyStore: historyStore)
-                    }
+                objects: pageEntries.map(\.object),
+                imageProvider: { _, index in
+                    guard pageEntries.indices.contains(index) else { return nil }
+                    return WordImageCropper.image(for: pageEntries[index], historyStore: historyStore)
                 }
             )
         }
@@ -969,13 +969,13 @@ private struct DiscoveryCardCompact: View {
                 .frame(width: 150, height: 126)
                 .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
 
-                Text(record.result.objects.map(\.english).prefix(2).joined(separator: " · "))
+                Text(record.result.allWords.map(\.english).prefix(2).joined(separator: " · "))
                     .font(.system(.subheadline, design: .serif, weight: .bold))
                     .foregroundStyle(Color.ink)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text("\(record.result.objects.count) WORDS")
+                Text("\(record.result.allWords.count) WORDS")
                     .font(.system(.caption2, design: .rounded, weight: .black))
                     .tracking(1)
                     .foregroundStyle(Color.coral)
@@ -987,7 +987,7 @@ private struct DiscoveryCardCompact: View {
         }
         .buttonStyle(.plain)
         .rotationEffect(.degrees(record.id.uuidString.hashValue.isMultiple(of: 2) ? -1 : 1))
-        .accessibilityLabel("打开包含 \(record.result.objects.count) 个单词的发现卡")
+        .accessibilityLabel("打开包含 \(record.result.allWords.count) 个单词的发现卡")
     }
 }
 

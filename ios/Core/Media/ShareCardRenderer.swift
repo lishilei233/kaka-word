@@ -5,9 +5,10 @@ import UIKit
 enum DecoratedPhotoRenderer {
     static let logicalWidth: CGFloat = 540
 
-    static func logicalSize(for image: UIImage) -> CGSize {
+    static func logicalSize(for image: UIImage, sceneWordCount: Int = 0) -> CGSize {
         let imageRatio = image.size.width / max(image.size.height, 1)
-        let height = logicalWidth / imageRatio
+        let rows = sceneWordCount == 0 ? 0 : Int(ceil(Double(sceneWordCount) / 3.0))
+        let height = logicalWidth / imageRatio + CGFloat(rows * 54) + (rows > 0 ? 42 : 0)
         return CGSize(width: logicalWidth, height: ceil(height * 2) / 2)
     }
 
@@ -16,7 +17,7 @@ enum DecoratedPhotoRenderer {
         result: AnalyzeResult,
         revealsAnnotations: Bool = true
     ) throws -> UIImage {
-        let logicalSize = logicalSize(for: image)
+        let logicalSize = logicalSize(for: image, sceneWordCount: result.sceneWords.count)
         let content = ShareableDecoratedPhoto(
             image: image,
             result: result,
@@ -48,11 +49,9 @@ private struct ShareableDecoratedPhoto: View {
     let revealsAnnotations: Bool
 
     var body: some View {
-        ZStack {
+        VStack(spacing: 0) {
             // Keep the exported bitmap opaque. Transparent PNG margins are shown
             // as black by several share destinations and image viewers.
-            Color.paperLight
-
             AnnotatedPhotoCard(
                 image: image,
                 objects: result.objects,
@@ -63,7 +62,35 @@ private struct ShareableDecoratedPhoto: View {
             ) { _ in }
             .aspectRatio(image.size.width / max(image.size.height, 1), contentMode: .fit)
             .frame(maxWidth: .infinity)
+
+            if !result.sceneWords.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("SCENE WORDS")
+                        .font(.system(size: 10, weight: .black, design: .monospaced))
+                        .tracking(1.4)
+                        .foregroundStyle(Color.coral)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                        ForEach(result.sceneWords) { word in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(word.english)
+                                    .font(.system(size: 14, weight: .bold, design: .serif))
+                                    .lineLimit(1)
+                                Text("\(word.kind.title) · \(word.chinese)")
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color.ink.opacity(0.58))
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+                            .padding(.horizontal, 9)
+                            .background((word.kind == .action ? Color.sun : Color.sky).opacity(0.24), in: RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+                }
+                .padding(14)
+                .background(Color.paperLight)
+            }
         }
+        .background(Color.paperLight)
         .dynamicTypeSize(.large)
     }
 }

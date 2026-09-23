@@ -60,7 +60,7 @@ export class VolcengineVisionProvider extends HttpVisionProvider {
         stream: false,
         temperature: 0.1,
         max_tokens: 400,
-        messages: [{ role: "user", content: [{ type: "text", text: vocabularyPrompt(input.term) }] }],
+        messages: [{ role: "user", content: [{ type: "text", text: vocabularyPrompt(input.term, input.kind) }] }],
       }),
       signal: input.signal,
     });

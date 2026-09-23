@@ -32,6 +32,7 @@ MEMBER_QUOTA_DEFAULT=100
 MEMBER_QUOTA_UNLIMITED=false
 APPLE_BUNDLE_ID=com.kakaword.app
 APPLE_APP_ID=<App Store Connect 中的数字 Apple ID>
+ADMIN_DASHBOARD_KEY=<至少 32 字符的独立随机管理密钥>
 APPLE_ROOT_CERTIFICATE_PATHS=/run/secrets/AppleRootCA-G3.cer
 APPLE_JWS_ONLINE_CHECKS=true
 APPLE_TEAM_ID=<Apple Team ID>
@@ -43,6 +44,14 @@ DEVICECHECK_ENVIRONMENT=production
 Apple Root CA 证书和 DeviceCheck 私钥必须作为部署密钥挂载，不能提交到仓库。本地 Mock 开发可同时设置 `ACCESS_CONTROL_ENABLED=false` 和 `USAGE_LIMIT_ENABLED=false`。生产与 Sandbox 的 Apple 交易按 `environment` 分区保存；DeviceCheck 测试环境使用 `development`。
 
 修改额度环境变量后需要重启服务。`MEMBER_QUOTA_UNLIMITED=true` 的优先级高于 `MEMBER_QUOTA_DEFAULT`；改回 `false` 后恢复有限额度。权益响应通过 `unlimited: true` 明确标识无限额度，同时保留兼容旧客户端的数值 `limit`/`remaining`。
+
+## 统计看板
+
+配置 `ADMIN_DASHBOARD_KEY` 并重启服务后，可访问 `GET /admin/stats`。浏览器会弹出 HTTP Basic Auth 登录框：用户名固定为 `admin`，密码为配置的管理密钥。未配置密钥时，管理路由返回 404；统计页面和 API 均禁止缓存。
+
+看板默认显示最近 30 天，并以 Production 作为订阅环境；可切换今天、7、30、90 天及 Sandbox、Xcode、LocalTesting。每项指标都提供可展开的口径说明。`GET /admin/api/stats` 提供相同数据的 JSON 结果。订阅、交易数据按环境过滤，但已有聚合事件没有环境字段，因此付费墙、购买与识别事件始终是全部客户端事件，页面会明确显示该口径限制。
+
+统计查询只读取现有 PostgreSQL 表，不保存额外用户或交易明细。管理密钥必须独立于访问令牌、IP 哈希和第三方 API 密钥，并应继续配合 HTTPS 与反向代理访问控制使用。
 
 ## 全站用量保护
 
@@ -110,3 +119,15 @@ The default `VISION_PROVIDER=qwen` uses Alibaba Cloud Model Studio through its B
 Set `VISION_PROVIDER=mock` to return deterministic objects for mobile UI development without using model credits. Gemini and Volcengine adapters remain available as optional alternatives.
 
 The server keeps uploaded images in memory only. It does not write image files or store analysis results.
+
+## 引导线可见落点
+
+物体识别结果中的 `box` 继续表示范围，`anchor` 表示物体可见部分上的归一化点。新增可选字段 `anchorSource`（`ai` / `centerFallback` / 客户端保存的 `manual`）和 `anchorNeedsReview`，区分模型落点、中心兜底及待检查结果。坐标必须有限、在图片和自身物体框内；非法或缺失的模型点改为明确标记的中心兜底。
+
+千问在完整物体列表返回后检查小框覆盖大物体落点等可疑情况，最多追加一次批量图片复核，超时为 8 秒。框重叠只触发复核，不直接移动落点。复核失败不丢弃识别结果，保留待检查状态；用户取消会继续向上传递。流式 `object` 为初步结果，最终结果包含复核后的坐标。其他视觉供应商执行相同的坐标校验和可疑标记，不追加复核请求。
+
+客户端对未标记来源的旧记录继续使用框中心；新 AI 点通过校验后用于引导线。长按标签进入编辑后，可独立拖动圆点纠正落点，不改变物体框；手动点允许超出原识别框，但限制在图片内。编辑中的珊瑚色圆点表示待检查。该流程不是像素分割，模型复核仍可能出错。
+
+千问识别请求使用 `response_format: { type: "json_object" }` 和 `enable_thinking: false`，流式内容按完整 JSON 文档解析。若兼容服务返回 `application/json`，按普通 Chat Completions 响应读取。`QwenResponseError` 区分空内容、上游错误、截断、拒绝及无效 JSON，并记录可用的上游请求 ID、结束原因、字符数和 token 数；不会记录模型正文或照片。出现 `finishReason: "length"` 应检查模型输出预算；上游错误按 `code` 和请求 ID 排查。仅凭旧版“Vision provider returned no JSON object”日志无法确定具体原因。
+
+若初次识别返回空内容、非对象 JSON、无效 JSON 或不符合识别结构的 JSON，且尚未发出任何物体事件，自动使用同一图片按原调用模式重试一次（流式调用的重试仍为流式），并强化顶层对象结构要求。沿用原请求的取消信号及超时预算，不递归重试；鉴权、额度、内容过滤、明确的输出长度限制及已发出部分物体的情况不重试。重试会额外产生一次模型调用。`jsonType` 诊断字段仅记录顶层 JSON 类型，不记录正文。

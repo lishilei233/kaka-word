@@ -26,6 +26,27 @@ final class AnalysisViewModelTests: XCTestCase {
         XCTAssertFalse(updated.needsConfirmation)
     }
 
+    func testDecodesSceneWordsWithoutCoordinatesAndKeepsLegacyResultsCompatible() throws {
+        let sceneData = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[],"sceneWords":[{"id":"running","kind":"action","english":"run","chinese":"跑","ipa":"/rʌn/","example":"The child runs.","exampleChinese":"孩子在跑。"}],"caption":"The child runs.","captionChinese":"孩子在跑。","captionStyle":"serious"}"#.utf8)
+        let result = try JSONDecoder().decode(AnalyzeResult.self, from: sceneData)
+
+        XCTAssertEqual(result.sceneWords.count, 1)
+        XCTAssertEqual(result.sceneWords.first?.kind, .action)
+        XCTAssertEqual(result.allWords.first?.kind, .action)
+
+        let legacyData = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[],"caption":"A room.","captionChinese":"一个房间。","captionStyle":"serious"}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(AnalyzeResult.self, from: legacyData).sceneWords, [])
+    }
+
+    func testCaptionHighlighterMarksWholeEnglishWordsAndChineseMeanings() {
+        let english = CaptionHighlighter.english("A runner can run beside a cup.", words: ["run", "cup"])
+        let chinese = CaptionHighlighter.chinese("孩子在杯子旁边跑。", words: ["杯子", "跑"])
+
+        XCTAssertEqual(String(english.characters), "A runner can run beside a cup.")
+        XCTAssertEqual(english.runs.filter { $0.backgroundColor != nil }.count, 2)
+        XCTAssertEqual(chinese.runs.filter { $0.backgroundColor != nil }.count, 2)
+    }
+
     func testUploadProgressIsMonotonic() async throws {
         let client = ProgressAnalysisClient(
             progressValues: [0, 0.6, 0.6, 0.2],
@@ -110,7 +131,9 @@ private final class ProgressAnalysisClient: AnalysisProviding, @unchecked Sendab
         captionStyle: CaptionStyle,
         masteredWords: [String],
         onUploadProgress: @escaping @Sendable (Double) -> Void,
-        onObject: @escaping @Sendable (LearningObject) -> Void
+        onObject: @escaping @Sendable (LearningObject) -> Void,
+        onSceneAnalyzing: @escaping @Sendable () -> Void,
+        onSceneWord: @escaping @Sendable (SceneWord) -> Void
     ) async throws -> AnalyzeResult {
         for progress in progressValues {
             onUploadProgress(progress)

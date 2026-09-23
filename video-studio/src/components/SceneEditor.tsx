@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Project, Word } from '../lib/project';
 import { Button } from './ui/button';
 
-export function SceneEditor({ project: p, update, onEditArrow }: { project: Project; update: (p: Project) => void; onEditArrow?: () => void }) {
+export function SceneEditor({ project: p, update, onEditArrow, onRegenerateInteraction }: { project: Project; update: (p: Project) => void; onEditArrow?: () => void; onRegenerateInteraction?: () => void }) {
     const interaction = p.interaction ?? { enabled: false, english: '', chinese: '' };
     return <section className="scene-editor">
         <label className="field-label" htmlFor="analysisMode">选词方式</label>
@@ -12,6 +12,7 @@ export function SceneEditor({ project: p, update, onEditArrow }: { project: Proj
         {p.analysisMode === 'scene' && <p className="hint scene-mode-hint">AI 会从照片中识别物体、动作和状态，并将动作、状态词展示在照片底部。</p>}
         {p.sceneTheme && <p className="scene-theme">本期场景 · {p.sceneTheme}</p>}
         <details className="interaction-editor"><summary>结尾互动句 {interaction.enabled ? '· 已开启' : '· 未开启'}</summary>
+            <Button type="button" variant="secondary" size="sm" disabled={!p.image} onClick={onRegenerateInteraction}>单独重新生成互动句</Button>
             <label className="safe-toggle"><input type="checkbox" checked={interaction.enabled} onChange={e => update({ ...p, interaction: { ...interaction, enabled: e.target.checked } })} />在场景句之后展示并朗读</label>
             <label className="field-label" htmlFor="interactionEnglish">互动句 · English</label><textarea id="interactionEnglish" className="input caption-input" value={interaction.english} maxLength={220} onChange={e => update({ ...p, interaction: { ...interaction, english: e.target.value, audio: undefined, audioSeconds: undefined } })} />
             <label className="field-label" htmlFor="interactionChinese">互动句 · 中文</label><textarea id="interactionChinese" className="input caption-input" value={interaction.chinese} maxLength={220} onChange={e => update({ ...p, interaction: { ...interaction, chinese: e.target.value } })} />

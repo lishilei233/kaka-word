@@ -31,11 +31,49 @@ export function createLogger(configuredLevel: LogLevel): Logger {
 export function errorFields(error: unknown, includeStack = false): LogFields {
   if (!(error instanceof Error)) return { errorType: "UnknownError", errorMessage: "Unknown error" };
 
+  const cause = error.cause;
+
   return {
     errorType: error.name,
     errorMessage: redactSecrets(error.message),
     ...(includeStack && error.stack ? { stack: redactSecrets(error.stack) } : {}),
+    ...causeFields(cause, includeStack),
   };
+}
+
+function causeFields(cause: unknown, includeStack: boolean): LogFields {
+  if (cause == null) return {};
+
+  if (cause instanceof Error) {
+    const systemCause = cause as Error & {
+      code?: unknown;
+      errno?: unknown;
+      syscall?: unknown;
+      address?: unknown;
+      port?: unknown;
+    };
+    return {
+      causeType: cause.name,
+      causeMessage: redactSecrets(cause.message),
+      ...scalarField("causeCode", systemCause.code),
+      ...scalarField("causeErrno", systemCause.errno),
+      ...scalarField("causeSyscall", systemCause.syscall),
+      ...scalarField("causeAddress", systemCause.address),
+      ...scalarField("causePort", systemCause.port),
+      ...(includeStack && cause.stack ? { causeStack: redactSecrets(cause.stack) } : {}),
+    };
+  }
+
+  return {
+    causeType: typeof cause,
+    causeMessage: redactSecrets(String(cause)),
+  };
+}
+
+function scalarField(name: string, value: unknown): LogFields {
+  return typeof value === "string" || typeof value === "number"
+    ? { [name]: value }
+    : {};
 }
 
 function redactSecrets(value: string): string {

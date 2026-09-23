@@ -4,6 +4,7 @@ import UIKit
 final class AnalysisViewModel: ObservableObject {
     @Published private(set) var phase: AnalysisPhase = .preparing
     @Published private(set) var objects: [LearningObject] = []
+    @Published private(set) var sceneWords: [SceneWord] = []
     @Published private(set) var shouldPresentPaywall = false
 
     private let client: any AnalysisProviding
@@ -19,6 +20,7 @@ final class AnalysisViewModel: ObservableObject {
         let id = UUID()
         operationID = id
         objects = []
+        sceneWords = []
         shouldPresentPaywall = false
         phase = .preparing
         analysisTask = Task { [weak self] in
@@ -64,6 +66,10 @@ final class AnalysisViewModel: ObservableObject {
                 Task { @MainActor in
                     self?.receiveObject(object, operationID: id)
                 }
+            } onSceneAnalyzing: { [weak self] in
+                Task { @MainActor in self?.receiveSceneAnalyzing(operationID: id) }
+            } onSceneWord: { [weak self] word in
+                Task { @MainActor in self?.receiveSceneWord(word, operationID: id) }
             }
             guard isCurrent(id), !Task.isCancelled else { return }
             objects = result.objects
@@ -87,7 +93,7 @@ final class AnalysisViewModel: ObservableObject {
             } else {
                 previousProgress = 0
             }
-        case .analyzing, .success, .failed, .cancelled:
+        case .analyzing, .sceneAnalyzing, .success, .failed, .cancelled:
             // URLSession 的最后一次代理回调可能比响应 continuation 更晚抵达主线程。
             return
         }
@@ -105,12 +111,23 @@ final class AnalysisViewModel: ObservableObject {
         switch phase {
         case .success, .failed, .cancelled:
             return
-        case .preparing, .uploading, .analyzing:
+        case .preparing, .uploading, .analyzing, .sceneAnalyzing:
             break
         }
         guard !objects.contains(where: { $0.id == object.id }) else { return }
         objects.append(object)
         phase = .analyzing
+    }
+
+    private func receiveSceneAnalyzing(operationID id: UUID) {
+        guard isCurrent(id) else { return }
+        phase = .sceneAnalyzing
+    }
+
+    private func receiveSceneWord(_ word: SceneWord, operationID id: UUID) {
+        guard isCurrent(id), !sceneWords.contains(where: { $0.id == word.id }) else { return }
+        sceneWords.append(word)
+        phase = .sceneAnalyzing
     }
 
     private func isCurrent(_ id: UUID) -> Bool {

@@ -10,6 +10,12 @@ export type ServerConfig = {
   access: AccessConfig;
   videoStudioAccessToken?: string;
   appVersion?: AppVersionConfig;
+  adminDashboard?: AdminDashboardConfig;
+};
+
+export type AdminDashboardConfig = {
+  key?: string;
+  databaseURL: string;
 };
 
 export type AppVersionConfig = {
@@ -71,6 +77,10 @@ export function readServerConfig(environment: NodeJS.ProcessEnv = process.env): 
   if (videoStudioAccessToken && videoStudioAccessToken.length < 32) {
     throw new Error("VIDEO_STUDIO_ACCESS_TOKEN must contain at least 32 characters");
   }
+  const adminDashboardKey = environment.ADMIN_DASHBOARD_KEY?.trim() || undefined;
+  if (adminDashboardKey && adminDashboardKey.length < 32) {
+    throw new Error("ADMIN_DASHBOARD_KEY must contain at least 32 characters");
+  }
   return {
     port: Number(environment.PORT ?? 8787),
     maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
@@ -80,6 +90,10 @@ export function readServerConfig(environment: NodeJS.ProcessEnv = process.env): 
     access,
     videoStudioAccessToken,
     appVersion: readAppVersionConfig(environment, access.appAppleId, access.enabled),
+    adminDashboard: {
+      key: adminDashboardKey,
+      databaseURL: environment.DATABASE_URL?.trim() ?? "",
+    },
   };
 }
 

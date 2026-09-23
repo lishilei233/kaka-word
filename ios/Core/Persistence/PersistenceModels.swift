@@ -58,7 +58,7 @@ final class HistoryEntity {
         caption = result.caption
         captionChinese = result.captionChinese
         captionStyleRawValue = result.captionStyle?.rawValue
-        objects = result.objects.enumerated().map { LearningObjectEntity(object: $0.element, sortIndex: $0.offset) }
+        objects = result.allWords.enumerated().map { LearningObjectEntity(object: $0.element, sortIndex: $0.offset) }
     }
 }
 
@@ -77,6 +77,8 @@ final class LearningObjectEntity {
     var boxHeight: Double = 0
     var anchorX: Double?
     var anchorY: Double?
+    var anchorSourceRawValue: String?
+    var anchorNeedsReview: Bool?
     var example: String = ""
     var exampleChinese: String?
     var confirmationStatusRawValue: String?
@@ -105,9 +107,13 @@ final class LearningObjectEntity {
         boxHeight = object.box.height
         anchorX = object.anchor?.x
         anchorY = object.anchor?.y
+        anchorSourceRawValue = object.anchorSource?.rawValue
+        anchorNeedsReview = object.anchorNeedsReview
         example = object.example
         exampleChinese = object.exampleChinese
-        confirmationStatusRawValue = object.confirmationStatus?.rawValue
+        confirmationStatusRawValue = object.kind == .object
+            ? object.confirmationStatus?.rawValue
+            : "scene:\(object.kind.rawValue)"
         labelCenterX = object.labelCenterOverride?.x
         labelCenterY = object.labelCenterOverride?.y
         targetX = object.targetOverride?.x
@@ -229,7 +235,10 @@ enum PersistenceMapper {
             result: AnalyzeResult(
                 imageWidth: entity.imageWidth,
                 imageHeight: entity.imageHeight,
-                objects: (entity.objects ?? []).sorted { $0.sortIndex < $1.sortIndex }.map(learningObject),
+                objects: (entity.objects ?? []).sorted { $0.sortIndex < $1.sortIndex }
+                    .map(learningObject).filter { $0.kind == .object },
+                sceneWords: (entity.objects ?? []).sorted { $0.sortIndex < $1.sortIndex }
+                    .map(learningObject).filter { $0.kind != .object }.map(SceneWord.init),
                 caption: entity.caption,
                 captionChinese: entity.captionChinese,
                 captionStyle: entity.captionStyleRawValue.flatMap(CaptionStyle.init(rawValue:))
@@ -241,7 +250,14 @@ enum PersistenceMapper {
     }
 
     static func learningObject(from entity: LearningObjectEntity) -> LearningObject {
-        LearningObject(
+        let kind: VocabularyKind
+        if let rawKind = entity.confirmationStatusRawValue?.split(separator: ":").last,
+           entity.confirmationStatusRawValue?.hasPrefix("scene:") == true {
+            kind = VocabularyKind(rawValue: String(rawKind)) ?? .object
+        } else {
+            kind = .object
+        }
+        return LearningObject(
             id: entity.stableID,
             english: entity.english,
             chinese: entity.chinese,
@@ -262,9 +278,14 @@ enum PersistenceMapper {
                     )
                 }
             },
-            confirmationStatus: entity.confirmationStatusRawValue.flatMap(ObjectConfirmationStatus.init(rawValue:)),
+            confirmationStatus: kind == .object
+                ? entity.confirmationStatusRawValue.flatMap(ObjectConfirmationStatus.init(rawValue:))
+                : nil,
             labelCenterOverride: anchor(x: entity.labelCenterX, y: entity.labelCenterY),
-            targetOverride: anchor(x: entity.targetX, y: entity.targetY)
+            targetOverride: anchor(x: entity.targetX, y: entity.targetY),
+            kind: kind,
+            anchorSource: entity.anchorSourceRawValue.flatMap(ObjectAnchorSource.init(rawValue:)),
+            anchorNeedsReview: entity.anchorNeedsReview
         )
     }
 

@@ -6,17 +6,22 @@ import type {
   VocabularyInput,
   SocialCopyInput,
   SocialCopy,
-  CaptionVariants,
-  CaptionVariantsInput,
+  CaptionReviewInput,
+  CaptionGenerationInput,
+  PhotoCaption,
 } from "../types.js";
 
 export class MockVisionProvider implements VisionProvider {
-  async generateCaptionVariants(input: CaptionVariantsInput): Promise<CaptionVariants> {
-    return {
-      serious: { caption: input.caption, captionChinese: input.captionChinese },
-      funny: { caption: "The mug is patiently waiting for its next coffee mission.", captionChinese: "这个杯子正耐心地等待下一次咖啡任务。" },
-      literary: { caption: "Soft light settles over the mug, the book, and the quiet plant.", captionChinese: "柔和的光落在杯子、书和安静的植物上。" },
-    };
+  async generateCaption(input: CaptionGenerationInput): Promise<PhotoCaption> {
+    const english = input.words.map(word => word.english).join(" and ");
+    const chinese = input.words.map(word => word.chinese).join("和");
+    return { caption: `${english} are visible in the photo.`, captionChinese: `照片里可以看到${chinese}。` };
+  }
+  async reviewCaption(input: CaptionReviewInput): Promise<PhotoCaption> {
+    if (/ready|wait|prepared|because|\bso\b/i.test(input.caption)) {
+      return { caption: "Colorful drinks and paper bags are on the counter.", captionChinese: "柜台上放着彩色饮料和纸袋。" };
+    }
+    return { caption: input.caption, captionChinese: input.captionChinese };
   }
   async generateSocialCopy(input: SocialCopyInput): Promise<SocialCopy> {
     const words = input.words.map((word) => word.english).join("、");
@@ -55,6 +60,7 @@ function mockResult(input: VisionInput): AnalyzeResult {
   return {
     imageWidth: input.imageWidth,
     imageHeight: input.imageHeight,
+    sceneWords: [],
     caption: input.captionStyle === "funny"
       ? "The mug is patiently waiting for its next coffee mission."
       : "A mug, a book, and a plant sit together on the table.",
@@ -70,6 +76,7 @@ function mockResult(input: VisionInput): AnalyzeResult {
         ipa: "/mʌɡ/",
         confidence: 0.96,
         box: { x: 0.58, y: 0.43, width: 0.22, height: 0.28 },
+        anchorSource: "ai",
         anchor: { x: 0.69, y: 0.57 },
         example: "This is a mug.",
         exampleChinese: "这是一个杯子。",
@@ -87,6 +94,7 @@ function mockResult(input: VisionInput): AnalyzeResult {
         ipa: "/bʊk/",
         confidence: 0.93,
         box: { x: 0.12, y: 0.57, width: 0.30, height: 0.20 },
+        anchorSource: "ai",
         anchor: { x: 0.27, y: 0.67 },
         example: "I am reading a book.",
         exampleChinese: "我正在读一本书。",
@@ -99,6 +107,7 @@ function mockResult(input: VisionInput): AnalyzeResult {
         ipa: "/plænt/",
         confidence: 0.91,
         box: { x: 0.08, y: 0.12, width: 0.22, height: 0.34 },
+        anchorSource: "ai",
         anchor: { x: 0.19, y: 0.29 },
         example: "The plant is green.",
         exampleChinese: "这株植物是绿色的。",

@@ -15,6 +15,8 @@ import { registerStoreRoutes } from "./routes/store.js";
 import { registerSocialCopyRoute } from "./routes/social-copy.js";
 import { registerStudioSceneRoute } from './routes/studio-scene.js';
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
+import { registerAdminStatsRoutes } from "./routes/admin-stats.js";
+import type { AdminStatsRepository } from "./core/admin-stats.js";
 import { errorFields, type LogLevel, type Logger } from "./utils/logger.js";
 
 export type AppEnv = {
@@ -29,9 +31,10 @@ type AppDependencies = {
   usageLimiter: AnalyzeUsageLimiter;
   accessService?: AccessService;
   logger: Logger;
+  adminStatsRepository?: AdminStatsRepository;
 };
 
-export function createApp({ config, provider, usageLimiter, accessService = new DisabledAccessService(), logger }: AppDependencies): Hono<AppEnv> {
+export function createApp({ config, provider, usageLimiter, accessService = new DisabledAccessService(), logger, adminStatsRepository }: AppDependencies): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.use("*", cors({
@@ -42,6 +45,11 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
   app.use("*", requestLogger(logger, config.logLevel));
 
   app.get("/health", (c) => c.json({ ok: true, provider: config.vision.name }));
+  registerAdminStatsRoutes(app, {
+    key: config.adminDashboard?.key,
+    repository: adminStatsRepository,
+    logger,
+  });
   if (config.appVersion) registerAppVersionRoute(app, config.appVersion);
   registerContentRoute(app, config.access);
   registerMembershipRoute(app, config.access);

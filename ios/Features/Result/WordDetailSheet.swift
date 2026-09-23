@@ -12,7 +12,7 @@ private struct WordDetailContentHeightKey: PreferenceKey {
 struct WordDetailSheet: View {
     let object: LearningObject
     var objects: [LearningObject]
-    var imageProvider: ((LearningObject) -> UIImage?)?
+    var imageProvider: ((LearningObject, Int) -> UIImage?)?
     var onUpdate: ((LearningObject) -> String?)?
     var onDelete: ((LearningObject) -> String?)?
     var onManualCorrection: ((LearningObject, LearningObject) -> Void)?
@@ -21,12 +21,15 @@ struct WordDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var membership: MembershipStore
     @EnvironmentObject private var wordLearningStore: WordLearningStore
-    @StateObject private var speech = SpeechService()
+    // Voice enumeration is only needed by Settings. Deferring it here keeps
+    // system voice discovery out of the sheet's first presentation frame.
+    @StateObject private var speech = SpeechService(refreshesVoicesOnInit: false)
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.automaticWordSpeechEnabled) private var automaticWordSpeechEnabled = AppSettings.defaultAutomaticWordSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @AppStorage(AppSettings.Key.didShowWordDetailSwipeHint) private var didShowSwipeHint = false
     @State private var displayedObject: LearningObject
+    @State private var selectedPageIndex: Int
     @State private var autoPlayTracker = WordDetailAutoPlayTracker()
     @State private var editingTerm = ""
     @State private var isEditing = false
@@ -34,8 +37,8 @@ struct WordDetailSheet: View {
     @State private var errorMessage: String?
     @State private var showDeleteConfirmation = false
     @State private var showPaywall = false
-    @State private var imageCache: [String: UIImage]
-    @State private var unavailableImageIDs: Set<String> = []
+    @State private var imageCache: [Int: UIImage]
+    @State private var unavailableImageIndexes: Set<Int> = []
     @State private var preferredSheetHeight: CGFloat = 420
     @State private var sheetDetent: PresentationDetent = .height(420)
     @State private var showsSwipeHint = false
@@ -43,28 +46,36 @@ struct WordDetailSheet: View {
     init(
         object: LearningObject,
         objects: [LearningObject] = [],
-        imageProvider: ((LearningObject) -> UIImage?)? = nil,
+        imageProvider: ((LearningObject, Int) -> UIImage?)? = nil,
         onUpdate: ((LearningObject) -> String?)? = nil,
         onDelete: ((LearningObject) -> String?)? = nil,
         onManualCorrection: ((LearningObject, LearningObject) -> Void)? = nil,
         onEditingChanged: ((Bool) -> Void)? = nil
     ) {
         self.object = object
-        self.objects = objects.isEmpty ? [object] : objects
+        let resolvedObjects = objects.isEmpty ? [object] : objects
+        let initialPageIndex = resolvedObjects.firstIndex(of: object)
+            ?? resolvedObjects.firstIndex(where: { $0.id == object.id })
+            ?? 0
+        self.objects = resolvedObjects
         self.imageProvider = imageProvider
         self.onUpdate = onUpdate
         self.onDelete = onDelete
         self.onManualCorrection = onManualCorrection
         self.onEditingChanged = onEditingChanged
         _displayedObject = State(initialValue: object)
-        _imageCache = State(initialValue: imageProvider?(object).map { [object.id: $0] } ?? [:])
+        _selectedPageIndex = State(initialValue: initialPageIndex)
+        // Cropping a camera photo can require decoding or normalizing the full
+        // image. Keep that work out of the sheet's presentation transaction so
+        // the first frame appears immediately after a capsule tap.
+        _imageCache = State(initialValue: [:])
     }
 
     var body: some View {
-        TabView(selection: selectedObjectID) {
-            ForEach(objects) { object in
-                wordPage(for: object)
-                    .tag(object.id)
+        TabView(selection: selectedPage) {
+            ForEach(Array(objects.enumerated()), id: \.offset) { index, object in
+                wordPage(for: object, at: index)
+                    .tag(index)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
@@ -127,9 +138,8 @@ struct WordDetailSheet: View {
             PaywallView(onPurchaseCompleted: startEditing)
                 .environmentObject(membership)
         }
-        .onAppear {
-            playWordAutomaticallyIfNeeded(for: displayedObject)
-            preloadImages(around: displayedObject.id)
+        .task(id: selectedPageIndex) {
+            await loadImagesAfterPresentation(around: selectedPageIndex)
         }
         .task {
             await presentSwipeHintIfNeeded()
@@ -140,6 +150,9 @@ struct WordDetailSheet: View {
         }
         .onChange(of: object) { _, updatedObject in
             displayedObject = updatedObject
+            selectedPageIndex = objects.firstIndex(of: updatedObject)
+                ?? objects.firstIndex(where: { $0.id == updatedObject.id })
+                ?? selectedPageIndex
             if !isEditing { editingTerm = updatedObject.english }
             if !isEditing {
                 playWordAutomaticallyIfNeeded(for: updatedObject)
@@ -167,49 +180,67 @@ struct WordDetailSheet: View {
         }
     }
 
-    private var selectedObjectID: Binding<String> {
+    private var selectedPage: Binding<Int> {
         Binding(
-            get: { displayedObject.id },
-            set: { id in
+            get: { selectedPageIndex },
+            set: { index in
                 guard !isEditing,
-                      let selectedObject = objects.first(where: { $0.id == id }),
-                      selectedObject.id != displayedObject.id else { return }
+                      objects.indices.contains(index),
+                      index != selectedPageIndex else { return }
+                let selectedObject = objects[index]
+                selectedPageIndex = index
                 displayedObject = selectedObject
                 errorMessage = nil
                 playWordAutomaticallyIfNeeded(for: displayedObject)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    preloadImages(around: selectedObject.id)
-                }
             }
         )
     }
 
-    private func wordPage(for object: LearningObject) -> some View {
+    private func wordPage(for object: LearningObject, at index: Int) -> some View {
         PictureWordSheet {
             VStack(alignment: .leading, spacing: 18) {
-                header(for: object)
+                header(for: object, at: index)
 
-                if object.id == displayedObject.id, let errorMessage {
+                if index == selectedPageIndex, let errorMessage {
                     Text(errorMessage)
                         .font(.system(.caption, design: .rounded, weight: .semibold))
                         .foregroundStyle(Color.coral)
                 }
 
-                Text(object.chinese)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.ink.opacity(0.82))
+                HStack(spacing: 9) {
+                    Text(object.chinese)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.ink.opacity(0.82))
+                    Text("\(object.kind.title)词")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .foregroundStyle(Color.ink.opacity(0.66))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background((object.kind == .action ? Color.sun : object.kind == .state ? Color.sky : Color.mint).opacity(0.3), in: Capsule())
+                }
 
-                if let image = imageCache[object.id] {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 112, height: 112)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay {
+                if imageProvider != nil {
+                    Group {
+                        if let image = imageCache[index] {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(Color.ink.opacity(0.08), lineWidth: 1)
+                                .fill(Color.paperDeep.opacity(0.55))
+                                .overlay {
+                                    ProgressView()
+                                        .tint(Color.ink.opacity(0.45))
+                                }
                         }
-                        .accessibilityLabel("\(object.english) 的物体图片")
+                    }
+                    .frame(width: 112, height: 112)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.ink.opacity(0.08), lineWidth: 1)
+                    }
+                    .accessibilityLabel("\(object.english) 的\(object.kind == .object ? "物体局部" : "完整场景")图片")
                 }
 
                 Divider()
@@ -245,7 +276,7 @@ struct WordDetailSheet: View {
                 GeometryReader { proxy in
                     Color.clear.preference(
                         key: WordDetailContentHeightKey.self,
-                        value: object.id == displayedObject.id ? proxy.size.height : 0
+                        value: index == selectedPageIndex ? proxy.size.height : 0
                     )
                 }
             }
@@ -260,25 +291,38 @@ struct WordDetailSheet: View {
         sheetDetent = .height(height)
     }
 
-    private func preloadImages(around objectID: String) {
-        guard let imageProvider,
-              let index = objects.firstIndex(where: { $0.id == objectID }) else { return }
-        for candidateIndex in [index - 1, index, index + 1] where objects.indices.contains(candidateIndex) {
-            let candidate = objects[candidateIndex]
-            guard imageCache[candidate.id] == nil,
-                  !unavailableImageIDs.contains(candidate.id) else { continue }
-            if let image = imageProvider(candidate) {
-                imageCache[candidate.id] = image
-            } else {
-                unavailableImageIDs.insert(candidate.id)
-            }
+    @MainActor
+    private func loadImagesAfterPresentation(around index: Int) async {
+        // Let SwiftUI commit the sheet's first frame before voice discovery or
+        // image decoding. Neither operation is required to render the sheet.
+        try? await Task.sleep(for: .milliseconds(80))
+        guard !Task.isCancelled else { return }
+        playWordAutomaticallyIfNeeded(for: displayedObject)
+        preloadImage(at: index)
+
+        // Adjacent pages are speculative. Delay them until the presentation
+        // animation has settled so they cannot steal time from the tap response.
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled else { return }
+        preloadImage(at: index - 1)
+        preloadImage(at: index + 1)
+    }
+
+    private func preloadImage(at index: Int) {
+        guard let imageProvider, objects.indices.contains(index),
+              imageCache[index] == nil,
+              !unavailableImageIndexes.contains(index) else { return }
+        if let image = imageProvider(objects[index], index) {
+            imageCache[index] = image
+        } else {
+            unavailableImageIndexes.insert(index)
         }
     }
 
     @ViewBuilder
-    private func header(for object: LearningObject) -> some View {
+    private func header(for object: LearningObject, at index: Int) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            if isEditing && object.id == displayedObject.id {
+            if isEditing && index == selectedPageIndex {
                 PictureWordTextField(
                     "中文或英文单词",
                     text: $editingTerm,
@@ -381,7 +425,7 @@ struct WordDetailSheet: View {
         errorMessage = nil
         Task {
             do {
-                let details = try await APIClient().resolveVocabulary(term: submittedTerm)
+                let details = try await APIClient().resolveVocabulary(term: submittedTerm, kind: displayedObject.kind)
                 let updated = displayedObject.replacingVocabulary(with: details)
                 if let persistenceError = onUpdate?(updated) {
                     errorMessage = persistenceError

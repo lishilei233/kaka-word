@@ -22,6 +22,7 @@ type VocabularyRouteDependencies = {
 
 const requestSchema = z.object({
   term: z.string().trim().min(1).max(60),
+  kind: z.enum(["object", "action", "state"]).optional().default("object"),
 });
 
 export function registerVocabularyRoute(app: Hono<AppEnv>, dependencies: VocabularyRouteDependencies): void {
@@ -85,6 +86,7 @@ export function registerVocabularyRoute(app: Hono<AppEnv>, dependencies: Vocabul
     try {
       const result = await provider.resolveVocabulary({
         term: parsed.data.term,
+        kind: parsed.data.kind,
         language: "zh-CN",
         signal: c.req.raw.signal,
       });

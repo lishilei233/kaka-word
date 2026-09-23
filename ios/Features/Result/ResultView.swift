@@ -5,6 +5,7 @@ enum PhotoWordCardStatus: Equatable {
     case preparing
     case uploading(Double)
     case recognizing
+    case sceneAnalyzing
     case complete
     case failed(String)
     case cancelled
@@ -26,7 +27,6 @@ struct ResultView: View {
     @EnvironmentObject private var wordLearningStore: WordLearningStore
     @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
-    @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
     @StateObject private var analysisModel = AnalysisViewModel()
     @State private var sharedImage: SharedImageFile?
     @State private var shareErrorMessage: String?
@@ -107,6 +107,7 @@ struct ResultView: View {
             imageWidth: max(Int(image.size.width.rounded()), 1),
             imageHeight: max(Int(image.size.height.rounded()), 1),
             objects: analysisModel.objects,
+            sceneWords: analysisModel.sceneWords,
             caption: nil,
             captionChinese: nil,
             captionStyle: nil
@@ -125,15 +126,13 @@ struct ResultView: View {
             return .uploading(progress)
         case .analyzing, .success:
             return .recognizing
+        case .sceneAnalyzing:
+            return .sceneAnalyzing
         case .failed(let message):
             return .failed(message)
         case .cancelled:
             return .cancelled
         }
-    }
-
-    private var captionStyle: CaptionStyle {
-        CaptionStyle(rawValue: captionStyleRawValue) ?? .serious
     }
 
     private func close() {
@@ -153,7 +152,7 @@ struct ResultView: View {
         analysisModel.retry(
             image: image,
             maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
-            captionStyle: captionStyle,
+            captionStyle: .serious,
             masteredWords: wordLearningStore.masteredWordsForRecognition
         )
     }
@@ -173,7 +172,7 @@ struct ResultView: View {
         case .failed(let message):
             reanalysisErrorMessage = message
             isReanalyzing = false
-        case .preparing, .uploading, .analyzing, .cancelled:
+        case .preparing, .uploading, .analyzing, .sceneAnalyzing, .cancelled:
             break
         }
     }
@@ -219,7 +218,7 @@ enum FeedbackMail {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
         let caption = result.caption?.trimmingCharacters(in: .whitespacesAndNewlines)
         let context = caption.flatMap { $0.isEmpty ? nil : "描述：\($0)\n" } ?? ""
-        let body = "应用版本：\(version)\n识别单词数：\(result.objects.count)\n\(context)\n请在这里写下你的反馈："
+        let body = "应用版本：\(version)\n识别单词数：\(result.allWords.count)\n\(context)\n请在这里写下你的反馈："
 
         var components = URLComponents()
         components.scheme = "mailto"
@@ -306,7 +305,7 @@ struct PhotoWordCardDetailView: View {
             WordDetailSheet(
                 object: object,
                 objects: displayedObjects,
-                imageProvider: { image.cropped(to: $0.box) },
+                imageProvider: { object, _ in object.kind == .object ? image.cropped(to: object.box) : image },
                 onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil,
                 onDelete: status.isComplete && onResultChange != nil ? deleteObject : nil,
                 onManualCorrection: status.isComplete && onResultChange != nil ? reportRecognitionFeedback : nil
@@ -318,7 +317,6 @@ struct PhotoWordCardDetailView: View {
                 object: object,
                 onChoose: confirmObject
             )
-            .pictureWordSheetPresentation()
         }
         .sheet(isPresented: $showAddWord) {
             ManualVocabularySheet(onAdd: addObject)
@@ -413,9 +411,11 @@ struct PhotoWordCardDetailView: View {
         case .preparing, .uploading:
             return "正在寻找单词"
         case .recognizing:
-            return result.objects.isEmpty ? "正在寻找单词" : "已找到 \(result.objects.count) 个单词…"
+            return result.objects.isEmpty ? "正在寻找单词" : "已找到 \(result.allWords.count) 个单词…"
+        case .sceneAnalyzing:
+            return "正在理解照片中的动作与状态…"
         case .complete:
-            return "发现了 \(result.objects.count) 个单词"
+            return "发现了 \(result.allWords.count) 个单词"
         case .failed:
             return "识别遇到问题"
         case .cancelled:
@@ -447,7 +447,7 @@ struct PhotoWordCardDetailView: View {
             )
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
-        case .preparing, .uploading, .recognizing, .cancelled:
+        case .preparing, .uploading, .recognizing, .sceneAnalyzing, .cancelled:
             StreamingRecognitionFooter(status: status)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -467,10 +467,18 @@ struct PhotoWordCardDetailView: View {
                     .padding(.bottom, 5)
             }
 
+            if !result.sceneWords.isEmpty {
+                SceneWordCards(words: result.sceneWords) { word in
+                    selectedObject = word.learningObject
+                }
+                .padding(.bottom, 18)
+            }
+
             if let caption = result.caption, !caption.isEmpty {
                 PhotoCaptionCard(
                     caption: caption,
                     captionChinese: result.captionChinese,
+                    words: result.allWords,
                     speechEnabled: speechEnabled,
                     onSpeak: { speech.speak(caption, rate: speechRate) }
                 )
@@ -540,7 +548,7 @@ struct PhotoWordCardDetailView: View {
 
         return AnnotatedPhotoCard(
             image: image,
-            objects: displayedObjects,
+            objects: result.objects,
             revealsAnnotations: revealsAnnotations,
             isEditable: status.isComplete && onResultChange != nil,
             masteredObjectIDs: masteredObjectIDs,
@@ -571,15 +579,15 @@ struct PhotoWordCardDetailView: View {
     }
 
     private var learningObjects: [LearningObject] {
-        result.objects.filter { wordLearningStore.state(for: $0.english) == .learning }
+        result.allWords.filter { wordLearningStore.state(for: $0.english) == .learning }
     }
 
     private var masteredObjects: [LearningObject] {
-        result.objects.filter { wordLearningStore.state(for: $0.english) == .mastered }
+        result.allWords.filter { wordLearningStore.state(for: $0.english) == .mastered }
     }
 
     private var displayedObjects: [LearningObject] {
-        result.objects
+        result.allWords
     }
 
     private var masteredObjectIDs: Set<String> {
@@ -724,6 +732,7 @@ struct PhotoWordCardDetailView: View {
             imageWidth: result.imageWidth,
             imageHeight: result.imageHeight,
             objects: result.objects + [object],
+            sceneWords: result.sceneWords,
             caption: result.caption,
             captionChinese: result.captionChinese,
             captionStyle: result.captionStyle
@@ -768,6 +777,62 @@ struct PhotoWordCardDetailView: View {
     private func finishAnnotationEditing() {
         editingObjectID = nil
         suppressPageDismissUntil = .distantPast
+    }
+}
+
+private struct SceneWordCards: View {
+    let words: [SceneWord]
+    let onSelect: (SceneWord) -> Void
+
+    private let columns = [GridItem(.adaptive(minimum: 138), spacing: 10)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("SCENE WORDS")
+                .font(.system(size: 10, weight: .black, design: .monospaced))
+                .tracking(1.5)
+                .foregroundStyle(Color.coral)
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                ForEach(words) { word in
+                    Button { onSelect(word) } label: {
+                        HStack(spacing: 9) {
+                            Image(systemName: word.kind == .action ? "figure.run" : "circle.lefthalf.filled")
+                                .font(.system(size: 13, weight: .bold))
+                                .frame(width: 28, height: 28)
+                                .background(tint(for: word.kind).opacity(0.5), in: Circle())
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(word.english)
+                                    .font(.system(size: 16, weight: .bold, design: .serif))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                                Text("\(word.kind.title) · \(word.chinese)")
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color.ink.opacity(0.58))
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(Color.ink)
+                        .padding(.horizontal, 11)
+                        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                        .background(tint(for: word.kind).opacity(0.22), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.ink.opacity(0.08))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(word.kind.title)词，\(word.english)，\(word.chinese)")
+                    .accessibilityHint("打开单词详情")
+                }
+            }
+        }
+    }
+
+    private func tint(for kind: VocabularyKind) -> Color {
+        kind == .action ? .sun : .sky
     }
 }
 
@@ -918,6 +983,7 @@ private struct RecognitionProgressBar: View {
 private struct PhotoCaptionCard: View {
     let caption: String
     let captionChinese: String?
+    let words: [LearningObject]
     let speechEnabled: Bool
     let onSpeak: () -> Void
 
@@ -945,7 +1011,7 @@ private struct PhotoCaptionCard: View {
                         .background(Color.sky.opacity(0.38), in: Circle())
                 }
 
-                Text(caption)
+                Text(CaptionHighlighter.english(caption, words: words.map(\.english)))
                     .font(.system(.body, design: .serif, weight: .bold))
                     .foregroundStyle(Color.ink.opacity(0.86))
                     .multilineTextAlignment(.leading)
@@ -954,7 +1020,7 @@ private struct PhotoCaptionCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if let visibleChineseCaption {
-                    Text(visibleChineseCaption)
+                    Text(CaptionHighlighter.chinese(visibleChineseCaption, words: words.map(\.chinese)))
                         .font(.system(.subheadline, design: .rounded, weight: .semibold))
                         .foregroundStyle(Color.ink.opacity(0.56))
                         .multilineTextAlignment(.leading)
@@ -992,114 +1058,318 @@ private struct PhotoCaptionCard: View {
     }
 }
 
+enum CaptionHighlighter {
+    static func english(_ sentence: String, words: [String]) -> AttributedString {
+        highlight(sentence, terms: words.flatMap(englishVariants), requiresWordBoundaries: true)
+    }
+
+    static func chinese(_ sentence: String, words: [String]) -> AttributedString {
+        highlight(sentence, terms: words, requiresWordBoundaries: false)
+    }
+
+    private static func highlight(
+        _ sentence: String,
+        terms: [String],
+        requiresWordBoundaries: Bool
+    ) -> AttributedString {
+        var attributed = AttributedString(sentence)
+        let candidates = Set(terms.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+
+        for term in candidates {
+            var searchStart = sentence.startIndex
+            while searchStart < sentence.endIndex,
+                  let match = sentence.range(
+                    of: term,
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    range: searchStart..<sentence.endIndex
+                  ) {
+                if (!requiresWordBoundaries || isWholeEnglishTerm(match, in: sentence)),
+                   let attributedRange = Range(match, in: attributed) {
+                    attributed[attributedRange].foregroundColor = Color.ink
+                    attributed[attributedRange].backgroundColor = Color.sun.opacity(0.48)
+                }
+                searchStart = match.upperBound
+            }
+        }
+        return attributed
+    }
+
+    private static func englishVariants(for rawTerm: String) -> [String] {
+        let term = rawTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return [] }
+        let split = term.lastIndex(of: " ").map { (String(term[...$0]), String(term[term.index(after: $0)...])) }
+        let prefix = split?.0 ?? ""
+        let word = split?.1 ?? term
+        var endings = [word, word + "s", word + "ed", word + "ing"]
+        if word.hasSuffix("e"), word.count > 1 {
+            let stem = String(word.dropLast())
+            endings.append(contentsOf: [stem + "es", stem + "ed", stem + "ing"])
+        }
+        if word.hasSuffix("y"), word.count > 1 {
+            let stem = String(word.dropLast())
+            endings.append(contentsOf: [stem + "ies", stem + "ied"])
+        }
+        return endings.map { prefix + $0 }
+    }
+
+    private static func isWholeEnglishTerm(_ range: Range<String.Index>, in sentence: String) -> Bool {
+        let alphabet = CharacterSet.letters
+        let leftIsLetter = range.lowerBound > sentence.startIndex
+            && sentence[sentence.index(before: range.lowerBound)].unicodeScalars.allSatisfy(alphabet.contains)
+        let rightIsLetter = range.upperBound < sentence.endIndex
+            && sentence[range.upperBound].unicodeScalars.allSatisfy(alphabet.contains)
+        return !leftIsLetter && !rightIsLetter
+    }
+}
+
 private struct ObjectConfirmationSheet: View {
     let image: UIImage
     let object: LearningObject
     let onChoose: (LearningObject) -> String?
 
     @EnvironmentObject private var membership: MembershipStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showsManualEntry = false
+    @State private var selectedCandidate: VocabularyDetails?
     @State private var term = ""
     @State private var isResolving = false
     @State private var errorMessage: String?
     @State private var showPaywall = false
+    @State private var sheetHeight: CGFloat = 560
+    @State private var contentWidth: CGFloat = 320
 
     var body: some View {
-        PictureWordSheet {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    PictureWordSheetHeader(
-                        eyebrow: "CHECK WORD",
-                        title: "这个物体是什么？"
+        confirmationContent(imageHeight: adaptiveImageHeight, spacing: 12)
+            .padding(24)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ObjectConfirmationSheetSizeKey.self,
+                        value: proxy.size
                     )
+                }
+            }
+            .onPreferenceChange(ObjectConfirmationSheetSizeKey.self) { size in
+                guard size.width > 0, size.height > 0 else { return }
+                contentWidth = size.width
+                sheetHeight = max(360, size.height + 14)
+            }
+        .background(Color.paper)
+        .presentationDetents([.height(sheetHeight)])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(Color.paper)
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(onPurchaseCompleted: {
+                selectedCandidate = nil
+                showsManualEntry = true
+            })
+                .environmentObject(membership)
+        }
+    }
 
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: 220)
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .accessibilityLabel("待确认物体图片")
+    private var candidates: [VocabularyDetails] {
+        Array((object.candidates ?? []).prefix(3))
+    }
 
-                    ForEach(Array((object.candidates ?? []).prefix(3).enumerated()), id: \.offset) { _, candidate in
-                        Button {
-                            choose(candidate)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(candidate.english)
-                                        .font(.system(.headline, design: .rounded, weight: .bold))
-                                    Text(candidate.chinese)
-                                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                                        .foregroundStyle(Color.ink.opacity(0.58))
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                            }
-                            .foregroundStyle(Color.ink)
-                            .padding(16)
-                            .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(Color.ink.opacity(0.1))
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isResolving)
-                        .accessibilityLabel("选择 \(candidate.english)，\(candidate.chinese)")
+    private func confirmationContent(imageHeight: CGFloat, spacing: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            PictureWordSheetHeader(
+                eyebrow: "CHECK WORD",
+                title: "这个物体是什么？"
+            )
+
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: imageHeight)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .accessibilityLabel("待确认物体图片")
+
+            candidateGrid
+
+            if showsManualEntry {
+                PictureWordTextField(
+                    "输入中文或英文单词",
+                    text: $term,
+                    autoFocus: true,
+                    isLoading: isResolving,
+                    onSubmit: submit
+                )
+                .disabled(isResolving)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(.caption, design: .rounded, weight: .semibold))
+                    .foregroundStyle(Color.coral)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            actionRow
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var candidateGrid: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: 10) {
+                ForEach(candidates, id: \.self) { candidate in
+                    candidateButton(candidate)
+                }
+                otherCandidateButton
+            }
+        } else {
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    if let first = candidates.first {
+                        candidateButton(first)
                     }
-
-                    if showsManualEntry {
-                        PictureWordTextField(
-                            "输入中文或英文单词",
-                            text: $term,
-                            autoFocus: true,
-                            isLoading: isResolving,
-                            onSubmit: resolveManualTerm
-                        )
-                        .disabled(isResolving)
-
-                        PictureWordButton(
-                            "确认修改",
-                            systemImage: "checkmark",
-                            isLoading: isResolving,
-                            action: resolveManualTerm
-                        )
-                        .disabled(isResolving || submittedTerm.isEmpty || submittedTerm.count > 60)
-                    } else {
-                        PictureWordButton(
-                            "其他",
-                            systemImage: "pencil",
-                            style: .secondary,
-                            action: beginManualEntry
-                        )
-                        .disabled(isResolving)
+                    if candidates.count > 1 {
+                        candidateButton(candidates[1])
                     }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.system(.caption, design: .rounded, weight: .semibold))
-                            .foregroundStyle(Color.coral)
+                }
+                HStack(spacing: 10) {
+                    if candidates.count > 2 {
+                        candidateButton(candidates[2])
                     }
+                    otherCandidateButton
                 }
             }
         }
-        .sheet(isPresented: $showPaywall) {
-            PaywallView(onPurchaseCompleted: { showsManualEntry = true })
-                .environmentObject(membership)
+    }
+
+    private func candidateButton(_ candidate: VocabularyDetails) -> some View {
+        let isSelected = selectedCandidate == candidate
+        return Button {
+            selectedCandidate = candidate
+            showsManualEntry = false
+            errorMessage = nil
+        } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(candidate.english)
+                        .font(.system(.headline, design: .rounded, weight: .bold))
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                        .minimumScaleFactor(0.65)
+                        .allowsTightening(true)
+                    Text(candidate.chinese)
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .foregroundStyle(Color.ink.opacity(0.58))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .allowsTightening(true)
+                }
+                .layoutPriority(1)
+                Spacer(minLength: 2)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(isSelected ? Color.coral : Color.ink.opacity(0.34))
+                    .frame(width: 20, height: 20)
+            }
+            .foregroundStyle(Color.ink)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(isSelected ? Color.sun.opacity(0.3) : Color.paperLight, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? Color.coral.opacity(0.72) : Color.ink.opacity(0.1), lineWidth: isSelected ? 2 : 1)
+            }
         }
+        .buttonStyle(.plain)
+        .disabled(isResolving)
+        .accessibilityLabel("\(candidate.english)，\(candidate.chinese)")
+        .accessibilityHint("选择后点击确定")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var otherCandidateButton: some View {
+        Button(action: beginManualEntry) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Other")
+                        .font(.system(.headline, design: .rounded, weight: .bold))
+                        .lineLimit(1)
+                    Text("其他")
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .foregroundStyle(Color.ink.opacity(0.58))
+                        .lineLimit(1)
+                }
+                .layoutPriority(1)
+                Spacer(minLength: 2)
+                Image(systemName: showsManualEntry ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(showsManualEntry ? Color.coral : Color.ink.opacity(0.34))
+                    .frame(width: 20, height: 20)
+            }
+            .foregroundStyle(Color.ink)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(showsManualEntry ? Color.sun.opacity(0.3) : Color.paperLight, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(showsManualEntry ? Color.coral.opacity(0.72) : Color.ink.opacity(0.1), lineWidth: showsManualEntry ? 2 : 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isResolving)
+        .accessibilityLabel("其他，自定义单词")
+        .accessibilityHint("打开手动输入")
+        .accessibilityAddTraits(showsManualEntry ? .isSelected : [])
+    }
+
+    private var actionRow: some View {
+        VStack(spacing: 10) {
+            PictureWordButton(
+                showsManualEntry ? "确认修改" : "确定",
+                systemImage: "checkmark",
+                isLoading: isResolving,
+                action: submit
+            )
+            .frame(maxWidth: .infinity)
+            .disabled(!canSubmit)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var canSubmit: Bool {
+        guard !isResolving else { return false }
+        if showsManualEntry {
+            return membership.isMember && !submittedTerm.isEmpty && submittedTerm.count <= 60
+        }
+        return selectedCandidate != nil
+    }
+
+    private var adaptiveImageHeight: CGFloat {
+        let aspectRatio = image.size.height / max(image.size.width, 1)
+        let widthLimitedHeight = max(contentWidth, 1) * aspectRatio
+        let preferred = dynamicTypeSize.isAccessibilitySize ? CGFloat(104) : CGFloat(146)
+        return min(preferred, max(72, widthLimitedHeight))
     }
 
     private var submittedTerm: String {
         term.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func choose(_ candidate: VocabularyDetails) {
-        errorMessage = onChoose(object.choosingCandidate(candidate))
+    private func submit() {
+        if showsManualEntry {
+            resolveManualTerm()
+        } else if let selectedCandidate {
+            errorMessage = onChoose(object.choosingCandidate(selectedCandidate))
+        }
     }
 
     private func beginManualEntry() {
         if membership.isMember {
+            selectedCandidate = nil
             showsManualEntry = true
+            errorMessage = nil
         } else {
             showPaywall = true
         }
@@ -1124,6 +1394,17 @@ private struct ObjectConfirmationSheet: View {
     }
 }
 
+private struct ObjectConfirmationSheetSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next.width > 0, next.height > 0 {
+            value = next
+        }
+    }
+}
+
 private extension UIImage {
     func cropped(to box: ObjectBox) -> UIImage? {
         let x = max(0, min(1, box.x))
@@ -1136,24 +1417,32 @@ private extension UIImage {
         )
         guard normalizedRect.width > 0, normalizedRect.height > 0 else { return nil }
 
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
-        let normalized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            draw(in: CGRect(origin: .zero, size: size))
+        let sourceImage: CGImage
+        if imageOrientation == .up, let cgImage {
+            // Recognition photos are normally normalized already. Cropping the
+            // backing pixels avoids redrawing and decoding the complete photo.
+            sourceImage = cgImage
+        } else {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = scale
+            let normalized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                draw(in: CGRect(origin: .zero, size: size))
+            }
+            guard let cgImage = normalized.cgImage else { return nil }
+            sourceImage = cgImage
         }
-        guard let cgImage = normalized.cgImage else { return nil }
         let pixelRect = CGRect(
-            x: normalizedRect.minX * CGFloat(cgImage.width),
-            y: normalizedRect.minY * CGFloat(cgImage.height),
-            width: normalizedRect.width * CGFloat(cgImage.width),
-            height: normalizedRect.height * CGFloat(cgImage.height)
+            x: normalizedRect.minX * CGFloat(sourceImage.width),
+            y: normalizedRect.minY * CGFloat(sourceImage.height),
+            width: normalizedRect.width * CGFloat(sourceImage.width),
+            height: normalizedRect.height * CGFloat(sourceImage.height)
         ).integral.intersection(CGRect(
             x: 0,
             y: 0,
-            width: CGFloat(cgImage.width),
-            height: CGFloat(cgImage.height)
+            width: CGFloat(sourceImage.width),
+            height: CGFloat(sourceImage.height)
         ))
-        guard !pixelRect.isEmpty, let cropped = cgImage.cropping(to: pixelRect) else { return nil }
+        guard !pixelRect.isEmpty, let cropped = sourceImage.cropping(to: pixelRect) else { return nil }
         return UIImage(cgImage: cropped, scale: scale, orientation: .up)
     }
 }
@@ -1229,7 +1518,9 @@ private struct ManualVocabularySheet: View {
                     example: details.example,
                     exampleChinese: details.exampleChinese,
                     labelCenterOverride: nil,
-                    targetOverride: nil
+                    targetOverride: nil,
+                    anchorSource: .centerFallback,
+                    anchorNeedsReview: true
                 )
                 if let persistenceError = onAdd(object) {
                     errorMessage = persistenceError
@@ -1268,8 +1559,8 @@ private struct AnnotationTipsSheet: View {
                     )
                     tipRow(
                         number: "03",
-                        title: "移动物体范围",
-                        detail: "进入编辑后拖动中心圆点，可以整体移动矩形物体范围。"
+                        title: "调整引导线落点",
+                        detail: "进入编辑后拖动圆点，让引导线指向物体可见的部分，识别范围保持不变。珊瑚色圆点表示落点待检查。"
                     )
                     tipRow(
                         number: "04",
@@ -1330,6 +1621,7 @@ private struct StreamingRecognitionFooter: View {
         case .preparing: return "PREPARE"
         case .uploading: return "UPLOAD"
         case .recognizing: return "AI VISION"
+        case .sceneAnalyzing: return "SCENE WORDS"
         case .cancelled: return "CANCEL"
         case .complete: return "COMPLETE"
         case .failed: return "TRY AGAIN"
@@ -1341,6 +1633,7 @@ private struct StreamingRecognitionFooter: View {
         case .preparing: return "正在准备照片…"
         case .uploading: return "正在上传照片…"
         case .recognizing: return "正在分析照片…"
+        case .sceneAnalyzing: return "正在理解场景中的动作与状态…"
         case .cancelled: return "正在取消…"
         case .complete: return "识别完成"
         case .failed: return "识别遇到问题"

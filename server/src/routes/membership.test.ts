@@ -55,6 +55,7 @@ function appFor(quota?: { limit: number; unlimited: boolean }) {
       memberQuotaUnlimited: quota?.unlimited,
       deviceCheck: { keyId: "", teamId: "", privateKey: "", environment: "development" },
     },
+    adminDashboard: { databaseURL: "" },
   };
   return createApp({
     config,

@@ -46,7 +46,7 @@ struct DiscoveryCardRow: View {
                 }
 
                 HStack(spacing: 8) {
-                    Text("\(record.result.objects.count) WORDS")
+                    Text("\(record.result.allWords.count) WORDS")
                         .font(.system(.caption2, design: .rounded, weight: .black))
                         .tracking(1)
                         .foregroundStyle(Color.coral)
@@ -86,12 +86,12 @@ struct DiscoveryCardRow: View {
         }
         .buttonStyle(.plain)
         .rotationEffect(.degrees(record.id.uuidString.hashValue.isMultiple(of: 2) ? -0.55 : 0.55))
-        .accessibilityLabel("发现卡，包含 \(record.result.objects.count) 个单词，\(record.createdAt.formatted(date: .abbreviated, time: .omitted))")
+        .accessibilityLabel("发现卡，包含 \(record.result.allWords.count) 个单词，\(record.createdAt.formatted(date: .abbreviated, time: .omitted))")
         .accessibilityHint("打开完整发现卡")
     }
 
     private var wordSummary: String {
-        let words = record.result.objects.map(\.english).prefix(3).joined(separator: " · ")
+        let words = record.result.allWords.map(\.english).prefix(3).joined(separator: " · ")
         return words.isEmpty ? "A NEW DISCOVERY" : words
     }
 }

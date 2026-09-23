@@ -10,6 +10,29 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(restored, record)
     }
 
+    func testVisibleAndManualAnchorProvenanceSurvivesPersistence() throws {
+        let object = LearningObject(id: "table", english: "table", chinese: "桌子", ipa: "", confidence: 1,
+                                    box: ObjectBox(x: 0.1, y: 0.1, width: 0.8, height: 0.8),
+                                    anchor: ObjectAnchor(x: 0.8, y: 0.8), example: "A table.", exampleChinese: nil,
+                                    labelCenterOverride: nil, targetOverride: nil, anchorSource: .ai, anchorNeedsReview: true)
+        let container = try PersistenceController.makeContainer(inMemory: true)
+        let context = ModelContext(container)
+        context.insert(LearningObjectEntity(object: object, sortIndex: 0))
+        context.insert(LearningObjectEntity(object: object.movingTarget(to: ObjectAnchor(x: 0.7, y: 0.8)), sortIndex: 1))
+        try context.save()
+        let entities = try ModelContext(container).fetch(FetchDescriptor<LearningObjectEntity>(sortBy: [SortDescriptor(\.sortIndex)]))
+        let restored = PersistenceMapper.learningObject(from: entities[0])
+        XCTAssertEqual(restored.anchorSource, .ai)
+        XCTAssertEqual(restored.anchorNeedsReview, true)
+        XCTAssertEqual(restored.resolvedTarget, object.resolvedTarget)
+        XCTAssertEqual(restored.box, object.box)
+        let manual = PersistenceMapper.learningObject(from: entities[1])
+        XCTAssertEqual(manual.anchorSource, .manual)
+        XCTAssertEqual(manual.anchorNeedsReview, false)
+        XCTAssertEqual(manual.resolvedTarget, ObjectAnchor(x: 0.7, y: 0.8))
+        XCTAssertEqual(manual.box, object.box)
+    }
+
     func testHistoryStoreLoadsThirtyRecordsThenNextPage() throws {
         let container = try PersistenceController.makeContainer(inMemory: true)
         let context = ModelContext(container)

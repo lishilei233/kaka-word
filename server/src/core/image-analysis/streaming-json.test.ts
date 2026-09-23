@@ -30,3 +30,11 @@ test("decodes SSE data split across line and multibyte boundaries", async () => 
   for await (const payload of readSSEData(body)) payloads.push(payload);
   assert.deepEqual(payloads, ['{"chinese":"杯子"}', "[DONE]"]);
 });
+
+test("stops at the objects array boundary instead of emitting later nested objects", () => {
+  const parser = new ObjectArrayStreamParser();
+  assert.deepEqual(parser.push('{"objects":[{"id":"one"}],"metadata":{"id":"not-an-object"}}'), [{ id: "one" }]);
+  assert.deepEqual(parser.push('{"later":true}'), []);
+  const empty = new ObjectArrayStreamParser();
+  assert.deepEqual(empty.push('{"objects":[],"metadata":{"id":"not-an-object"}}'), []);
+});

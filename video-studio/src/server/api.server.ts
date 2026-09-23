@@ -11,8 +11,8 @@ import { z } from 'zod';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { getImageDimensions } from '../../../server/src/utils/image-dimensions.ts';
-import { projectSchema, exportReady, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
-import { analyzeScene, generateCaptionVariants, generateSocialCopy, recognizeImage } from './recognition.server.ts';
+import { projectSchema, exportBlockers, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
+import { analyzeScene, generateSocialCopy, recognizeImage, regenerateCaption, reviewCaption } from './recognition.server.ts';
 import { learningPost } from '../lib/learning-post.ts';
 
 const exec = promisify(execFile);
@@ -204,12 +204,45 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             const recognitionResponse = await recognizeImage(bytes, maxObjects, req.signal);
             if (!recognitionResponse.ok) return recognitionResponse;
             const recognition = await recognitionResponse.json() as { caption: string; captionChinese: string; objects: { english: string; chinese: string }[] };
-            const captionVariants = await generateCaptionVariants({
+            const reviewedCaption = await reviewCaption(bytes, {
                 caption: recognition.caption,
                 captionChinese: recognition.captionChinese,
                 words: recognition.objects.map(({ english, chinese }) => ({ english, chinese })),
             }, req.signal);
-            return send({ ...recognition, captionVariants });
+            return send({ ...recognition, ...reviewedCaption });
+        }
+        if (req.method === 'POST' && path === '/studio-api/caption') {
+            const input = z.object({
+                image: z.string(), context: z.string().max(500).default(''),
+                words: z.array(z.object({
+                    english: z.string().trim().min(1).max(60), chinese: z.string().max(60),
+                    kind: z.enum(['object', 'action', 'state']).optional(),
+                })).min(1).max(20),
+            }).parse(await json(req));
+            const bytes = await readFile(assetFile(input.image));
+            if (!input.image.endsWith('.jpg') || !getImageDimensions(bytes)) throw new Error('请先选择有效照片');
+            return send(await regenerateCaption(bytes, { words: input.words, context: input.context }, req.signal));
+        }
+        if (req.method === 'POST' && path === '/studio-api/caption-review') {
+            const input = z.object({
+                image: z.string(),
+                caption: z.string().trim().min(1).max(220),
+                captionChinese: z.string().max(220),
+                context: z.string().max(500).optional(),
+                words: z.array(z.object({
+                    english: z.string().trim().min(1).max(60),
+                    chinese: z.string().max(60),
+                    kind: z.enum(['object', 'action', 'state']).optional(),
+                })).max(20),
+            }).parse(await json(req));
+            const bytes = await readFile(assetFile(input.image));
+            if (!input.image.endsWith('.jpg') || !getImageDimensions(bytes)) throw new Error('请先选择有效照片');
+            return send(await reviewCaption(bytes, {
+                caption: input.caption,
+                captionChinese: input.captionChinese,
+                context: input.context,
+                words: input.words,
+            }, req.signal));
         }
         if (req.method === 'POST' && path === '/studio-api/speech') {
             if (state.speechBusy) return send({ error: '正在生成配音，请稍后重试' }, 409);
@@ -241,11 +274,13 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
                 words: p.words.map(({ english, chinese, ipa, kind }) => ({ english, chinese, ipa, kind })),
                 highlightedWords: p.words.filter(word => p.cover?.words[word.id]?.highlighted).map(word => word.english),
             }, req.signal);
+            // 小红书正文使用本地学习卡片模板，覆盖服务端 AI 返回的 body；标题和标签仍使用 AI 结果。
             return send({ ...copy, xiaohongshu: { ...copy.xiaohongshu, body: learningPost(p) } });
         }
         if (req.method === 'POST' && path === '/studio-api/render') {
             const p = projectSchema.parse(await json(req));
-            if (!exportReady(p)) throw new Error('请先添加照片、单词并生成全部配音');
+            const blockers = exportBlockers(p);
+            if (blockers.length) throw new Error(`导出前还需要：${blockers.join('；')}`);
             if (state.rendering) return send({ error: '已有导出正在进行，请等待完成' }, 409);
             await Promise.all([p.image!, p.captionAudio!, ...(p.interaction?.enabled ? [p.interaction.audio!] : []), ...(p.video ? [p.video] : []), ...p.words.map(w => w.audio!)].map(asset => stat(assetFile(asset))));
             const id = randomUUID(); state.rendering = true; state.jobs.set(id, { status: 'rendering', progress: 0 });
@@ -279,7 +314,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         return send({ error: '接口不存在' }, 404);
     } catch (error) {
         const message = error instanceof Error ? error.message : '';
-        const safe = /^(请|素材|无法|无效|单词|识别)/.test(message) ? message : '处理失败，请检查素材和网页服务终端。';
+        const safe = /^(请|导出|素材|无法|无效|单词|识别)/.test(message) ? message : '处理失败，请检查素材和网页服务终端。';
         console.error('Studio request failed:', error instanceof z.ZodError ? 'Invalid input' : error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown error');
         return send({ error: safe }, 400);
     }

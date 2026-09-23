@@ -58,7 +58,7 @@ export function Cover({ project }: { project: Project; onMove?: CoverMove }) {
                 <span style={{ color: '#766a5c' }}>LESSON {String(layout.wordCount).padStart(2, '0')}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, fontFamily: "'Hiragino Maru Gothic ProN', 'PingFang SC', sans-serif", fontWeight: 900, letterSpacing: -2.8, lineHeight: 1.04, whiteSpace: 'nowrap' }}>
-                <span style={{ fontSize: 56 * titleScale }}>在真实场景里</span>
+                <span style={{ fontSize: 56 * titleScale }}>一张照片</span>
                 <span style={{ position: 'relative', zIndex: 0, whiteSpace: 'nowrap', fontSize: 72 * titleScale }}>
                     <span aria-hidden style={{ position: 'absolute', zIndex: -1, left: -9, right: -10, bottom: 3, height: 33, transform: 'rotate(-1.5deg)', borderRadius: 5, background: '#ffdc62' }} />
                     学英语

@@ -117,6 +117,50 @@ test("streams validated mock objects before the complete result", async () => {
   assert.equal(limiter.lastClientIP, "203.0.113.10");
 });
 
+test("streams at most five grounded scene words after objects and uses the reviewed caption", async () => {
+  const provider = new MockVisionProvider();
+  Object.assign(provider, {
+    analyzeStudioScene: async () => ({
+      theme: "早餐",
+      words: Array.from({ length: 7 }, (_, index) => ({
+        id: `scene-${index}`,
+        kind: index % 2 === 0 ? "action" : "state",
+        english: `word-${index}`,
+        chinese: `词-${index}`,
+        ipa: "",
+        example: `This is word ${index}.`,
+        exampleChinese: `这是词 ${index}。`,
+      })),
+      caption: "Draft scene caption.",
+      captionChinese: "场景描述草稿。",
+      interaction: { english: "What can you see?", chinese: "你看到了什么？" },
+    }),
+    reviewCaption: async () => ({ caption: "The reviewed scene is clear.", captionChinese: "这个场景很清楚。" }),
+  });
+  const response = await makeApp(new FakeUsageLimiter(), provider).request("/v1/analyze", analyzeRequest());
+  const body = await response.text();
+  const events = [...body.matchAll(/^event: (.+)$/gm)].map((match) => match[1]);
+
+  assert.equal(events.filter((event) => event === "sceneWord").length, 5);
+  assert.ok(events.indexOf("sceneAnalyzing") > events.lastIndexOf("object"));
+  assert.ok(events.lastIndexOf("sceneWord") < events.indexOf("complete"));
+  assert.match(body, /"sceneWords":\[/);
+  assert.match(body, /"caption":"The reviewed scene is clear\."/);
+});
+
+test("keeps the object result when scene analysis fails", async () => {
+  const provider = new MockVisionProvider();
+  Object.assign(provider, { analyzeStudioScene: async () => { throw new Error("scene unavailable"); } });
+  const response = await makeApp(new FakeUsageLimiter(), provider).request("/v1/analyze", analyzeRequest());
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /event: sceneAnalyzing/);
+  assert.match(body, /event: complete/);
+  assert.match(body, /"sceneWords":\[\]/);
+  assert.match(body, /"english":"mug"/);
+});
+
 test("accepts the dedicated video-studio token without consuming App quota", async () => {
   const token = "video-studio-test-token-with-at-least-32-characters";
   const limiter = new FakeUsageLimiter();
@@ -477,6 +521,7 @@ class CountingProvider implements VisionProvider {
     return {
       imageWidth: input.imageWidth,
       imageHeight: input.imageHeight,
+      sceneWords: [],
       objects: [],
       caption: "There are no learning objects in this image.",
       captionChinese: "这张图片中没有适合学习的物体。",

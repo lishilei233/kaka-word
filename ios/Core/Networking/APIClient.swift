@@ -40,12 +40,20 @@ protocol AnalysisProviding {
         captionStyle: CaptionStyle,
         masteredWords: [String],
         onUploadProgress: @escaping @Sendable (Double) -> Void,
-        onObject: @escaping @Sendable (LearningObject) -> Void
+        onObject: @escaping @Sendable (LearningObject) -> Void,
+        onSceneAnalyzing: @escaping @Sendable () -> Void,
+        onSceneWord: @escaping @Sendable (SceneWord) -> Void
     ) async throws -> AnalyzeResult
 }
 
 protocol VocabularyResolving {
-    func resolveVocabulary(term: String) async throws -> VocabularyDetails
+    func resolveVocabulary(term: String, kind: VocabularyKind) async throws -> VocabularyDetails
+}
+
+extension VocabularyResolving {
+    func resolveVocabulary(term: String) async throws -> VocabularyDetails {
+        try await resolveVocabulary(term: term, kind: .object)
+    }
 }
 
 protocol ContentProviding: Sendable {
@@ -65,7 +73,9 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
         captionStyle: CaptionStyle,
         masteredWords: [String],
         onUploadProgress: @escaping @Sendable (Double) -> Void,
-        onObject: @escaping @Sendable (LearningObject) -> Void
+        onObject: @escaping @Sendable (LearningObject) -> Void,
+        onSceneAnalyzing: @escaping @Sendable () -> Void,
+        onSceneWord: @escaping @Sendable (SceneWord) -> Void
     ) async throws -> AnalyzeResult {
         let credentials = try await AccessCredentialStore.shared.credentialsForAnalyze()
         // 图片重绘和 JPEG 压缩可能耗时，放到后台线程避免扫描动画掉帧。
@@ -79,14 +89,13 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/analyze"))
         request.httpMethod = "POST"
-        request.timeoutInterval = 45
+        request.timeoutInterval = 120
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(credentials.deviceCheckToken, forHTTPHeaderField: "X-DeviceCheck-Token")
         request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Operation-ID")
         let body = MultipartBuilder(boundary: boundary)
             .addField(name: "maxObjects", value: String(AppSettings.normalizedMaxObjects(maxObjects)))
-            .addField(name: "captionStyle", value: captionStyle.rawValue)
             .addField(name: "masteredWords", value: Self.encodedMasteredWords(masteredWords))
             .addFile(name: "image", filename: "photo.jpg", mimeType: "image/jpeg", data: imageData)
             .build()
@@ -94,6 +103,8 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
         let uploader = UploadRequestExecutor(
             onProgress: onUploadProgress,
             onObject: onObject,
+            onSceneAnalyzing: onSceneAnalyzing,
+            onSceneWord: onSceneWord,
             onEntitlement: { entitlement in Self.publishEntitlement(entitlement) }
         )
         let (data, response) = try await uploader.upload(request: request, body: body)
@@ -117,7 +128,7 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
         return result
     }
 
-    func resolveVocabulary(term: String) async throws -> VocabularyDetails {
+    func resolveVocabulary(term: String, kind: VocabularyKind = .object) async throws -> VocabularyDetails {
         let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, normalized.count <= 60 else {
             throw APIError.server("请输入 1 到 60 个字符的中文或英文物体名称")
@@ -129,7 +140,7 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let accessToken = try await AccessCredentialStore.shared.authorizationToken()
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONEncoder().encode(VocabularyRequest(term: normalized))
+        request.httpBody = try JSONEncoder().encode(VocabularyRequest(term: normalized, kind: kind))
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
@@ -238,12 +249,15 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
 
 private struct VocabularyRequest: Encodable {
     let term: String
+    let kind: VocabularyKind
 }
 
 /// 每次识别使用独立的 URLSession delegate，以获得真实上传进度并让 Task 取消传递到底层请求。
 private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     private let onProgress: @Sendable (Double) -> Void
     private let onObject: @Sendable (LearningObject) -> Void
+    private let onSceneAnalyzing: @Sendable () -> Void
+    private let onSceneWord: @Sendable (SceneWord) -> Void
     private let onEntitlement: @Sendable (EntitlementSummary?) -> Void
     private let lock = NSLock()
     private var receivedData = Data()
@@ -259,10 +273,14 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
     init(
         onProgress: @escaping @Sendable (Double) -> Void,
         onObject: @escaping @Sendable (LearningObject) -> Void,
+        onSceneAnalyzing: @escaping @Sendable () -> Void,
+        onSceneWord: @escaping @Sendable (SceneWord) -> Void,
         onEntitlement: @escaping @Sendable (EntitlementSummary?) -> Void
     ) {
         self.onProgress = onProgress
         self.onObject = onObject
+        self.onSceneAnalyzing = onSceneAnalyzing
+        self.onSceneWord = onSceneWord
         self.onEntitlement = onEntitlement
     }
 
@@ -380,6 +398,16 @@ private final class UploadRequestExecutor: NSObject, URLSessionDataDelegate, URL
                 return
             }
             onObject(object)
+        case "sceneAnalyzing":
+            onSceneAnalyzing()
+        case "sceneWord":
+            guard let word = try? JSONDecoder().decode(SceneWord.self, from: data) else {
+                let task = uploadTask
+                finish(.failure(APIError.invalidResponse))
+                task?.cancel()
+                return
+            }
+            onSceneWord(word)
         case "complete":
             completionData = data
         case "quota":

@@ -2,7 +2,7 @@ import { sceneWords, type Project } from '../lib/project';
 import { timeline } from '../lib/project';
 import { SCENE_CARD_HEIGHT } from '../lib/film-layout';
 import { annotationHighlight, sceneCapsuleHighlight, sceneCapsuleStyle } from './annotation-style';
-import { sceneHighlightScale } from './animation';
+import { labelEntrance, sceneHighlightScale } from './animation';
 
 function sceneTextWidth(english: string) {
     return [...english].reduce((sum, character) => sum + (/[MW@#%]/.test(character) ? 17 : /[ilI1.,' ]/.test(character) ? 7 : 12), 0);
@@ -27,8 +27,10 @@ export function SceneCards({ project, currentId, cover = false, frame, width = 4
             const cardWidth = Math.max(1, Math.min(sceneCardWidth(word.english), availableCardWidth));
             const segment = segments?.find(item => item.word.id === word.id);
             const pulse = highlighted && frame !== undefined && segment ? sceneHighlightScale(frame, segment.from) : 1;
+            const entrance = cover || frame === undefined || !segment ? { opacity: 1, translateY: 0 } : labelEntrance(frame, segment.from);
+            const highlightLift = highlighted ? 4 * (pulse - 1) / .08 : 0;
             return <div key={word.id} style={{ position: 'relative', zIndex: highlighted ? 2 : 1, flex: `0 1 ${cardWidth}px`, width: cardWidth, minWidth: 0, height: SCENE_CARD_HEIGHT }}>
-                <div style={{ ...sceneCapsuleStyle, position: 'absolute', left: 0, bottom: 0, width: '100%', height: highlighted ? SCENE_CARD_HEIGHT + 10 : SCENE_CARD_HEIGHT, boxSizing: 'border-box', padding: '0 15px', border: highlighted ? `${annotationHighlight.border}px solid ${sceneCapsuleHighlight.ink}` : sceneCapsuleStyle.border, background: highlighted ? sceneCapsuleHighlight.fill : sceneCapsuleStyle.background, fontWeight: highlighted ? 800 : 700, overflow: 'hidden', boxShadow: highlighted ? `0 0 0 3px ${sceneCapsuleHighlight.ring}, ${sceneCapsuleHighlight.shadow}` : 'none', transform: `translateY(${highlighted ? -4 * (pulse - 1) / .08 : 0}px) scale(${pulse})`, transformOrigin: 'center bottom', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ ...sceneCapsuleStyle, position: 'absolute', left: 0, bottom: 0, width: '100%', height: highlighted ? SCENE_CARD_HEIGHT + 10 : SCENE_CARD_HEIGHT, boxSizing: 'border-box', padding: '0 15px', border: highlighted ? `${annotationHighlight.border}px solid ${sceneCapsuleHighlight.ink}` : sceneCapsuleStyle.border, background: highlighted ? sceneCapsuleHighlight.fill : sceneCapsuleStyle.background, fontWeight: highlighted ? 800 : 700, overflow: 'hidden', boxShadow: highlighted ? `0 0 0 3px ${sceneCapsuleHighlight.ring}, ${sceneCapsuleHighlight.shadow}` : 'none', opacity: entrance.opacity, transform: `translateY(${entrance.translateY - highlightLift}px) scale(${pulse})`, transformOrigin: 'center bottom', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <strong style={{ fontFamily: 'inherit', fontSize: sceneCardFontSize(word.english, highlighted, cardWidth), fontWeight: 'inherit', lineHeight: 1.05, whiteSpace: 'nowrap' }}>{word.english}</strong>
                 </div>
             </div>;

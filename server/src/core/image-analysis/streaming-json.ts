@@ -6,12 +6,14 @@ export class ObjectArrayStreamParser {
   private buffer = "";
   private scanIndex = 0;
   private foundArray = false;
+  private finished = false;
   private objectStart = -1;
   private objectDepth = 0;
   private inString = false;
   private escaped = false;
 
   push(fragment: string): unknown[] {
+    if (this.finished) return [];
     this.buffer += fragment;
     const objects: unknown[] = [];
 
@@ -42,6 +44,10 @@ export class ObjectArrayStreamParser {
       }
 
       if (this.objectStart < 0) {
+        if (character === "]") {
+          this.finished = true;
+          break;
+        }
         if (character === "{") {
           this.objectStart = index;
           this.objectDepth = 1;

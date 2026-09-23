@@ -33,8 +33,8 @@ const currentWordSchema = z.object({
 });
 const legacyWordSchema = currentWordSchema.omit({ box: true, labelCenterOverride: true, targetCenterOverride: true }).extend({ x: position, y: position, targetX: position, targetY: position });
 const imageAsset = z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.jpg$/);
-export const captionVariantSchema = z.object({ caption: z.string().max(220), captionChinese: z.string().max(220) });
-const captionVariantsSchema = z.object({ serious: captionVariantSchema, funny: captionVariantSchema, literary: captionVariantSchema });
+const legacyCaptionVariantSchema = z.object({ caption: z.string().max(220), captionChinese: z.string().max(220) });
+const legacyCaptionVariantsSchema = z.object({ serious: legacyCaptionVariantSchema, funny: legacyCaptionVariantSchema, literary: legacyCaptionVariantSchema });
 export const socialPostSchema = z.object({ title: z.string().max(80), body: z.string().max(4000), hashtags: z.array(z.string().max(40)).max(12) });
 export const socialCopySchema = z.object({ xiaohongshu: socialPostSchema, douyin: socialPostSchema, channels: socialPostSchema });
 export type SocialCopy = z.infer<typeof socialCopySchema>;
@@ -50,7 +50,7 @@ export const coverSchema = z.object({
     })).default({}),
 });
 export type CoverConfig = z.infer<typeof coverSchema>;
-const projectFields = {
+const legacyProjectFields = {
     analysisMode: z.enum(['objects', 'scene']).optional(),
     sceneContext: z.string().max(500).optional(),
     sceneTheme: z.string().max(100).optional(),
@@ -61,10 +61,11 @@ const projectFields = {
     cover: coverSchema.optional(),
     title: z.string().max(80),
     caption: z.string().max(220).default(''), captionChinese: z.string().max(220).default(''),
-    captionVariants: captionVariantsSchema.optional(),
+    captionVariants: legacyCaptionVariantsSchema.optional(),
     selectedCaptionStyle: z.enum(['serious', 'funny', 'literary']).default('serious'),
     socialCopy: socialCopySchema.optional(),
     videoTemplate: z.enum(['direct', 'camera']).default('direct'),
+    directIntroSeconds: z.number().min(0).max(5).default(.5),
     captionAudio: z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.wav$/).optional(),
     captionAudioSeconds: z.number().positive().max(60).optional(),
     voiceId: voiceIdSchema.default('English_Graceful_Lady'),
@@ -77,14 +78,20 @@ const projectFields = {
     captureSeconds: z.number().min(0).max(3600), introSeconds: z.number().min(0.5).max(10),
     pauseSeconds: z.number().min(0).max(5),
 };
-const currentProjectSchema = z.object({ version: z.literal(2), ...projectFields, words: z.array(currentWordSchema).max(20) });
-const legacyProjectSchema = z.object({ version: z.literal(1), ...projectFields, words: z.array(legacyWordSchema).max(20) });
+const { captionVariants: _legacyVariants, selectedCaptionStyle: _legacyStyle, ...sharedProjectFields } = legacyProjectFields;
+const projectFields = { ...sharedProjectFields, captionReviewRequired: z.boolean().default(true) };
+const currentProjectSchema = z.object({ version: z.literal(3), ...projectFields, words: z.array(currentWordSchema).max(20) });
+const versionTwoProjectSchema = z.object({ version: z.literal(2), ...legacyProjectFields, words: z.array(currentWordSchema).max(20) });
+const legacyProjectSchema = z.object({ version: z.literal(1), ...legacyProjectFields, words: z.array(legacyWordSchema).max(20) });
 export const projectSchema = z.preprocess(input => {
+    const versionTwo = versionTwoProjectSchema.safeParse(input);
+    if (versionTwo.success) return migrateOldProject(versionTwo.data);
     const legacy = legacyProjectSchema.safeParse(input);
     if (!legacy.success) return input;
-    return { ...legacy.data, version: 2, words: legacy.data.words.map(({ x, y, targetX, targetY, ...word }) => ({
+    const words = legacy.data.words.map(({ x, y, targetX, targetY, ...word }) => ({
         ...word, box: { x: targetX, y: targetY, width: 0, height: 0 }, labelCenterOverride: { x, y }, targetCenterOverride: { x: targetX, y: targetY },
-    })) };
+    }));
+    return migrateOldProject({ ...legacy.data, version: 2 as const, words });
 }, currentProjectSchema).superRefine((p, ctx) => {
     if (new Set(p.words.map(w => w.id)).size !== p.words.length) ctx.addIssue({ code: 'custom', message: '单词 ID 不能重复' });
     if (p.words.some(w => (w.kind ?? 'object') === 'object' && !w.box && !w.needsLocation)) ctx.addIssue({ code: 'custom', message: '物体词需要定位或标记待定位' });
@@ -103,12 +110,12 @@ export const AUDIO_TAIL_FRAMES = 9;
 export const CAPTION_FRAMES = 90;
 export const emptyProject: Project = {
     analysisMode: 'scene', sceneContext: '',
-    version: 2, title: '生活里的英语', caption: '', captionChinese: '', selectedCaptionStyle: 'serious', videoTemplate: 'direct', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
+    version: 3, title: '生活里的英语', caption: '', captionChinese: '', captionReviewRequired: true, videoTemplate: 'direct', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
     safeTop: 120, safeBottom: 240, safeRight: 0, imageWidth: 4, imageHeight: 3,
-    captureSeconds: 2, introSeconds: 2, pauseSeconds: 1.2, words: [],
+    captureSeconds: 2, introSeconds: 2, directIntroSeconds: .5, pauseSeconds: 1.2, words: [],
 };
 export function timeline(p: Project) {
-    const intro = p.videoTemplate === 'direct' ? Math.round(.5 * FPS) : Math.round(p.introSeconds * FPS);
+    const intro = p.videoTemplate === 'direct' ? Math.round(p.directIntroSeconds * FPS) : Math.round(p.introSeconds * FPS);
     const reveal = p.videoTemplate === 'direct' ? 0 : 45;
     let cursor = intro + reveal;
     const words = readingWords(p.words).map(word => {
@@ -133,10 +140,6 @@ export function activeWord(p: Project, frame: number) {
 export function changeEnglish(word: Word, english: string): Word {
     return { ...word, english, audio: undefined, audioSeconds: undefined };
 }
-export function selectCaptionVariant(p: Project, style: 'serious' | 'funny' | 'literary'): Project {
-    const variant = p.captionVariants?.[style];
-    return variant ? { ...p, selectedCaptionStyle: style, ...variant, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined } : p;
-}
 export function exportReady(p: Project) {
     return exportBlockers(p).length === 0;
 }
@@ -155,9 +158,24 @@ export function exportBlockers(p: Project): string[] {
         if (unnamed) blockers.push(`${unnamed} 个单词缺少英文`);
         if (silent) blockers.push(`${silent} 个单词尚未生成配音`);
     }
-    if (!p.caption.trim()) blockers.push('缺少照片英文描述');
+    if (p.captionReviewRequired) blockers.push('照片描述需要重新生成并完成审校');
+    else if (!p.caption.trim()) blockers.push('缺少照片英文描述');
     else if (!p.captionAudio || !p.captionAudioSeconds) blockers.push('照片句子尚未生成配音');
     return blockers;
+}
+
+function migrateOldProject(p: z.infer<typeof versionTwoProjectSchema>) {
+    return {
+        ...p,
+        version: 3 as const,
+        caption: '',
+        captionChinese: '',
+        captionAudio: undefined,
+        captionAudioSeconds: undefined,
+        captionReviewRequired: true,
+        socialCopy: undefined,
+        socialCopyStale: undefined,
+    };
 }
 
 export function openingMedia(p: Project) {

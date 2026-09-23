@@ -45,7 +45,7 @@ export class GeminiVisionProvider extends HttpVisionProvider {
       method: "POST",
       headers: { "x-goog-api-key": this.config.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: vocabularyPrompt(input.term) }] }],
+        contents: [{ parts: [{ text: vocabularyPrompt(input.term, input.kind) }] }],
         generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
       }),
       signal: input.signal,

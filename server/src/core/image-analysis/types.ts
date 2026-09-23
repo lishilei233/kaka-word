@@ -29,11 +29,25 @@ export const learningObjectSchema = z.object({
   ipa: z.string().max(80).default(""),
   confidence: z.number().min(0).max(1),
   box: objectBoxSchema,
-  anchor: objectAnchorSchema.optional(),
+  anchor: objectAnchorSchema.optional().catch(undefined),
+  anchorSource: z.enum(["ai", "centerFallback", "manual"]).optional(),
+  anchorNeedsReview: z.boolean().optional(),
   example: z.string().min(1).max(180),
   exampleChinese: z.string().min(1).max(180).optional(),
   candidates: z.array(objectCandidateSchema).min(2).max(3).optional(),
   confirmationStatus: confirmationStatusSchema.default("confirmed"),
+});
+
+export const sceneWordKindSchema = z.enum(["action", "state"]);
+
+export const sceneWordSchema = z.object({
+  id: z.string().min(1).max(40),
+  kind: sceneWordKindSchema,
+  english: z.string().min(1).max(60),
+  chinese: z.string().min(1).max(60),
+  ipa: z.string().max(80).default(""),
+  example: z.string().min(1).max(180),
+  exampleChinese: z.string().min(1).max(180).optional(),
 });
 
 export const captionStyleSchema = z.enum(["serious", "funny"]);
@@ -52,6 +66,7 @@ export const analyzeResultSchema = z.object({
   imageWidth: z.number().int().positive(),
   imageHeight: z.number().int().positive(),
   objects: z.array(learningObjectSchema).max(10),
+  sceneWords: z.array(sceneWordSchema).max(5).default([]),
   caption: z.string().min(1).max(220),
   captionChinese: z.string().min(1).max(220),
   captionStyle: captionStyleSchema,
@@ -60,6 +75,7 @@ export const analyzeResultSchema = z.object({
 export const providerAnalyzeResultSchema = analyzeResultSchema.omit({ captionStyle: true });
 
 export type AnalyzeResult = z.infer<typeof analyzeResultSchema>;
+export type SceneWord = z.infer<typeof sceneWordSchema>;
 export type CaptionStyle = z.infer<typeof captionStyleSchema>;
 export type RequestedCaptionStyle = z.infer<typeof requestedCaptionStyleSchema>;
 export type VocabularyDetails = z.infer<typeof vocabularyDetailsSchema>;
@@ -79,6 +95,7 @@ export type VisionInput = {
 
 export type VocabularyInput = {
   term: string;
+  kind?: "object" | "action" | "state";
   language: "zh-CN";
   signal?: AbortSignal;
 };
@@ -103,21 +120,32 @@ export type SocialCopyInput = {
   highlightedWords: string[];
   signal?: AbortSignal;
 };
-export const captionVariantsSchema = z.object({
-  serious: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
-  funny: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
-  literary: z.object({ caption: z.string().min(1).max(220), captionChinese: z.string().min(1).max(220) }),
+export const photoCaptionSchema = z.object({
+  caption: z.string().trim().min(1).max(220),
+  captionChinese: z.string().trim().min(1).max(220),
 });
-export type CaptionVariants = z.infer<typeof captionVariantsSchema>;
-export type CaptionVariantsInput = {
+export type PhotoCaption = z.infer<typeof photoCaptionSchema>;
+export type CaptionGenerationInput = {
+  image: Uint8Array;
+  mimeType: string;
+  words: { english: string; chinese: string; kind?: 'object' | 'action' | 'state' }[];
+  context?: string;
+  signal?: AbortSignal;
+};
+export type CaptionReviewInput = {
+  image: Uint8Array;
+  mimeType: string;
   caption: string;
   captionChinese: string;
-  words: { english: string; chinese: string }[];
+  words: { english: string; chinese: string; kind?: 'object' | 'action' | 'state' }[];
+  context?: string;
   signal?: AbortSignal;
 };
 
 export interface VisionProvider {
   analyzeStudioScene?(input: import('./studio-scene.js').StudioSceneInput): Promise<import('./studio-scene.js').StudioScene>;
+  generateCaption?(input: CaptionGenerationInput): Promise<PhotoCaption>;
+  reviewCaption?(input: CaptionReviewInput): Promise<PhotoCaption>;
   analyze(input: VisionInput): Promise<AnalyzeResult>;
   analyzeStream?(
     input: VisionInput,
@@ -125,5 +153,4 @@ export interface VisionProvider {
   ): Promise<AnalyzeResult>;
   resolveVocabulary(input: VocabularyInput): Promise<VocabularyDetails>;
   generateSocialCopy?(input: SocialCopyInput): Promise<SocialCopy>;
-  generateCaptionVariants?(input: CaptionVariantsInput): Promise<CaptionVariants>;
 }

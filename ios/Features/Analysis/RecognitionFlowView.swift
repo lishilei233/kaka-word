@@ -11,7 +11,6 @@ struct RecognitionFlowView: View {
     @EnvironmentObject private var wordLearningStore: WordLearningStore
     @EnvironmentObject private var membership: MembershipStore
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
-    @AppStorage(AppSettings.Key.captionStyle) private var captionStyleRawValue = AppSettings.defaultCaptionStyle
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
     @StateObject private var model = AnalysisViewModel()
     @State private var completedResult: AnalyzeResult?
@@ -56,7 +55,7 @@ struct RecognitionFlowView: View {
             model.start(
                 image: image,
                 maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
-                captionStyle: captionStyle,
+                captionStyle: .serious,
                 masteredWords: wordLearningStore.masteredWordsForRecognition
             )
         }
@@ -124,6 +123,7 @@ struct RecognitionFlowView: View {
             imageWidth: max(Int(image.size.width.rounded()), 1),
             imageHeight: max(Int(image.size.height.rounded()), 1),
             objects: model.objects,
+            sceneWords: model.sceneWords,
             caption: nil,
             captionChinese: nil,
             captionStyle: nil
@@ -144,6 +144,8 @@ struct RecognitionFlowView: View {
             return .uploading(progress)
         case .analyzing, .success:
             return .recognizing
+        case .sceneAnalyzing:
+            return .sceneAnalyzing
         case .failed(let message):
             return .failed(message)
         case .cancelled:
@@ -182,7 +184,7 @@ struct RecognitionFlowView: View {
         model.retry(
             image: image,
             maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
-            captionStyle: captionStyle,
+            captionStyle: .serious,
             masteredWords: wordLearningStore.masteredWordsForRecognition
         )
     }
@@ -223,10 +225,6 @@ struct RecognitionFlowView: View {
 
         completedResult = result
         isReanalyzing = false
-    }
-
-    private var captionStyle: CaptionStyle {
-        CaptionStyle(rawValue: captionStyleRawValue) ?? .serious
     }
 
     private func updateResult(_ updated: AnalyzeResult) -> String? {
