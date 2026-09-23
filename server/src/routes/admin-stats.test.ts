@@ -38,7 +38,9 @@ test("admin stats page and API accept correct credentials", async () => {
   const app = appFor(key, repository);
   const page = await app.request("/admin/stats", { headers: auth(key) });
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /数据手账/);
+  const html = await page.text();
+  assert.match(html, /数据手账/);
+  assert.match(html, /新增安装/);
 
   const response = await app.request("/admin/api/stats?days=7&environment=Sandbox", { headers: auth(key) });
   assert.equal(response.status, 200);
