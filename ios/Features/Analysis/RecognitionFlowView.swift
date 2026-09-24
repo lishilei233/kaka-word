@@ -33,6 +33,7 @@ struct RecognitionFlowView: View {
             PhotoWordCardDetailView(
                 image: image,
                 result: visibleResult,
+                sourceRecordID: savedRecordID,
                 missionUpdate: missionUpdate,
                 revealsAnnotations: true,
                 status: cardStatus,

@@ -534,9 +534,15 @@ private struct MyWordsDashboard: View {
             WordDetailSheet(
                 object: entry.object,
                 objects: pageEntries.map(\.object),
-                imageProvider: { _, index in
+                photoProvider: { object, index in
                     guard pageEntries.indices.contains(index) else { return nil }
-                    return WordImageCropper.image(for: pageEntries[index], historyStore: historyStore)
+                    for occurrence in pageEntries[index].occurrences where occurrence.object.kind == object.kind {
+                        guard let record = historyStore.record(id: occurrence.recordID),
+                              let image = historyStore.image(for: record) else { continue }
+                        return WordDetailPhoto(recordID: record.id, date: record.createdAt,
+                                               objects: [occurrence.object], load: { image })
+                    }
+                    return nil
                 }
             )
         }

@@ -1,5 +1,7 @@
 import Foundation
 import StoreKit
+import StoreKitTest
+import SwiftUI
 import XCTest
 @testable import PictureWord
 
@@ -699,6 +701,150 @@ final class MembershipStoreTests: XCTestCase {
                 annualCurrencyCode: "CNY"
             ),
             50
+        )
+    }
+
+    func testAnnualIntroductoryOfferDisplaysFullChargeSavingsAndRenewal() throws {
+        let offer = try XCTUnwrap(annualOffer(eligible: true))
+        XCTAssertEqual(offer.priceText, "首年 ¥78.00")
+        XCTAssertEqual(offer.purchaseTitle, "以 ¥78.00 开通首年会员")
+        XCTAssertTrue(offer.detail.contains("30.00"))
+        XCTAssertTrue(offer.detail.contains("之后 ¥108.00/年"))
+        XCTAssertTrue(offer.renewalDisclosure.contains("自动续订"))
+    }
+
+    @MainActor
+    func testStoreKitAnnualOfferChargesFirstYearThenStandardRenewalAndRefreshesEligibility() async throws {
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(
+            forResource: "KakawordSubscriptions", withExtension: "storekit"
+        ))
+        let session = try SKTestSession(contentsOf: url)
+        session.resetToDefaultState()
+        session.clearTransactions()
+        session.disableDialogs = true
+        session.storefront = "CHN"
+        session.locale = Locale(identifier: "zh_CN")
+        defer {
+            session.clearTransactions()
+            session.resetToDefaultState()
+        }
+        let cachedEntitlement = UserDefaults.standard.data(forKey: "membership.cachedEntitlement")
+        defer { UserDefaults.standard.set(cachedEntitlement, forKey: "membership.cachedEntitlement") }
+        let store = MembershipStore(
+            storeKitGateway: FakeStoreKitTransactionGateway(observations: []),
+            entitlementAPI: FakeMembershipEntitlementAPI(returnsMember: false)
+        )
+        await store.refreshCurrentEntitlements()
+        await store.prepareProducts(force: true)
+        let annual = try XCTUnwrap(store.annualProduct)
+        let introduction = try XCTUnwrap(annual.subscription?.introductoryOffer)
+        XCTAssertEqual(annual.price, 108)
+        XCTAssertEqual(store.monthlyProduct?.price, 15)
+        XCTAssertNil(store.monthlyProduct?.subscription?.introductoryOffer)
+        XCTAssertEqual(introduction.price, 78)
+        XCTAssertEqual(introduction.paymentMode, .payUpFront)
+        XCTAssertEqual(introduction.period, .yearly)
+        XCTAssertEqual(introduction.periodCount, 1)
+        XCTAssertEqual(store.annualIntroductoryOffer?.displayPrice, introduction.displayPrice)
+
+        _ = try await session.buyProduct(identifier: annual.id)
+        let firstResult = await Transaction.latest(for: annual.id)
+        guard case .verified(let firstTransaction) = firstResult else {
+            return XCTFail("Expected a verified local introductory purchase")
+        }
+        XCTAssertEqual(firstTransaction.price, 78)
+        await firstTransaction.finish()
+        await store.prepareProducts(force: true)
+        XCTAssertNil(store.annualIntroductoryOffer)
+
+        try session.forceRenewalOfSubscription(productIdentifier: annual.id)
+        // StoreKit 2's transaction cache can lag behind SKTestSession's renewal.
+        // Wait for the new transaction rather than asserting on the first charge.
+        var renewedTransaction: StoreKit.Transaction?
+        for _ in 0..<50 {
+            if case .verified(let candidate) = await Transaction.latest(for: annual.id),
+               candidate.id != firstTransaction.id {
+                renewedTransaction = candidate
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let renewal = try XCTUnwrap(renewedTransaction, "Expected a new verified local renewal")
+        XCTAssertEqual(renewal.price, 108)
+        await renewal.finish()
+        try session.expireSubscription(productIdentifier: annual.id)
+        await store.prepareProducts(force: true)
+        XCTAssertNil(store.annualIntroductoryOffer, "An expired subscription must not regain its consumed offer")
+    }
+
+    func testAnnualIntroductoryOfferRequiresConfirmedAppleEligibility() {
+        XCTAssertNil(annualOffer(eligible: nil))
+        XCTAssertNil(annualOffer(eligible: false))
+        XCTAssertNotNil(annualOffer(eligible: true))
+    }
+
+    @MainActor
+    func testIntroductoryPriceCardExpandsForAccessibilityTypeOnSmallAndLargeScreens() throws {
+        let offer = try XCTUnwrap(annualOffer(eligible: true))
+        for width: CGFloat in [284, 394] {
+            var previousHeight: CGFloat = 0
+            for size: DynamicTypeSize in [.large, .accessibility3] {
+                let card = MembershipPlanCard(
+                    title: "新人年会员", badge: "推荐", priceText: offer.priceText,
+                    detail: offer.detail, selected: true, onSelect: {}
+                )
+                .frame(width: width)
+                .environment(\.dynamicTypeSize, size)
+                .padding(18)
+                .background(Color.paper)
+                let renderer = ImageRenderer(content: card)
+                let image = try XCTUnwrap(renderer.uiImage)
+                XCTAssertEqual(image.size.width, width + 36, accuracy: 1)
+                XCTAssertGreaterThan(image.size.height, previousHeight)
+                previousHeight = image.size.height
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "introductory-offer-\(Int(width + 36))-\(size)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
+    }
+
+    func testAnnualIntroductoryOfferDoesNotMislabelOtherOfferDurationsOrModes() {
+        XCTAssertNil(annualOffer(eligible: true, mode: .freeTrial))
+        XCTAssertNil(annualOffer(eligible: true, mode: .payAsYouGo))
+        XCTAssertNil(annualOffer(eligible: true, period: .monthly))
+        XCTAssertNil(annualOffer(eligible: true, count: 2))
+        XCTAssertNil(annualOffer(eligible: true, subscriptionPeriod: .monthly))
+        XCTAssertNil(annualOffer(eligible: true, offerPrice: 0))
+        XCTAssertNil(annualOffer(eligible: true, offerPrice: 108))
+        XCTAssertNil(annualOffer(eligible: true, offerPrice: 120))
+    }
+
+    func testAnnualIntroductoryOfferUsesStoreKitPricesRatherThanCampaignConstants() throws {
+        let style = Decimal.FormatStyle.Currency(code: "USD").locale(Locale(identifier: "en_US"))
+        let offer = try XCTUnwrap(AnnualIntroductoryOffer.make(
+            isEligible: true, regularPrice: 20, offerPrice: 12,
+            displayPrice: "$12.00", renewalPrice: "$20.00", priceFormatStyle: style,
+            paymentMode: .payUpFront, period: .yearly, periodCount: 1, subscriptionPeriod: .yearly
+        ))
+        XCTAssertEqual(offer.detail, "首年省 $8.00，之后 $20.00/年")
+        XCTAssertEqual(offer.purchaseTitle, "以 $12.00 开通首年会员")
+    }
+
+    private func annualOffer(
+        eligible: Bool?,
+        mode: Product.SubscriptionOffer.PaymentMode = .payUpFront,
+        period: Product.SubscriptionPeriod = .yearly,
+        count: Int = 1,
+        subscriptionPeriod: Product.SubscriptionPeriod = .yearly,
+        offerPrice: Decimal = 78
+    ) -> AnnualIntroductoryOffer? {
+        AnnualIntroductoryOffer.make(
+            isEligible: eligible, regularPrice: 108, offerPrice: offerPrice,
+            displayPrice: "¥78.00", renewalPrice: "¥108.00",
+            priceFormatStyle: Decimal.FormatStyle.Currency(code: "CNY").locale(Locale(identifier: "zh_CN")),
+            paymentMode: mode, period: period, periodCount: count, subscriptionPeriod: subscriptionPeriod
         )
     }
 

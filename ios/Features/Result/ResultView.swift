@@ -56,6 +56,7 @@ struct ResultView: View {
             PhotoWordCardDetailView(
                 image: image,
                 result: visibleResult,
+                sourceRecordID: recordID,
                 missionUpdate: missionUpdate,
                 revealsAnnotations: revealsAnnotations,
                 status: cardStatus,
@@ -242,6 +243,7 @@ struct PhotoWordCardDetailView: View {
 
     let image: UIImage
     let result: AnalyzeResult
+    var sourceRecordID: UUID?
     var missionUpdate: MissionUpdate?
     var revealsAnnotations = true
     var status: PhotoWordCardStatus = .complete
@@ -305,7 +307,9 @@ struct PhotoWordCardDetailView: View {
             WordDetailSheet(
                 object: object,
                 objects: displayedObjects,
-                imageProvider: { object, _ in object.kind == .object ? image.cropped(to: object.box) : image },
+                photoProvider: { object, _ in
+                    WordDetailPhoto(recordID: sourceRecordID, date: nil, objects: [object], load: { image })
+                },
                 onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil,
                 onDelete: status.isComplete && onResultChange != nil ? deleteObject : nil,
                 onManualCorrection: status.isComplete && onResultChange != nil ? reportRecognitionFeedback : nil

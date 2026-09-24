@@ -57,6 +57,7 @@
 		D00000000000000000000015 /* AnalysisViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000014 /* AnalysisViewModelTests.swift */; };
 		D00000000000000000000016 /* AppVersionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000017 /* AppVersionCoordinatorTests.swift */; };
 		D00000000000000000000018 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000019 /* PersistenceTests.swift */; };
+		E1278A010000000000000001 /* KakawordSubscriptions.storekit in Resources */ = {isa = PBXBuildFile; fileRef = A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -394,6 +395,7 @@
 			buildPhases = (
 				D0000000000000000000000A /* Sources */,
 				D00000000000000000000007 /* Frameworks */,
+				E1278A010000000000000002 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -447,6 +449,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				A96C244C303D79F8009BAAFD /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E1278A010000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1278A010000000000000001 /* KakawordSubscriptions.storekit in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -541,7 +551,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词Test";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.0;
 				PICTURE_WORD_API_BASE_URL = "http://192.168.0.104:8787";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -570,7 +580,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.0;
 				PICTURE_WORD_API_BASE_URL = "https://api.kakaword.com";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

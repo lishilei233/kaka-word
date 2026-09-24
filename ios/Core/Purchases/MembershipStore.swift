@@ -655,6 +655,50 @@ actor AccessCredentialStore {
     }
 }
 
+/// Copy for the supported, one-year, pay-up-front introduction. All amounts
+/// originate in StoreKit; an unknown eligibility never advertises a discount.
+struct AnnualIntroductoryOffer: Equatable {
+    let displayPrice: String
+    let renewalPrice: String
+    let savings: String
+
+    var priceText: String { "首年 \(displayPrice)" }
+    var detail: String { "首年省 \(savings)，之后 \(renewalPrice)/年" }
+    var purchaseTitle: String { "以 \(displayPrice) 开通首年会员" }
+    var renewalDisclosure: String {
+        "首年 \(displayPrice)，之后 \(renewalPrice)/年。自动续订，可在 App Store 取消。"
+    }
+
+    static func make(
+        isEligible: Bool?,
+        regularPrice: Decimal,
+        offerPrice: Decimal,
+        displayPrice: String,
+        renewalPrice: String,
+        priceFormatStyle: Decimal.FormatStyle.Currency,
+        paymentMode: Product.SubscriptionOffer.PaymentMode,
+        period: Product.SubscriptionPeriod,
+        periodCount: Int,
+        subscriptionPeriod: Product.SubscriptionPeriod
+    ) -> Self? {
+        guard isEligible == true,
+              paymentMode == .payUpFront,
+              periodCount == 1,
+              isOneYear(period), isOneYear(subscriptionPeriod),
+              offerPrice > 0, offerPrice < regularPrice else { return nil }
+        return Self(
+            displayPrice: displayPrice,
+            renewalPrice: renewalPrice,
+            savings: (regularPrice - offerPrice).formatted(priceFormatStyle)
+        )
+    }
+
+    private static func isOneYear(_ period: Product.SubscriptionPeriod) -> Bool {
+        (period.unit == .year && period.value == 1)
+            || (period.unit == .month && period.value == 12)
+    }
+}
+
 @MainActor
 final class MembershipStore: ObservableObject {
     nonisolated static let monthlyProductId = "com.kakaword.app.membership.month"
@@ -671,6 +715,7 @@ final class MembershipStore: ObservableObject {
     @Published private(set) var entitlementLoadState: EntitlementLoadState = .idle
     @Published private(set) var lastSuccessfulRefreshAt: Date?
     @Published private(set) var products: [Product] = []
+    @Published private(set) var annualIntroductoryOffer: AnnualIntroductoryOffer?
     @Published private(set) var productLoadFailed = false
     @Published private(set) var isLoading = false
     @Published private(set) var isPurchasing = false
@@ -685,6 +730,7 @@ final class MembershipStore: ObservableObject {
     private var planConfigTask: Task<MembershipPlanConfig, Error>?
     private var prepareTask: Task<Void, Never>?
     private var productPrepareTask: Task<Void, Never>?
+    private var introductoryOfferRequestID = UUID()
     private var lastEntitlementSyncFinishedAt: Date?
     private var lastAppliedEntitlementWorkID: UUID?
     private var didPrepare = false
@@ -804,8 +850,7 @@ final class MembershipStore: ObservableObject {
 
     /// Loads StoreKit products for the paywall without refreshing entitlement state.
     /// The app-startup `prepare()` remains responsible for the initial entitlement sync.
-    func prepareProducts() async {
-        guard products.isEmpty else { return }
+    func prepareProducts(force: Bool = false) async {
         if let prepareTask {
             await prepareTask.value
             return
@@ -814,6 +859,7 @@ final class MembershipStore: ObservableObject {
             await productPrepareTask.value
             return
         }
+        guard force || products.isEmpty else { return }
         let task: Task<Void, Never> = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performProductPrepare()
@@ -826,6 +872,8 @@ final class MembershipStore: ObservableObject {
     private func performProductPrepare() async {
         isLoading = true
         defer { isLoading = false }
+        invalidateIntroductoryOffer()
+        products = []
         productLoadFailed = false
         do {
             products = sortProducts(try await Product.products(for: [
@@ -833,6 +881,7 @@ final class MembershipStore: ObservableObject {
                 Self.annualProductId
             ]))
             await storeKitGateway.register(products: products)
+            await refreshIntroductoryOffer()
             productLoadFailed = products.isEmpty
             if productLoadFailed {
                 setMessage(
@@ -866,6 +915,7 @@ final class MembershipStore: ObservableObject {
         do {
             products = sortProducts(try await productRequest)
             await storeKitGateway.register(products: products)
+            await refreshIntroductoryOffer()
             productLoadFailed = products.isEmpty
             if productLoadFailed {
                 setMessage(
@@ -878,6 +928,33 @@ final class MembershipStore: ObservableObject {
             setMessage(error.localizedDescription, source: .products, category: .entitlementFailure)
         }
         await planConfigRequest
+    }
+
+    private func invalidateIntroductoryOffer() {
+        introductoryOfferRequestID = UUID()
+        annualIntroductoryOffer = nil
+    }
+
+    private func refreshIntroductoryOffer() async {
+        invalidateIntroductoryOffer()
+        let requestID = introductoryOfferRequestID
+        guard !isMember, let product = annualProduct,
+              let subscription = product.subscription,
+              let offer = subscription.introductoryOffer else { return }
+        let eligible = await subscription.isEligibleForIntroOffer
+        guard !Task.isCancelled, requestID == introductoryOfferRequestID, !isMember else { return }
+        annualIntroductoryOffer = AnnualIntroductoryOffer.make(
+            isEligible: eligible,
+            regularPrice: product.price,
+            offerPrice: offer.price,
+            displayPrice: offer.displayPrice,
+            renewalPrice: product.displayPrice,
+            priceFormatStyle: product.priceFormatStyle,
+            paymentMode: offer.paymentMode,
+            period: offer.period,
+            periodCount: offer.periodCount,
+            subscriptionPeriod: subscription.subscriptionPeriod
+        )
     }
 
     func preparePlanConfig(force: Bool = false) async {
@@ -997,6 +1074,7 @@ final class MembershipStore: ObservableObject {
 
     func purchase(_ product: Product) async -> MembershipActionOutcome {
         guard !isPurchasing else { return .failed }
+        let displayedOffer = annualIntroductoryOffer
         isPurchasing = true
         purchasePhase = .preflight
         defer {
@@ -1025,9 +1103,15 @@ final class MembershipStore: ObservableObject {
                 setMessage("已找到有效会员，无需重复购买", source: .purchase)
                 return .active
             }
+            await refreshIntroductoryOffer()
+            if product.id == Self.annualProductId, displayedOffer != annualIntroductoryOffer {
+                setMessage("已更新新人优惠资格，请确认页面价格后再次购买", source: .purchase)
+                return .notFound
+            }
             purchasePhase = .waitingForApple
             let applePurchaseStartedAt = Date()
             let purchaseResult = try await product.purchase()
+            invalidateIntroductoryOffer()
             let applePurchaseDuration = Int(max(0, Date().timeIntervalSince(applePurchaseStartedAt)) * 1_000)
             Self.logger.info("purchase phase=apple_result_received product_id=\(product.id, privacy: .public) duration_ms=\(applePurchaseDuration, privacy: .public)")
             switch purchaseResult {
@@ -1059,10 +1143,12 @@ final class MembershipStore: ObservableObject {
                     return .notFound
                 }
             case .pending:
+                await refreshIntroductoryOffer()
                 setMessage("购买正在等待批准，批准后会员会自动生效", source: .purchase)
                 recordMetric("purchase_result", productId: product.id, outcome: "pending")
                 return .pending
             case .userCancelled:
+                await refreshIntroductoryOffer()
                 dismissMessage()
                 recordMetric("purchase_result", productId: product.id, outcome: "cancelled")
                 return .cancelled
@@ -1102,6 +1188,7 @@ final class MembershipStore: ObservableObject {
             beginEntitlementLoading()
             try await AppStore.sync()
             _ = try await performReconciliation(source: .restore, reason: .restore)
+            await refreshIntroductoryOffer()
             setMessage(isMember ? "购买记录已恢复" : "没有找到可恢复的有效会员", source: .restore)
             recordMetric("restore_result", outcome: isMember ? "success" : "not_found")
             return isMember ? .active : .notFound
@@ -1293,6 +1380,7 @@ final class MembershipStore: ObservableObject {
     private func setEntitlement(_ value: EntitlementSummary) {
         clearNoticeAfterSuccessfulEntitlementSync()
         entitlement = value
+        if value.isMember { invalidateIntroductoryOffer() }
         entitlementLoadState = .loaded
         lastSuccessfulRefreshAt = Date()
         let cached = CachedEntitlement(entitlement: value, savedAt: lastSuccessfulRefreshAt ?? Date())

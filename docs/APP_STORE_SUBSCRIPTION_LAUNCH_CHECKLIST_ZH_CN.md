@@ -7,7 +7,9 @@
 - [ ] 已接受付费 App 协议，并完成税务与收款账户配置。
 - [ ] 在同一订阅组、同一等级创建月会员 `com.kakaword.app.membership.month` 与年会员 `com.kakaword.app.membership.annual`。
 - [ ] 中国大陆价格配置为 15 元/月、108 元/年；其他店面的价格已检查。
-- [ ] 未配置免费试用、介绍性优惠、家庭共享、次数包或无限识别。
+- [ ] 年会员仅中国大陆配置首年 78 元的介绍性优惠：Pay Up Front、1 年、无结束日期；标准续费 108 元/年。月会员和其他店面无介绍性优惠。
+- [ ] 未配置免费试用、家庭共享或次数包；会员额度沿用现行配置。
+- [ ] 完成[新人优惠上线与验收](NEW_USER_OFFER_ZH_CN.md)，核对 Apple 确认页实际价格。
 - [ ] 已启用 16 天账单宽限期，并同时覆盖生产与 Sandbox。
 - [ ] App Store Server Notifications V2 的生产与 Sandbox 地址均配置为 `https://api.kakaword.com/v1/store/notifications`。
 - [ ] 两个产品随 App 版本一同提交审核，订阅本地化、审核截图和审核说明已补齐。

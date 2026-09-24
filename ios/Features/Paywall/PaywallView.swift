@@ -44,6 +44,7 @@ struct PaywallView: View {
     var onPurchaseCompleted: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var membership: MembershipStore
     @State private var selectedProductId = MembershipStore.annualProductId
     @State private var canPresentMembershipAlert = false
@@ -84,7 +85,7 @@ struct PaywallView: View {
             await Task.yield()
             canPresentMembershipAlert = true
             membership.recordMetric("paywall_exposure")
-            async let products: Void = membership.prepareProducts()
+            async let products: Void = membership.prepareProducts(force: true)
             async let planConfig: Void = membership.preparePlanConfig()
             await products
             await planConfig
@@ -105,6 +106,10 @@ struct PaywallView: View {
             Text(membership.message ?? "")
         }
         .onDisappear { canPresentMembershipAlert = false }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, !membership.isPurchasing else { return }
+            Task { await membership.prepareProducts(force: true) }
+        }
     }
 
     private var hero: some View {
@@ -207,9 +212,9 @@ struct PaywallView: View {
                 if let annual = membership.annualProduct {
                     planCard(
                         annual,
-                        title: "年会员",
-                        badge: annualBadge(for: annual),
-                        detail: annualMonthlyEquivalent(annual)
+                        title: membership.annualIntroductoryOffer == nil ? "年会员" : "新人年会员",
+                        badge: membership.annualIntroductoryOffer == nil ? annualBadge(for: annual) : "推荐",
+                        detail: membership.annualIntroductoryOffer?.detail ?? annualMonthlyEquivalent(annual)
                     )
                 }
                 if let monthly = membership.monthlyProduct {
@@ -246,7 +251,8 @@ struct PaywallView: View {
         case .syncingEntitlement:
             return "正在同步会员权益…"
         case nil:
-            return membership.isPurchasing ? "正在连接 App Store…" : "开通咔咔会员"
+            if membership.isPurchasing { return "正在连接 App Store…" }
+            return selectedIntroductoryOffer?.purchaseTitle ?? "开通咔咔会员"
         }
     }
 
@@ -407,7 +413,16 @@ struct PaywallView: View {
                 .disabled(membership.isPurchasing)
             }
 
-            Text("付款将由 Apple 账户确认。订阅会自动续期，除非在当前周期结束前至少 24 小时关闭自动续订。额度按订阅日逐月重置，不结转。")
+            if !membership.isMember, let product = selectedProduct {
+                Text(selectedIntroductoryOffer?.renewalDisclosure
+                     ?? "\(product.displayPrice)/\(product.id == MembershipStore.annualProductId ? "年" : "月")，自动续订，可在 App Store 取消。")
+                    .font(.system(.caption, design: .rounded, weight: .semibold))
+                    .foregroundStyle(Color.ink.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("付款将由 Apple 账户确认。新人优惠资格由 App Store 判定，同一订阅组每人只能享受一次介绍性优惠。订阅会自动续期，除非在当前周期结束前至少 24 小时关闭自动续订。额度按订阅日逐月重置，不结转。")
                 .font(.system(size: 11, weight: .medium, design: .rounded))
                 .foregroundStyle(Color.ink.opacity(0.48))
                 .multilineTextAlignment(.center)
@@ -452,66 +467,25 @@ struct PaywallView: View {
     }
 
     private func planCard(_ product: Product, title: String, badge: String?, detail: String) -> some View {
-        let selected = selectedProductId == product.id
-        return Button {
+        let offer = product.id == MembershipStore.annualProductId ? membership.annualIntroductoryOffer : nil
+        return MembershipPlanCard(
+            title: title,
+            badge: badge,
+            priceText: offer?.priceText ?? "\(product.displayPrice)/\(product.id == MembershipStore.annualProductId ? "年" : "月")",
+            detail: detail,
+            selected: selectedProductId == product.id
+        ) {
             selectedProductId = product.id
             membership.recordMetric("plan_selection", productId: product.id)
-        } label: {
-            HStack(spacing: 13) {
-                ZStack {
-                    Circle()
-                        .stroke(selected ? Color.coral : Color.paperDeep, lineWidth: 2)
-                        .frame(width: 25, height: 25)
-                    if selected {
-                        Circle()
-                            .fill(Color.coral)
-                            .frame(width: 13, height: 13)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 8) {
-                        Text(title)
-                            .font(.system(.headline, design: .rounded, weight: .heavy))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                        if let badge {
-                            Text(badge)
-                                .font(.system(size: 10, weight: .black, design: .rounded))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .layoutPriority(2)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.sun, in: Capsule())
-                        }
-                    }
-                    Text(detail)
-                        .font(.system(.caption, design: .rounded, weight: .semibold))
-                        .foregroundStyle(Color.ink.opacity(0.52))
-                }
-                .layoutPriority(2)
-                Spacer()
-                Text("\(product.displayPrice)/\(product.id == MembershipStore.annualProductId ? "年" : "月")")
-                    .font(.system(.title3, design: .rounded, weight: .black))
-                    .foregroundStyle(selected ? Color.coral : Color.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .allowsTightening(true)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 17)
-            .background(Color.paperLight.opacity(selected ? 0.98 : 0.62), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(selected ? Color.coral : Color.paperDeep.opacity(0.78), lineWidth: selected ? 2 : 1)
-            }
-            .shadow(color: selected ? Color.coral.opacity(0.08) : .clear, radius: 10, y: 5)
         }
-        .buttonStyle(.plain)
     }
 
     private var selectedProduct: Product? {
         membership.products.first { $0.id == selectedProductId }
+    }
+
+    private var selectedIntroductoryOffer: AnnualIntroductoryOffer? {
+        selectedProductId == MembershipStore.annualProductId ? membership.annualIntroductoryOffer : nil
     }
 
     private func annualMonthlyEquivalent(_ product: Product) -> String {
@@ -530,5 +504,74 @@ struct PaywallView: View {
             return "推荐"
         }
         return "推荐 · 省 \(savings)%"
+    }
+}
+
+struct MembershipPlanCard: View {
+    let title: String
+    let badge: String?
+    let priceText: String
+    let detail: String
+    let selected: Bool
+    let onSelect: () -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 13) {
+                ZStack {
+                    Circle()
+                        .stroke(selected ? Color.coral : Color.paperDeep, lineWidth: 2)
+                        .frame(width: 25, height: 25)
+                    if selected {
+                        Circle()
+                            .fill(Color.coral)
+                            .frame(width: 13, height: 13)
+                    }
+                }
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 5) {
+                    let layout = dynamicTypeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                        : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+                    layout {
+                        Text(title)
+                            .font(.system(.headline, design: .rounded, weight: .heavy))
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let badge {
+                            Text(badge)
+                                .font(.system(.caption2, design: .rounded, weight: .black))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.sun, in: Capsule())
+                        }
+                        if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                    }
+                    Text(priceText)
+                        .font(.system(.title2, design: .rounded, weight: .black))
+                        .foregroundStyle(selected ? Color.coral : Color.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(detail)
+                        .font(.system(.caption, design: .rounded, weight: .semibold))
+                        .foregroundStyle(Color.ink.opacity(0.7))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 17)
+            .background(Color.paperLight.opacity(selected ? 0.98 : 0.62), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(selected ? Color.coral : Color.paperDeep.opacity(0.78), lineWidth: selected ? 2 : 1)
+            }
+            .shadow(color: selected ? Color.coral.opacity(0.08) : .clear, radius: 10, y: 5)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title)，\(priceText)，\(detail)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 }

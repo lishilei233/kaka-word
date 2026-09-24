@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftData
+import UIKit
 import XCTest
 @testable import PictureWord
 
@@ -24,6 +25,10 @@ final class WordLearningStoreTests: XCTestCase {
         _ = WordDetailSheet(
             object: object,
             imageProvider: { _, _ in
+                imageProviderCalls += 1
+                return nil
+            },
+            photoProvider: { _, _ in
                 imageProviderCalls += 1
                 return nil
             }
@@ -384,6 +389,48 @@ final class WordLearningStoreTests: XCTestCase {
         XCTAssertEqual(store.progressByKey["book"]?.reviewCount, 1)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("word-learning.json.migrated-v1").path))
+    }
+
+    func testRelatedPhotosExcludeSourceGroupDuplicatesAndSortNewestFirst() {
+        let older = makeRecord(word: "cup", chinese: "杯子", date: Date(timeIntervalSince1970: 10))
+        let newer = makeRecord(word: "cup", chinese: "杯子", date: Date(timeIntervalSince1970: 20))
+        let current = makeRecord(word: " CUP ", chinese: "杯子", date: Date(timeIntervalSince1970: 30))
+        let object = current.result.objects[0]
+        let occurrences = [older, newer, newer, current].map {
+            WordOccurrence(recordID: $0.id, encounteredAt: $0.createdAt, object: $0.result.objects[0])
+        }
+        let entries = [WordEntry(id: "cup", object: object, occurrences: occurrences)]
+        let groups = WordDetailPhoto.relatedOccurrences(for: object, entries: entries, excluding: current.id)
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups.first?.first?.recordID, newer.id)
+        XCTAssertEqual(groups.first?.count, 2)
+        XCTAssertEqual(groups.last?.first?.recordID, older.id)
+        XCTAssertTrue(WordDetailPhoto.relatedOccurrences(for: object, entries: [], excluding: nil).isEmpty)
+    }
+
+    func testPhotoBoundsRejectInvalidCoordinatesAndClipPaddingToImage() {
+        XCTAssertNil(WordDetailPhoto.rect(for: ObjectBox(x: .nan, y: 0, width: 1, height: 1)))
+        XCTAssertNil(WordDetailPhoto.rect(for: ObjectBox(x: 0, y: 0, width: 0, height: 1)))
+        XCTAssertNil(WordDetailPhoto.rect(for: ObjectBox(x: 2, y: 2, width: 1, height: 1)))
+        XCTAssertEqual(WordDetailPhoto.rect(for: ObjectBox(x: 0, y: 0, width: 1, height: 1), padding: 0.08),
+                       CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+
+    func testPhotoCropPreservesWideAspectAndFallsBackForInvalidBox() {
+        let object = makeRecord(word: "book", chinese: "书", date: Date()).result.objects[0]
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 100)).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 400, height: 100))
+        }
+        var source = WordDetailPhoto(recordID: nil, date: nil, objects: [object], load: { image })
+        let crop = source.thumbnail(from: image)
+        XCTAssertEqual(crop.size.width / crop.size.height, 4, accuracy: 0.01)
+        let invalid = LearningObject(id: object.id, english: object.english, chinese: object.chinese,
+            ipa: object.ipa, confidence: 1, box: ObjectBox(x: 2, y: 2, width: 1, height: 1),
+            anchor: nil, example: object.example, exampleChinese: nil, labelCenterOverride: nil, targetOverride: nil)
+        source = WordDetailPhoto(recordID: nil, date: nil, objects: [invalid], load: { image })
+        let fallback = source.thumbnail(from: image)
+        XCTAssertEqual(fallback.size.width / fallback.size.height, 4, accuracy: 0.01)
     }
 
     private func makeStore(now: Date = Date()) -> WordLearningStore {
