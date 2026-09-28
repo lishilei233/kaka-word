@@ -18,7 +18,7 @@ struct HomeView: View {
     @State private var cameraPresented = false
     @State private var capturedImage: UIImage?
     @State private var recognitionImage: PresentedImage?
-    @State private var presentedHistory: PresentedHistory?
+    @State private var presentedHistory: PhotoDetailDestination?
     @State private var historyMessage: String?
     @State private var confirmMissionSwitch = false
     @State private var paywallPresented = false
@@ -46,9 +46,7 @@ struct HomeView: View {
                             onOpenAlbum: { discoveryAlbumPresented = true }
                         )
                     case .words:
-                        MyWordsDashboard { focused in
-                            wordsSearchFocused = focused
-                        }
+                        MyWordsDashboard(onSearchFocusChange: { wordsSearchFocused = $0 })
                     }
                 }
             }
@@ -148,7 +146,7 @@ struct HomeView: View {
             historyMessage = "这张本地照片已经丢失，可以删除后重新识别。"
             return
         }
-        presentedHistory = PresentedHistory(record: record, image: image)
+        presentedHistory = PhotoDetailDestination(record: record, image: image)
     }
 }
 
@@ -537,10 +535,11 @@ private struct MyWordsDashboard: View {
                 photoProvider: { object, index in
                     guard pageEntries.indices.contains(index) else { return nil }
                     for occurrence in pageEntries[index].occurrences where occurrence.object.kind == object.kind {
-                        guard let record = historyStore.record(id: occurrence.recordID),
-                              let image = historyStore.image(for: record) else { continue }
+                        guard let record = historyStore.record(id: occurrence.recordID) else { continue }
                         return WordDetailPhoto(recordID: record.id, date: record.createdAt,
-                                               objects: [occurrence.object], load: { image })
+                                               objects: [occurrence.object],
+                                               imageSize: CGSize(width: record.result.imageWidth, height: record.result.imageHeight),
+                                               load: { historyStore.image(for: record) })
                     }
                     return nil
                 }
@@ -999,12 +998,6 @@ private struct DiscoveryCardCompact: View {
 
 private struct PresentedImage: Identifiable {
     let id = UUID()
-    let image: UIImage
-}
-
-private struct PresentedHistory: Identifiable {
-    var id: UUID { record.id }
-    let record: HistoryRecord
     let image: UIImage
 }
 

@@ -1,5 +1,5 @@
 import { captionSentenceSchema, descriptionSentences, type CaptionSentence } from '../lib/project';
-import { coverExportReady } from '../lib/cover-layout.ts';
+import { coverExportReady, coverConflicts } from '../lib/cover-layout.ts';
 import 'dotenv/config';
 import { mkdir, readFile, writeFile, stat, rename, unlink } from 'node:fs/promises';
 import { createReadStream, existsSync } from 'node:fs';
@@ -11,9 +11,10 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
-import { getImageDimensions } from '../../../server/src/utils/image-dimensions.ts';
+import { getImageDimensions } from './image-dimensions.ts';
+import { normalizedPhoto } from './normalize-photo.ts';
 import { projectSchema, exportBlockers, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
-import { analyzeScene, generateSocialCopy, recognizeImage, regenerateCaption, reviewCaption } from './recognition.server.ts';
+import { analyzeScene, generateCoverCopy, generateSocialCopy, recognizeImage, regenerateCaption, reviewCaption } from './recognition.server.ts';
 import { learningPost } from '../lib/learning-post.ts';
 
 const exec = promisify(execFile);
@@ -147,7 +148,12 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         }
         if (req.method === 'GET' && path === '/studio-api/project') {
             const saved = await readFile(join(root, 'project.json'), 'utf8').catch(() => 'null');
-            return send(JSON.parse(saved));
+            const project = JSON.parse(saved);
+            if (project?.image) {
+                const dimensions = await readFile(assetFile(project.image)).then(getImageDimensions).catch(() => null);
+                if (dimensions) { project.imageWidth = dimensions.width; project.imageHeight = dimensions.height; }
+            }
+            return send(project);
         }
         if (req.method === 'POST' && path === '/studio-api/project') {
             const p = projectSchema.parse(await json(req));
@@ -187,6 +193,15 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
                     console.error('HEIC conversion failed:', failures.join(' | '));
                     throw new Error('无法转换 HEIC 图片，请确认文件完整，或从“照片”中导出未修改的原片后重试');
                 }
+                try {
+                    jpeg = await normalizedPhoto(output);
+                    dimensions = getImageDimensions(jpeg);
+                    if (!dimensions) throw new Error('无法读取方向校正后的照片');
+                    await writeFile(output, jpeg);
+                } catch (error) {
+                    await unlink(output).catch(() => undefined);
+                    throw error;
+                }
                 return send({ url: `/studio-api/assets/${id}.jpg`, imageWidth: dimensions.width, imageHeight: dimensions.height });
             }
             const name = `${randomUUID()}.${ext}`; await writeFile(join(assets, name), bytes);
@@ -194,14 +209,14 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         }
         if (req.method === 'POST' && path === '/studio-api/scene') {
             const input = z.object({ image: z.string(), maxObjects: z.number().int().min(3).max(10), context: z.string().max(500).default('') }).parse(await json(req));
-            const bytes = await readFile(assetFile(input.image));
+            const bytes = await normalizedPhoto(assetFile(input.image));
             if (!input.image.endsWith('.jpg') || !getImageDimensions(bytes)) throw new Error('请先选择有效照片');
             return send(await analyzeScene(bytes, input.maxObjects, input.context, req.signal));
         }
         if (req.method === 'POST' && path === '/studio-api/analyze') {
             const { image, maxObjects } = z.object({ image: z.string(), maxObjects: z.number().int().min(3).max(10) }).parse(await json(req));
             if (!image.endsWith('.jpg')) throw new Error('请先选取照片帧');
-            const bytes = await readFile(assetFile(image));
+            const bytes = await normalizedPhoto(assetFile(image));
             if (!getImageDimensions(bytes)) throw new Error('无效图片');
             const recognitionResponse = await recognizeImage(bytes, maxObjects, req.signal);
             if (!recognitionResponse.ok) return recognitionResponse;
@@ -269,6 +284,14 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
                 return send({ words: output, captionSentences: sentenceSpeech, captionAudio: captionSpeech?.audio, captionAudioSeconds: captionSpeech?.audioSeconds, interactionSpeech });
             } finally { state.speechBusy = false; }
         }
+        if (req.method === 'POST' && path === '/studio-api/cover-copy') {
+            const p = projectSchema.parse(await json(req));
+            if (!p.image || !p.caption.trim() || !p.words.length) throw new Error('请先准备照片描述和词表');
+            return send(await generateCoverCopy({
+                sceneTheme: p.sceneTheme, caption: p.caption, captionChinese: p.captionChinese,
+                words: p.words.map(({ english, chinese, kind }) => ({ english, chinese, kind })),
+            }, req.signal));
+        }
         if (req.method === 'POST' && path === '/studio-api/social-copy') {
             const p = projectSchema.parse(await json(req));
             const copy = await generateSocialCopy({
@@ -294,7 +317,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         }
         if (req.method === 'POST' && path === '/studio-api/render-cover') {
             const { project } = z.object({ project: projectSchema }).parse(await json(req));
-            if (!coverExportReady(project)) throw new Error('请添加照片和单词，并解决封面胶囊冲突后再导出');
+            if (!coverExportReady(project)) throw new Error(coverConflicts(project)[0] ? `请调整封面：${coverConflicts(project).join('；')}` : '请添加照片和有效单词后再导出');
             await stat(assetFile(project.image!));
             const serveUrl = await bundle({ entryPoint: resolve('src/video/Root.tsx') });
             const inputProps = { project: absoluteProject(project, url.origin) };
@@ -319,7 +342,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         return send({ error: '接口不存在' }, 404);
     } catch (error) {
         const message = error instanceof Error ? error.message : '';
-        const safe = /^(请|导出|素材|无法|无效|单词|识别)/.test(message) ? message : '处理失败，请检查素材和网页服务终端。';
+        const safe = /^(请|封面|导出|素材|无法|无效|单词|识别)/.test(message) ? message : '处理失败，请检查素材和网页服务终端。';
         console.error('Studio request failed:', error instanceof z.ZodError ? 'Invalid input' : error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown error');
         return send({ error: safe }, 400);
     }

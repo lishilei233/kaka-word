@@ -1,3 +1,4 @@
+import { coverAudienceSchema, coverCopySchema } from '../../../server/src/core/image-analysis/cover-copy';
 import { z } from 'zod';
 
 const position = z.number().min(0).max(1);
@@ -39,7 +40,14 @@ export const socialPostSchema = z.object({ title: z.string().max(80), body: z.st
 export const socialCopySchema = z.object({ xiaohongshu: socialPostSchema, douyin: socialPostSchema, channels: socialPostSchema });
 export type SocialCopy = z.infer<typeof socialCopySchema>;
 export const coverSchema = z.object({
-    template: z.literal('learning-card').default('learning-card'),
+    template: z.enum(['learning-card', 'scene-question']).default('learning-card'),
+    audience: coverAudienceSchema.optional(),
+    audienceTitles: z.object({ adult: z.string().max(40).optional(), family: z.string().max(40).optional(), student: z.string().max(40).optional() }).optional(),
+    candidates: coverCopySchema.optional(),
+    candidateSource: z.string().optional(),
+    selectedWordIds: z.array(z.string().min(1).max(80)).max(3).refine(ids => new Set(ids).size === ids.length).optional(),
+    titlePosition: z.enum(['top', 'bottom']).optional(),
+    photo: z.object({ zoom: z.number().min(1).max(2), x: position, y: position }).optional(),
     title: z.string().max(40).optional(),
     scale: z.number().min(.6).max(1.6).default(.9),
     words: z.record(z.object({

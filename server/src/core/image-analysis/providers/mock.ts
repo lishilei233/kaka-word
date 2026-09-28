@@ -1,3 +1,4 @@
+import type { CoverCopyInput, CoverCopy } from '../cover-copy.js';
 import type {
   AnalyzeResult,
   VisionInput,
@@ -16,6 +17,14 @@ function pairedCaption(caption: string, captionChinese: string) {
 }
 
 export class MockVisionProvider implements VisionProvider {
+  async generateCoverCopy(input: CoverCopyInput): Promise<CoverCopy> {
+    const scene = (input.sceneTheme?.trim() || '照片里的东西').slice(0, 10);
+    return {
+      adult: [`${scene}，英语怎么说？`, `看到${scene}，你会怎么说？`, `${scene}，这些词你会吗？`],
+      family: [`和孩子找找${scene}，认识几个？`, `${scene}，你能用英语说吗？`, `一起看${scene}，你发现了什么？`],
+      student: [`${scene}，这些单词你记住了吗？`, `${scene}，看图能说出几个词？`, `试试看，${scene}用英语怎么说？`],
+    };
+  }
   async generateCaption(input: CaptionGenerationInput): Promise<PhotoCaption> {
     const english = input.words.slice(0, 2).map(word => word.english).join(" and ");
     const chinese = input.words.slice(0, 2).map(word => word.chinese).join("和");

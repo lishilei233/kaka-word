@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftData
+import SwiftUI
 import UIKit
 import XCTest
 @testable import PictureWord
@@ -431,6 +432,34 @@ final class WordLearningStoreTests: XCTestCase {
         source = WordDetailPhoto(recordID: nil, date: nil, objects: [invalid], load: { image })
         let fallback = source.thumbnail(from: image)
         XCTAssertEqual(fallback.size.width / fallback.size.height, 4, accuracy: 0.01)
+    }
+
+    func testPhotoNavigationKeepsFixedHeightWhenReturningFromPreview() {
+        let record = makeRecord(word: "cup", chinese: "杯子", date: Date())
+        let photo = WordDetailPhoto(recordID: record.id, date: nil, objects: [], load: { nil })
+        let gallery = WordPhotoRoute(content: .gallery([photo], "cup", nil))
+        let preview = WordPhotoRoute(content: .preview(photo, "cup", false))
+        for detent in WordPhotoNavigationState.detents {
+            for prefix in [[], [gallery]] as [[WordPhotoRoute]] {
+                var navigation = WordPhotoNavigationState()
+                XCTAssertEqual(navigation.transition(to: prefix + [preview], currentDetent: detent), detent)
+                XCTAssertEqual(navigation.transition(to: prefix + [preview], currentDetent: detent), detent)
+                XCTAssertEqual(navigation.path.last, preview)
+                XCTAssertEqual(navigation.transition(to: [], currentDetent: detent), detent)
+            }
+        }
+    }
+
+    func testPhotoViewportReservesAspectRatioBeforeImageDecoding() {
+        XCTAssertEqual(WordPhotoViewportLayout.height(for: 320, imageSize: CGSize(width: 1600, height: 900)), 180)
+        XCTAssertEqual(WordPhotoViewportLayout.height(for: 320, imageSize: CGSize(width: 900, height: 1600)), 480)
+        XCTAssertEqual(WordPhotoViewportLayout.height(for: 320, imageSize: nil), 240)
+        XCTAssertEqual(WordPhotoViewportLayout.height(for: 320, imageSize: .zero), 240)
+        XCTAssertEqual(WordPhotoViewportLayout.height(for: 0, imageSize: nil), 0)
+    }
+
+    func testWordPhotoSheetHasOneFixedHeight() {
+        XCTAssertEqual(WordPhotoNavigationState.detents, [.large])
     }
 
     private func makeStore(now: Date = Date()) -> WordLearningStore {

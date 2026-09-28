@@ -21,6 +21,7 @@ struct ResultView: View {
     let recordID: UUID
     var missionUpdate: MissionUpdate?
     var revealsAnnotations = true
+    var usesNavigationBackButton = false
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
@@ -41,12 +42,14 @@ struct ResultView: View {
         result: AnalyzeResult,
         recordID: UUID,
         missionUpdate: MissionUpdate? = nil,
-        revealsAnnotations: Bool = true
+        revealsAnnotations: Bool = true,
+        usesNavigationBackButton: Bool = false
     ) {
         self.image = image
         self.recordID = recordID
         self.missionUpdate = missionUpdate
         self.revealsAnnotations = revealsAnnotations
+        self.usesNavigationBackButton = usesNavigationBackButton
         _result = State(initialValue: result)
     }
 
@@ -66,7 +69,8 @@ struct ResultView: View {
                     openFeedback()
                 },
                 onRetry: retry,
-                onResultChange: persist
+                onResultChange: persist,
+                usesNavigationBackButton: usesNavigationBackButton
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -252,6 +256,7 @@ struct PhotoWordCardDetailView: View {
     let onFeedback: () -> Void
     var onRetry: (() -> Void)?
     var onResultChange: ((AnalyzeResult) -> String?)?
+    var usesNavigationBackButton = false
 
     @State private var selectedObject: LearningObject?
     @State private var confirmationObject: LearningObject?
@@ -308,7 +313,7 @@ struct PhotoWordCardDetailView: View {
                 object: object,
                 objects: displayedObjects,
                 photoProvider: { object, _ in
-                    WordDetailPhoto(recordID: sourceRecordID, date: nil, objects: [object], load: { image })
+                    WordDetailPhoto(recordID: sourceRecordID, date: nil, objects: [object], imageSize: image.size, load: { image })
                 },
                 onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil,
                 onDelete: status.isComplete && onResultChange != nil ? deleteObject : nil,
@@ -379,7 +384,7 @@ struct PhotoWordCardDetailView: View {
                     finishAnnotationEditing()
                     onClose()
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: usesNavigationBackButton ? "chevron.left" : "xmark")
                         .font(.system(size: 14, weight: .bold))
                         .frame(width: 50, height: 50)
                 }

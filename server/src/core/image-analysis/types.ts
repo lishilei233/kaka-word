@@ -158,6 +158,7 @@ export type CaptionReviewInput = {
 };
 
 export interface VisionProvider {
+  generateCoverCopy?(input: import('./cover-copy.js').CoverCopyInput): Promise<import('./cover-copy.js').CoverCopy>;
   analyzeStudioScene?(input: import('./studio-scene.js').StudioSceneInput): Promise<import('./studio-scene.js').StudioScene>;
   generateCaption?(input: CaptionGenerationInput): Promise<PhotoCaption>;
   reviewCaption?(input: CaptionReviewInput): Promise<PhotoCaption>;

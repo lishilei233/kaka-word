@@ -1,3 +1,4 @@
+import { coverCopySchema } from '../../../server/src/core/image-analysis/cover-copy';
 import { randomUUID } from 'node:crypto';
 import { studioSceneSchema } from '../../../server/src/core/image-analysis/studio-scene.ts';
 
@@ -124,4 +125,21 @@ export async function regenerateCaption(bytes: Uint8Array, input: Pick<CaptionRe
     const result = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) throw new Error(typeof result.message === 'string' ? result.message : '照片描述生成失败，原内容未改变');
     return photoCaptionSchema.parse(result);
+}
+
+export async function generateCoverCopy(input: import('../../../server/src/core/image-analysis/cover-copy').CoverCopyInput, signal?: AbortSignal, transport: typeof fetch = fetch) {
+    const baseURL = (process.env.SERVER_API_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
+    let response: Response;
+    try {
+        response = await transport(`${baseURL}/v1/studio/cover-copy`, {
+            method: 'POST', redirect: 'error',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SERVER_ACCESS_TOKEN ?? ''}`, 'X-Operation-ID': randomUUID() },
+            body: JSON.stringify(input), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
+        });
+    } catch { throw new Error('封面标题请求中断或超时，请重试'); }
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.message || '封面标题生成失败，请重试');
+    const parsed = coverCopySchema.safeParse(result);
+    if (!parsed.success) throw new Error('封面标题返回格式无效，请重试');
+    return parsed.data;
 }

@@ -1,3 +1,4 @@
+import { coverCopyPrompt, coverCopySchema, type CoverCopyInput, type CoverCopy } from '../cover-copy.js';
 import { hasRecognizableSize } from "../object-size.js";
 import { QwenResponseReader, QwenResponseError } from "../qwen-response.js";
 import { normalizeVisibleAnchor, markSuspiciousAnchors, validVisibleAnchor } from "../visible-anchor.js";
@@ -251,6 +252,25 @@ Choose pixels of the object's own visible surface, away from edges and occluders
     const content = payload?.choices?.[0]?.message?.content;
     if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
     return vocabularyDetailsSchema.parse(extractJson(content));
+  }
+
+  async generateCoverCopy(input: CoverCopyInput): Promise<CoverCopy> {
+    if (!this.config.apiKey) throw new Error("QWEN_API_KEY is required");
+    const response = await fetch(qwenEndpoint(this.config.apiHost), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.config.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.config.model, stream: false, enable_thinking: false,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: coverCopyPrompt(input) }],
+      }),
+      signal: input.signal,
+    });
+    if (!response.ok) throw new Error(`Qwen cover copy failed (${response.status})`);
+    const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const content = payload.choices?.[0]?.message?.content;
+    if (typeof content !== "string") throw new Error("Qwen response did not contain message content");
+    return coverCopySchema.parse(extractJson(content));
   }
 
   async generateSocialCopy(input: SocialCopyInput): Promise<SocialCopy> {

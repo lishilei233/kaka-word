@@ -6,21 +6,32 @@ import SwiftUI
 /// this component only standardizes the content surface and scrolling behavior.
 struct PictureWordSheet<Content: View>: View {
     private let content: Content
+    private let scrolls: Bool
 
-    init(@ViewBuilder content: () -> Content) {
+    init(scrolls: Bool = true, @ViewBuilder content: () -> Content) {
+        self.scrolls = scrolls
         self.content = content()
     }
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(24)
+        Group {
+            if scrolls {
+                ScrollView(.vertical, showsIndicators: false) {
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(24)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
+            } else {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(16)
+            }
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollDismissesKeyboard(.interactively)
         .background(Color.paper)
     }
+
 }
 
 /// Standard heading hierarchy for content sheets.

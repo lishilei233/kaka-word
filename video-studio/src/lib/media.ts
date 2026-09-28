@@ -17,7 +17,13 @@ export async function uploadApplePhoto(blob: Blob, ext: 'heic' | 'heif') {
     const response = await fetch(`/studio-api/upload?ext=${ext}`, { method: 'POST', body: blob });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Apple 照片转换失败');
-    return result as { url: string; imageWidth: number; imageHeight: number };
+    // The converted JPEG can retain EXIF orientation. Decode and redraw it just
+    // like a regular photo so layout dimensions match the displayed pixels.
+    const image = new Image();
+    image.src = result.url;
+    await image.decode();
+    const frame = await snapshot(image);
+    return { url: frame.image, imageWidth: frame.imageWidth, imageHeight: frame.imageHeight };
 }
 export async function snapshot(source: HTMLImageElement | HTMLVideoElement) {
     const width = source instanceof HTMLVideoElement ? source.videoWidth : source.naturalWidth;

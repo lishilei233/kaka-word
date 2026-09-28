@@ -12,6 +12,7 @@ import { registerMetricsRoute } from "./routes/metrics.js";
 import { registerMembershipRoute } from "./routes/membership.js";
 import { registerRecognitionFeedbackRoute } from "./routes/recognition-feedback.js";
 import { registerStoreRoutes } from "./routes/store.js";
+import { registerCoverCopyRoute } from './routes/cover-copy.js';
 import { registerSocialCopyRoute } from "./routes/social-copy.js";
 import { registerStudioSceneRoute } from './routes/studio-scene.js';
 import { registerVocabularyRoute } from "./routes/vocabulary.js";
@@ -69,6 +70,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
     logLevel: config.logLevel,
     logger,
   });
+  registerCoverCopyRoute(app, { provider, videoStudioAccessToken: config.videoStudioAccessToken });
   registerSocialCopyRoute(app, { provider, videoStudioAccessToken: config.videoStudioAccessToken, logger });
   registerStudioSceneRoute(app, { provider, videoStudioAccessToken: config.videoStudioAccessToken });
   registerVocabularyRoute(app, {

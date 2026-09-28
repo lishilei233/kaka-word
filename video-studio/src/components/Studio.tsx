@@ -1,10 +1,11 @@
+import { CoverEditor } from './CoverEditor';
 import { SceneEditor, WordKindEditor } from './SceneEditor';
 import { objectWords, sceneWords, readingWords, syncCaption, editCaptionSentence, clearProjectSpeech, type CaptionSentence } from '../lib/project';
 import type { StudioScene } from '../../../server/src/core/image-analysis/studio-scene';
 import { Cover } from '../video/Cover';
 import { PublishPanel } from './PublishPanel';
 import { Toast, type ToastKind } from './Toast';
-import { coverLayout, defaultCover } from '../lib/cover-layout';
+import { coverConflicts as getCoverConflicts, defaultCover, cleanCoverSelection } from '../lib/cover-layout';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
 import { ArrowDown, ArrowUp, Camera, ChevronRight, Download, Film as FilmIcon, ImageDown, ImagePlus, LoaderCircle, Play, Plus, RefreshCw, Save, Sparkles, Trash2, Volume2 } from 'lucide-react';
@@ -28,13 +29,13 @@ export function Studio() {
     const [job, setJob] = useState<string>(); const [progress, setProgress] = useState(0); const [download, setDownload] = useState('');
     const input = useRef<HTMLInputElement>(null); const video = useRef<HTMLVideoElement>(null); const player = useRef<PlayerRef>(null);
     const revision = useRef(0); const initialLoad = useRef(false); const pendingLivePhotoVideo = useRef('');
-    const coverConflicts = useMemo(() => drawer === 'cover' ? coverLayout(project).conflicts : [], [drawer, project.cover, project.words, project.imageWidth, project.imageHeight]);
+    const coverConflicts = useMemo(() => drawer === 'cover' ? getCoverConflicts(project) : [], [drawer, project]);
     const coverScale = Math.max(.6, Math.min(1.15, project.cover?.scale ?? defaultCover.scale));
     const t = timeline(project); const word = project.words.find(w => w.id === selected); const exportIssues = exportBlockers(project);
     const warningText = project.socialCopyStale
         ? '内容已修改，请重新生成发布文案。'
         : coverConflicts.length > 0
-            ? '封面胶囊需要缩小后才能导出。'
+            ? coverConflicts.join('；')
             : ready && project.image && exportIssues.length > 0
                 ? `导出前还需要：${exportIssues.join('；')}`
                 : undefined;
@@ -69,7 +70,7 @@ export function Studio() {
     }, [job]);
     function update(p: Project) {
         p = syncCaption({ ...p, words: readingWords(p.words) });
-        if (p.cover) p = { ...p, cover: { ...p.cover, words: Object.fromEntries(Object.entries(p.cover.words).filter(([id]) => p.words.some(w => w.id === id))) } };
+        p = cleanCoverSelection(p);
         const content = (value: Project) => JSON.stringify([value.caption, value.captionChinese, value.sceneTheme, value.interaction?.english, value.interaction?.chinese, value.words.map(w => [w.id, w.english, w.chinese, w.ipa, w.kind])]);
         if (p.socialCopy && p.socialCopy === project.socialCopy && content(p) !== content(project)) p = { ...p, socialCopyStale: true };
         if (p.voiceId !== project.voiceId || p.speechSpeed !== project.speechSpeed) p = clearProjectSpeech(p);
@@ -314,15 +315,10 @@ export function Studio() {
             </fieldset></aside>}
         </main>
         <Drawer title="封面设计" open={drawer === 'cover'} onClose={() => setDrawer(null)}>
-            <div className="drawer-preview"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project }} /></div>
-            <p className="hint">封面固定使用 3:4 比例，标题和单词都位于图片内。</p>
-            <label className="field-label" htmlFor="coverTitle">封面场景标题</label>
-            <input id="coverTitle" className="input" maxLength={40} value={project.cover?.title ?? ''} placeholder={project.sceneTheme?.trim() || project.title.trim() || '生活里的英语'} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), title: e.target.value || undefined } })} />
-            <p className="hint">留空时自动使用 AI 识别的场景标题，只影响封面。</p>
-            <label className="range-field"><span>全部胶囊 <strong>{Math.round(coverScale * 100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".6" max="1.15" step=".01" value={coverScale} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), scale: Number(e.target.value) } })} /></label>
-            {word && (word.kind ?? 'object') === 'object' && <label className="range-field"><span>{word.english} <strong>{Math.round((project.cover?.words[word.id]?.scale ?? 1) * 100)}%</strong></span><input aria-label="当前胶囊大小" type="range" min=".75" max="1.5" step=".01" value={project.cover?.words[word.id]?.scale ?? 1} onChange={e => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: { ...c.words, [word.id]: { ...c.words[word.id], scale: Number(e.target.value) } } } }); }} /></label>}
-            <div className="cover-highlight-picker"><h3>高亮单词</h3><div className="cover-highlight-list">{project.words.map(w => <label key={w.id}><input type="checkbox" checked={project.cover?.words[w.id]?.highlighted ?? false} onChange={e => { const c = project.cover ?? defaultCover; update({ ...project, cover: { ...c, words: { ...c.words, [w.id]: { ...(c.words[w.id] ?? { scale: 1 }), highlighted: e.target.checked } } } }); }} /><span>{w.english}</span></label>)}</div></div>
-            <Button className="w-full" disabled={!project.image || !project.words.length || coverConflicts.length > 0} onClick={() => run('导出封面', async () => { const result = await api<{ file: string }>('render-cover', { project }); const a = document.createElement('a'); a.href = result.file; a.download = 'kakaword-cover.png'; a.click(); setMessage('封面已导出'); })}><ImageDown />导出封面 PNG</Button>
+            <CoverEditor project={project} update={update} disabled={!!busy || !ready} onExport={() => run('导出封面', async () => {
+                const result = await api<{ file: string }>('render-cover', { project });
+                const a = document.createElement('a'); a.href = result.file; a.download = 'kakaword-cover.png'; a.click(); setMessage('封面已导出');
+            })} />
         </Drawer>
         <Drawer title="发布助手" open={drawer === 'publish'} onClose={() => setDrawer(null)}>
             <div className="editor-note"><span>一套内容，三种说法。</span><p>生成时会使用最终照片描述、全部词汇和封面高亮词。</p></div>

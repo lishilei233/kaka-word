@@ -124,7 +124,17 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
                 <div style={{ position: 'absolute', left: photo.x + photo.width - 102, top: photo.y - 12, width: 72, height: 18, background: '#f4c95dc7', transform: 'rotate(-4deg)' }} />
                     <div data-film-description style={{ position: 'absolute', zIndex: 4, top: layout.descriptionTop, left: layout.textLeft, width: textWidth, minHeight: 140, padding: '12px 14px', boxSizing: 'border-box', overflow: 'hidden', background: 'rgba(255,253,248,.94)', borderRadius: 22, border: '1px solid rgba(36,33,30,.08)', boxShadow: '2px 3px 0 rgba(36,33,30,.1)', ...(() => { const a = descriptionEntrance(frame, t.captionFrom); return { opacity: a.opacity, transform: `translateY(${a.translateY}px)` }; })() }}>
                     <div style={{ position: 'absolute', left: 20, right: 20, top: 0, height: 3, borderRadius: 3, background: 'rgba(210,118,95,.72)' }} />
-                    <SceneSentence audioFrame={captionSegment.sentence.audio && !interactionActive ? frame - captionSegment.from - AUDIO_LEAD_FRAMES : undefined} audioDurationFrames={captionSegment.audioFrames} width={textWidth} english={interactionActive ? p.interaction!.english : captionSegment.sentence.english} chinese={interactionActive ? p.interaction!.chinese : captionSegment.sentence.chinese} vocabulary={interactionActive ? [] : readingWords(p.words).map(word => word.english)} chineseOpacity={descriptionEntrance(frame, interactionActive ? t.interactionFrom : captionSegment.from).chineseOpacity} />
+                    <SceneSentence
+                        audioFrame={interactionActive
+                            ? (p.interaction?.audio ? frame - t.interactionFrom - AUDIO_LEAD_FRAMES : undefined)
+                            : (captionSegment.sentence.audio ? frame - captionSegment.from - AUDIO_LEAD_FRAMES : undefined)}
+                        audioDurationFrames={interactionActive ? t.interactionAudioFrames : captionSegment.audioFrames}
+                        width={textWidth}
+                        english={interactionActive ? p.interaction!.english : captionSegment.sentence.english}
+                        chinese={interactionActive ? p.interaction!.chinese : captionSegment.sentence.chinese}
+                        vocabulary={readingWords(p.words).map(word => word.english)}
+                        chineseOpacity={descriptionEntrance(frame, interactionActive ? t.interactionFrom : captionSegment.from).chineseOpacity}
+                    />
                 </div>
             </>}
             {!opening && p.interaction?.enabled && p.interaction.arrowEnabled && frame >= t.interactionFrom && <InteractionArrow

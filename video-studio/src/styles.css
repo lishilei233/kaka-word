@@ -93,3 +93,16 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible { 
 .drawer-preview { width:min(100%, 360px); margin:0 auto 12px; border-radius:14px; overflow:hidden; background:#e9dec9; }
 @keyframes drawer-in { from { transform:translateX(100%); opacity:.7; } to { transform:translateX(0); opacity:1; } }
 @media(max-width:700px) { .drawer { width:100%; } .drawer-body { padding:14px 16px 24px; } }
+
+/* Cover editor: a quiet workbench around the photo, with explicit audience drafts. */
+.cover-controls { border:0; padding:0; margin:0; min-width:0; }
+.cover-crop-preview { cursor:grab; user-select:none; }.cover-crop-preview:active { cursor:grabbing; }
+.cover-section-label { display:flex;justify-content:space-between;margin:26px 0 12px;padding-top:18px;border-top:1px solid #d9cdbb;font:700 12px/1.5 Menlo,"PingFang SC",sans-serif;letter-spacing:.08em;color:#78684f; }
+.cover-audiences { display:flex;gap:6px;margin-bottom:16px; }.cover-audiences button { flex:1;padding:10px 4px;border:1px solid #cfc1ad;border-radius:9px;background:transparent;font-size:12px;cursor:pointer; }.cover-audiences button[aria-pressed=true] { background:#242b26;border-color:#242b26;color:#fff5df; }
+.cover-title-input { font-weight:750;font-size:18px;line-height:1.5;resize:vertical;margin-bottom:12px; }
+.cover-candidates { display:grid;gap:7px;margin:12px 0 18px; }.cover-candidates button { display:flex;gap:12px;align-items:baseline;text-align:left;padding:12px;border:1px solid #d9cdbb;border-radius:8px;background:#fffaf0;font-size:13px;cursor:pointer; }.cover-candidates span { font:11px Menlo,monospace;color:#9e7950;flex-shrink:0; }
+.cover-controls button:disabled,.cover-controls input:disabled { opacity:.5;cursor:not-allowed; }
+.cover-notice { padding:10px 12px;border-left:3px solid #c9a24b;background:#fff7dc;font-size:12px;line-height:1.6; }
+.cover-error { padding:10px 12px;background:#ffe9e1;color:#9c3829;font-size:13px; }
+.cover-thumbnail { margin:22px 0;padding:14px;border:1px dashed #b7aa93;border-radius:12px; }.cover-thumbnail summary { font-size:12px;color:#78684f;cursor:pointer; }
+@media(prefers-reduced-motion:reduce) { .drawer { animation:none; } }
