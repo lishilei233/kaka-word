@@ -147,7 +147,7 @@ export function clearProjectSpeech(p: Project): Project {
 }
 export function timeline(p: Project) {
     const intro = p.videoTemplate === 'direct' ? Math.round(p.directIntroSeconds * FPS) : Math.round(p.introSeconds * FPS);
-    const reveal = p.videoTemplate === 'direct' ? 0 : 45;
+    const reveal = p.videoTemplate === 'direct' ? 0 : 8;
     let cursor = intro + reveal;
     const words = readingWords(p.words).map(word => {
         const from = cursor;

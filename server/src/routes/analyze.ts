@@ -158,6 +158,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
           }, 409);
         } else if (quotaReservation && !quotaReservation.allowed) {
           await recordMetricSafely(accessService, logger, "quota_exhausted", quotaReservation.entitlement);
+          if (principal) await recordInstallationMetricSafely(accessService, logger, principal, "recognition_attempt");
           return c.json({
             error: "QUOTA_EXHAUSTED",
             message: quotaReservation.entitlement.tier === "member"
@@ -179,7 +180,10 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         });
         return c.json({ error: "QUOTA_UNAVAILABLE", message: "暂时无法读取识别额度，请稍后重试" }, 503);
       }
-      if (reservation) await recordMetricSafely(accessService, logger, "recognition_attempt", reservation.entitlement);
+      if (reservation) {
+        await recordMetricSafely(accessService, logger, "recognition_attempt", reservation.entitlement);
+        if (principal) await recordInstallationMetricSafely(accessService, logger, principal, "recognition_attempt");
+      }
 
       stage = "daily_limit";
       let dailyDecision: UsageLimitDecision;
@@ -344,6 +348,9 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             entitlement,
             result.objects.length > 0 ? "success" : "empty",
           );
+          if (principal && result.objects.length > 0) {
+            await recordInstallationMetricSafely(accessService, logger, principal, "recognition_success");
+          }
           logger.info("vision.request_completed", {
             requestId,
             provider: providerName,
@@ -427,6 +434,20 @@ async function recordMetricSafely(
 ): Promise<void> {
   await accessService.recordMetric({ eventName, productId: entitlement.productId, outcome }).catch((error) => {
     logger.warn("metrics.record_failed", { eventName, message: error instanceof Error ? error.message : String(error) });
+  });
+}
+
+async function recordInstallationMetricSafely(
+  accessService: AccessService,
+  logger: Logger,
+  principal: AccessPrincipal,
+  metric: "recognition_attempt" | "recognition_success",
+): Promise<void> {
+  await accessService.recordInstallationMetric(principal.installationId, metric, principal.storeEnvironment).catch((error) => {
+    logger.warn("metrics.installation_record_failed", {
+      metric,
+      message: error instanceof Error ? error.message : String(error),
+    });
   });
 }
 

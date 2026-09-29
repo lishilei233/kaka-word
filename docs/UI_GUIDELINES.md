@@ -155,7 +155,8 @@ Header 采用分离胶囊结构：
 | 首页进入设置等层级页面 | `NavigationStack` + `NavigationLink` |
 | 相机 | `.fullScreenCover` |
 | 识别流程 | `.fullScreenCover` |
-| 历史详情/识别结果 | `.fullScreenCover` |
+| 首页历史详情/识别结果 | `.fullScreenCover` 内承载 `NavigationStack` |
+| 单词详情/照片网格点击小图 | 全屏照片覆盖原 Sheet，关闭后直接回到原位置 |
 | 单词详情 | `.sheet` |
 | 分享卡编辑 | `.sheet` |
 | 系统分享面板 | `.sheet` + `UIActivityViewController` |
@@ -194,6 +195,7 @@ Header 采用分离胶囊结构：
 - 信息提示、简单表单默认使用 `.medium`。
 - 详情和可滚动内容可以提供 `.medium`、`.large` 两档，并通过 selection binding 控制当前高度。
 - 键盘和 detent 行为由具体 Sheet 根据内容决定；共用容器只负责内容滚动和视觉层级，不强制改变 Sheet 高度。
+- 单词详情按内容高度展开，达到系统 Sheet 高度上限后才允许内容滚动。图片按记录尺寸提前占位，解码完成不改变布局高度。
 
 系统弹窗按钮文字应明确：
 

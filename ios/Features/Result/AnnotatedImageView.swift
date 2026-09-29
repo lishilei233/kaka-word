@@ -35,6 +35,7 @@ struct AnnotatedImageView: View {
     var revealsAnnotations = true
     var isEditable = false
     var masteredObjectIDs: Set<String> = []
+    var emphasizedObjectIDs: Set<String>? = nil
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
     var onUpdates: (([LearningObject]) -> Void)?
@@ -82,6 +83,7 @@ struct AnnotatedImageView: View {
 
                 Canvas { context, _ in
                     for route in layout.routes {
+                        context.opacity = emphasizedObjectIDs.map { $0.contains(route.id) ? 1 : 0.55 } ?? 1
                         drawLeaderLine(
                             route,
                             isMastered: masteredObjectIDs.contains(route.id),
@@ -93,6 +95,11 @@ struct AnnotatedImageView: View {
                 .opacity(revealsAnnotations ? 1 : 0)
                 .animation(.easeOut(duration: 0.28), value: revealsAnnotations)
 
+                if let emphasizedObjectIDs {
+                    ForEach(objects.filter { emphasizedObjectIDs.contains($0.id) }) { object in
+                        objectRangeOutline(for: object, in: imageFrame).allowsHitTesting(false)
+                    }
+                }
                 if let editingPlacement = editingPlacement(in: layout) {
                     objectRangeOutline(for: editingPlacement.object, in: imageFrame)
                 }
@@ -104,6 +111,7 @@ struct AnnotatedImageView: View {
                         allPlacements: layout.placements,
                         in: imageFrame
                     )
+                    .opacity(emphasizedObjectIDs.map { $0.contains(placement.id) ? 1 : 0.75 } ?? 1)
                 }
 
                 if let editingPlacement = editingPlacement(in: layout) {
@@ -586,6 +594,7 @@ struct AnnotatedPhotoCard: View {
     var revealsAnnotations = true
     var isEditable = false
     var masteredObjectIDs: Set<String> = []
+    var emphasizedObjectIDs: Set<String>? = nil
     var editingObjectID: Binding<String?> = .constant(nil)
     var showsShadow = true
     var usesOriginalAspectRatio = false
@@ -604,6 +613,7 @@ struct AnnotatedPhotoCard: View {
                 revealsAnnotations: revealsAnnotations,
                 isEditable: isEditable,
                 masteredObjectIDs: masteredObjectIDs,
+                emphasizedObjectIDs: emphasizedObjectIDs,
                 editingObjectIDValue: editingObjectID.wrappedValue,
                 onSelect: onSelect,
                 onUpdate: onUpdate,
@@ -653,6 +663,7 @@ private struct StableAnnotatedImage: View, Equatable {
     let revealsAnnotations: Bool
     let isEditable: Bool
     let masteredObjectIDs: Set<String>
+    let emphasizedObjectIDs: Set<String>?
     let editingObjectIDValue: String?
     let onSelect: (LearningObject) -> Void
     let onUpdate: ((LearningObject) -> Void)?
@@ -665,6 +676,7 @@ private struct StableAnnotatedImage: View, Equatable {
             && lhs.revealsAnnotations == rhs.revealsAnnotations
             && lhs.isEditable == rhs.isEditable
             && lhs.masteredObjectIDs == rhs.masteredObjectIDs
+            && lhs.emphasizedObjectIDs == rhs.emphasizedObjectIDs
             && lhs.editingObjectIDValue == rhs.editingObjectIDValue
     }
 
@@ -675,6 +687,7 @@ private struct StableAnnotatedImage: View, Equatable {
             revealsAnnotations: revealsAnnotations,
             isEditable: isEditable,
             masteredObjectIDs: masteredObjectIDs,
+            emphasizedObjectIDs: emphasizedObjectIDs,
             onSelect: onSelect,
             onUpdate: onUpdate,
             onUpdates: onUpdates,

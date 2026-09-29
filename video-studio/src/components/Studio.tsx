@@ -1,3 +1,6 @@
+import { useBlocker, useNavigate } from '@tanstack/react-router';
+import { Autosave } from '../lib/autosave';
+import type { ProjectRecord } from '../lib/project-record';
 import { CoverEditor } from './CoverEditor';
 import { SceneEditor, WordKindEditor } from './SceneEditor';
 import { objectWords, sceneWords, readingWords, syncCaption, editCaptionSentence, clearProjectSpeech, type CaptionSentence } from '../lib/project';
@@ -8,27 +11,29 @@ import { Toast, type ToastKind } from './Toast';
 import { coverConflicts as getCoverConflicts, defaultCover, cleanCoverSelection } from '../lib/cover-layout';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
-import { ArrowDown, ArrowUp, Camera, ChevronRight, Download, Film as FilmIcon, ImageDown, ImagePlus, LoaderCircle, Play, Plus, RefreshCw, Save, Sparkles, Trash2, Volume2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Camera, ChevronRight, Download, Film as FilmIcon, ImageDown, ImagePlus, LoaderCircle, Play, Plus, RefreshCw, Sparkles, Trash2, Volume2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Film } from '../video/Film';
 import { api, snapshot, upload, uploadApplePhoto } from '../lib/media';
-import { changeEnglish, emptyProject, exportBlockers, exportReady, FPS, projectSchema, sortByPhotoPosition, timeline, voiceOptions, type Project, type Word } from '../lib/project';
+import { changeEnglish, exportBlockers, exportReady, FPS, sortByPhotoPosition, timeline, voiceOptions, type Project, type Word } from '../lib/project';
 import { annotationLayout, sortByAnnotationPosition } from '../lib/annotation-layout';
 import { filmLayout } from '../lib/film-layout';
 import { Drawer } from './Drawer';
 
 type Analysis = { captionSentences?: CaptionSentence[]; caption: string; captionChinese: string; objects: { id: string; english: string; chinese: string; ipa: string; box: { x: number; y: number; width: number; height: number } }[] };
-export function Studio() {
-    const [project, setProject] = useState<Project>(emptyProject);
+export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
+    const [project, setProject] = useState<Project>(initialRecord.project);
     const [drawer, setDrawer] = useState<'cover' | 'publish' | null>(null);
     const mode = 'video' as 'video' | 'cover' | 'publish';
-    const [ready, setReady] = useState(false);
+    const ready = true;
     const [busy, setBusy] = useState(''); const [message, setMessage] = useState(''); const [error, setError] = useState('');
     const [selected, setSelected] = useState(''); const [count, setCount] = useState(10);
-    const [source, setSource] = useState(''); const [sourceDuration, setSourceDuration] = useState(0);
+    const [source, setSource] = useState(initialRecord.editor.source); const [sourceDuration, setSourceDuration] = useState(0);
     const [job, setJob] = useState<string>(); const [progress, setProgress] = useState(0); const [download, setDownload] = useState('');
     const input = useRef<HTMLInputElement>(null); const video = useRef<HTMLVideoElement>(null); const player = useRef<PlayerRef>(null);
-    const revision = useRef(0); const initialLoad = useRef(false); const pendingLivePhotoVideo = useRef('');
+    const exportedContent = useRef('');
+    const latestProject = useRef(project); latestProject.current = project;
+    const revision = useRef(0); const pendingLivePhotoVideo = useRef(initialRecord.editor.pendingLivePhotoVideo);
     const coverConflicts = useMemo(() => drawer === 'cover' ? getCoverConflicts(project) : [], [drawer, project]);
     const coverScale = Math.max(.6, Math.min(1.15, project.cover?.scale ?? defaultCover.scale));
     const t = timeline(project); const word = project.words.find(w => w.id === selected); const exportIssues = exportBlockers(project);
@@ -49,12 +54,50 @@ export function Studio() {
         x: word.box.x + word.box.width / 2,
         y: word.box.y + word.box.height / 2,
     } : { x: .5, y: .5 });
+    const navigate = useNavigate();
+    const [, refreshSave] = useState(0);
+    const mounted = useRef(true);
+    const bypassLeave = useRef(false);
+    const [savingCopy, setSavingCopy] = useState(false);
+    const [saver] = useState(() => new Autosave(initialRecord,
+        (revision, content) => api<ProjectRecord>(`projects/${initialRecord.id}`, { revision, content }),
+        () => { if (mounted.current) refreshSave(n => n + 1); }));
     useEffect(() => {
-        if (initialLoad.current) return; initialLoad.current = true;
-        api<Project | null>('project').then(p => {
-            if (p) { const saved = projectSchema.parse(p); setProject({ ...saved, analysisMode: saved.analysisMode ?? 'objects' }); if (saved.video) setSource(saved.video); }
-        }).catch(e => setError(e.message)).finally(() => setReady(true));
-    }, []);
+        mounted.current = true; saver.resume();
+        saver.change({ project, editor: { source, pendingLivePhotoVideo: pendingLivePhotoVideo.current } });
+    }, [project, source, saver]);
+    useEffect(() => {
+        return () => { mounted.current = false; revision.current++; saver.dispose(); };
+    }, [saver]);
+    useBlocker({
+        shouldBlockFn: async () => {
+            if (bypassLeave.current) return false;
+            if (busy || savingCopy) { setError('请等待当前操作完成后再离开。'); return true; }
+            return !(await saver.flush());
+        },
+        enableBeforeUnload: () => !bypassLeave.current && (saver.dirty || !!busy || savingCopy),
+    });
+    useEffect(() => {
+        let cancelled = false;
+        const initialRevision = revision.current;
+        api<{ id: string; status: string; file?: string; error?: string; stale?: boolean } | null>(`projects/${initialRecord.id}/export`).then(result => {
+            if (cancelled || !result) return;
+            if (result.status === 'rendering') { exportedContent.current = !result.stale ? JSON.stringify(initialRecord.project) : ''; setJob(result.id); }
+            if (result.status === 'complete' && !result.stale && initialRevision === revision.current) setDownload(result.file ?? '');
+            if (result.status === 'failed') setError(result.error ?? '导出失败');
+        }).catch(e => { if (!cancelled) setError(e.message); });
+        return () => { cancelled = true; };
+    }, [initialRecord.id]);
+    async function saveCopy() {
+        setSavingCopy(true);
+        try {
+            const content = saver.content;
+            const record = await api<ProjectRecord>('projects', { content: { ...content, project: { ...content.project, title: `${content.project.title} 副本`.slice(0, 80) } } });
+            bypassLeave.current = true;
+            await navigate({ to: '/projects/$projectId', params: { projectId: record.id } });
+        } catch (e) { setError((e as Error).message); }
+        finally { setSavingCopy(false); }
+    }
     useEffect(() => {
         if (!job) return;
         let cancelled = false;
@@ -62,13 +105,18 @@ export function Studio() {
             api<{ status: string; progress: number; error?: string; file?: string }>(`jobs/${job}`).then(result => {
                 if (cancelled) return;
                 setProgress(result.progress);
-                if (result.status === 'complete') { setDownload(result.file!); setJob(undefined); setMessage('视频已导出，可以下载了'); }
+                if (result.status === 'complete') {
+                    const matches = exportedContent.current === JSON.stringify(latestProject.current);
+                    if (matches) setDownload(result.file!);
+                    setJob(undefined); setMessage(matches ? '视频已导出，可以下载了' : '导出期间作品已修改，请重新导出当前内容。');
+                }
                 if (result.status === 'failed') { setError(result.error || '导出失败'); setJob(undefined); }
             }).catch(e => { if (!cancelled) { setError(e.message); setJob(undefined); } });
         }, 1500);
         return () => { cancelled = true; clearInterval(timer); };
     }, [job]);
     function update(p: Project) {
+        if (!mounted.current) return;
         p = syncCaption({ ...p, words: readingWords(p.words) });
         p = cleanCoverSelection(p);
         const content = (value: Project) => JSON.stringify([value.caption, value.captionChinese, value.sceneTheme, value.interaction?.english, value.interaction?.chinese, value.words.map(w => [w.id, w.english, w.chinese, w.ipa, w.kind])]);
@@ -96,6 +144,7 @@ export function Studio() {
         player.current?.seekTo(frame);
     }
     async function run(label: string, work: () => Promise<void>) {
+        if (!mounted.current) return;
         setBusy(label); setError(''); setMessage('');
         try { await work(); } catch (e) { setError(e instanceof Error ? e.message : '操作失败'); } finally { setBusy(''); }
     }
@@ -239,11 +288,14 @@ export function Studio() {
         const words = [...project.words]; [words[index], words[index + direction]] = [words[index + direction], words[index]];
         update({ ...project, words });
     }
-    return <div className="studio-shell">
+    return <div className="studio-shell" inert={savingCopy}>
         <header className="studio-header">
             <div className="brand"><span className="brand-stamp"><Camera size={23} strokeWidth={1.7} /></span><div><strong>咔咔单词<span className="brand-dot">.</span></strong><span className="eyebrow">VIDEO STUDIO / 视频工作室</span></div></div>
-            <div className="header-actions"><span className="local-badge"><span />本地创作</span><Button variant="outline" onClick={() => setDrawer('cover')}><ImageDown />设计封面</Button><Button variant="outline" onClick={() => setDrawer('publish')}><Sparkles />发布文案</Button><Button variant="outline" disabled={!ready || !!busy} onClick={() => run('保存草稿', async () => { await api('project', project); setMessage('草稿已保存在本机'); })}><Save />保存草稿</Button><Button disabled={!!busy || !!job || !exportReady(project)} onClick={() => run('提交导出', async () => { const r = await api<{ id: string }>('render', project); setJob(r.id); setProgress(0); setDownload(''); })}>{job ? <LoaderCircle className="animate-spin" /> : <Download />}{job ? `导出 ${Math.round(progress * 100)}%` : '导出视频'}</Button></div>
+            <div className="header-actions"><Button variant="ghost" disabled={!!busy || savingCopy} onClick={() => navigate({ to: '/' })}>← 返回作品</Button><span className="local-badge"><span />本地创作</span><Button variant="outline" onClick={() => setDrawer('cover')}><ImageDown />设计封面</Button><Button variant="outline" onClick={() => setDrawer('publish')}><Sparkles />发布文案</Button><span className="save-status" role="status" aria-live="polite">{({ saved: '已保存', pending: '等待保存…', saving: '保存中…', error: '保存失败', conflict: '保存冲突' })[saver.status]}</span>{saver.status === 'error' && <Button variant="outline" onClick={() => saver.flush()}>重试保存</Button>}<Button disabled={!!busy || !!job || !exportReady(project)} onClick={() => run('提交导出', async () => { if (!(await saver.flush())) return; exportedContent.current = JSON.stringify(project); const r = await api<{ id: string }>(`render?projectId=${initialRecord.id}`, project); setJob(r.id); setProgress(0); setDownload(''); })}>{job ? <LoaderCircle className="animate-spin" /> : <Download />}{job ? `导出 ${Math.round(progress * 100)}%` : '导出视频'}</Button></div>
         </header>
+        {savingCopy && <p role="status">正在另存为新作品…</p>}
+        <div className="project-title-row"><label htmlFor="project-title">作品名称</label><input id="project-title" className="input" maxLength={80} value={project.title} onChange={e => update({ ...project, title: e.target.value })} /></div>
+        {(saver.status === 'error' || saver.status === 'conflict') && <div className="project-error" role="alert"><span>{saver.error}</span>{saver.status === 'conflict' && <><Button variant="outline" disabled={!!busy || savingCopy} onClick={() => { if (window.confirm('重新加载会放弃此页面尚未保存的修改，是否继续？')) { bypassLeave.current = true; window.location.reload(); } }}>重新加载</Button><Button disabled={!!busy || savingCopy} onClick={saveCopy}>另存为新作品</Button></>}</div>}
         <div className="page-intro"><div><span className="eyebrow">EVERYDAY ENGLISH, ONE PHOTO AT A TIME</span><h1>把生活，拍成一堂小课。</h1></div><div className="workflow"><span>01 素材</span><ChevronRight /><span>02 单词</span><ChevronRight /><span>03 成片</span></div></div>
         <Toast
             kind={(error ? 'error' : busy || job ? 'loading' : message ? 'success' : warningText ? 'warning' : undefined) as ToastKind | undefined}

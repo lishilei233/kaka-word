@@ -13,6 +13,7 @@ import type {
   BootstrapResult,
   DeviceChecking,
   EntitlementSummary,
+  InstallationMetric,
   QuotaReservation,
   RecognitionFeedbackInput,
   StoreNotification,
@@ -78,14 +79,15 @@ export class PostgresAccessService implements AccessService {
       await client.query("BEGIN");
       const installation = await client.query<InstallationRow>(
         `
-          INSERT INTO picture_word_installations (installation_hash, free_used)
-          VALUES ($1, $2)
+          INSERT INTO picture_word_installations (installation_hash, free_used, store_environment)
+          VALUES ($1, $2, $3)
           ON CONFLICT (installation_hash) DO UPDATE
           SET free_used = GREATEST(picture_word_installations.free_used, EXCLUDED.free_used),
+              store_environment = COALESCE(EXCLUDED.store_environment, picture_word_installations.store_environment),
               updated_at = clock_timestamp()
           RETURNING id::text, free_used
         `,
-        [installationHash, deviceUsed],
+        [installationHash, deviceUsed, input.storeEnvironment ?? null],
       );
       installationId = requiredRow(installation.rows[0], "installation").id;
       await client.query(
@@ -108,23 +110,31 @@ export class PostgresAccessService implements AccessService {
       installationId,
       subscriptionEnvironment: null,
       originalTransactionId: null,
+      storeEnvironment: input.storeEnvironment ?? null,
     };
     return { accessToken: rawToken, entitlement: await this.status(principal) };
   }
 
-  async authenticate(rawToken: string | undefined): Promise<AccessPrincipal | null> {
+  async authenticate(rawToken: string | undefined, storeEnvironment?: AccessEnvironment): Promise<AccessPrincipal | null> {
     if (!rawToken?.startsWith("Bearer ")) return null;
     const value = rawToken.slice("Bearer ".length).trim();
     if (!value) return null;
     const tokenHash = this.hash(`access:${value}`);
-    const result = await this.pool.query<AccessTokenRow>(
-      `
-        UPDATE picture_word_access_tokens
-        SET last_used_at = clock_timestamp()
-        WHERE token_hash = $1 AND expires_at > clock_timestamp()
-        RETURNING token_hash, installation_id::text, subscription_environment, original_transaction_id
-      `,
-      [tokenHash],
+    const result = await this.pool.query<AccessTokenRow & { store_environment: AccessEnvironment | null }>(
+      `WITH used AS (
+         UPDATE picture_word_access_tokens SET last_used_at = clock_timestamp()
+         WHERE token_hash = $1 AND expires_at > clock_timestamp()
+         RETURNING token_hash, installation_id, subscription_environment, original_transaction_id
+       ), installation AS (
+         UPDATE picture_word_installations i
+         SET store_environment = COALESCE($2, i.store_environment)
+         FROM used WHERE i.id = used.installation_id
+         RETURNING i.store_environment
+       )
+       SELECT used.token_hash, used.installation_id::text, used.subscription_environment,
+              used.original_transaction_id, installation.store_environment
+       FROM used CROSS JOIN installation`,
+      [tokenHash, storeEnvironment ?? null],
     );
     const row = result.rows[0];
     if (!row) return null;
@@ -133,6 +143,7 @@ export class PostgresAccessService implements AccessService {
       installationId: row.installation_id,
       subscriptionEnvironment: row.subscription_environment,
       originalTransactionId: row.original_transaction_id,
+      storeEnvironment: row.store_environment,
     };
   }
 
@@ -264,7 +275,7 @@ export class PostgresAccessService implements AccessService {
     );
   }
 
-  async recordRecognitionFeedback(input: RecognitionFeedbackInput): Promise<void> {
+  async recordRecognitionFeedback(installationId: string, input: RecognitionFeedbackInput, storeEnvironment?: AccessEnvironment | null): Promise<void> {
     const original = normalizeRecognitionWord(input.original);
     const selected = normalizeRecognitionWord(input.selected);
     const client = await this.pool.connect();
@@ -280,6 +291,17 @@ export class PostgresAccessService implements AccessService {
          SET confirmation_count = picture_word_recognition_confirmations_daily.confirmation_count + 1,
              updated_at = clock_timestamp()`,
         [original.english, original.chinese, selected.english, selected.chinese, input.selection],
+      );
+
+      await client.query(
+        `INSERT INTO picture_word_installation_metrics_daily
+          (installation_id, metric_date, environment, confirmation_count, reselection_count)
+         VALUES ($1::uuid, (clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date, $3, 1, $2)
+         ON CONFLICT (installation_id, metric_date, environment) DO UPDATE
+         SET confirmation_count = picture_word_installation_metrics_daily.confirmation_count + 1,
+             reselection_count = picture_word_installation_metrics_daily.reselection_count + EXCLUDED.reselection_count,
+             updated_at = clock_timestamp()`,
+        [installationId, input.selection === "first" ? 0 : 1, storeEnvironment ?? "Unknown"],
       );
 
       if (input.selection !== "first") {
@@ -302,6 +324,19 @@ export class PostgresAccessService implements AccessService {
     } finally {
       client.release();
     }
+  }
+
+  async recordInstallationMetric(installationId: string, metric: InstallationMetric, storeEnvironment?: AccessEnvironment | null): Promise<void> {
+    const column = metric === "recognition_attempt" ? "recognition_attempt_count" : "recognition_success_count";
+    await this.pool.query(
+      `INSERT INTO picture_word_installation_metrics_daily
+        (installation_id, metric_date, environment, ${column})
+       VALUES ($1::uuid, (clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date, $2, 1)
+       ON CONFLICT (installation_id, metric_date, environment) DO UPDATE
+       SET ${column} = picture_word_installation_metrics_daily.${column} + 1,
+           updated_at = clock_timestamp()`,
+      [installationId, storeEnvironment ?? "Unknown"],
+    );
   }
 
   async reserveAnalyze(
@@ -770,6 +805,7 @@ export class PostgresAccessService implements AccessService {
         installationId: row.installation_id,
         subscriptionEnvironment: row.subject_id.slice(0, separator) as AccessEnvironment,
         originalTransactionId: row.subject_id.slice(separator + 1),
+        storeEnvironment: null,
       };
     }
     return {
@@ -777,6 +813,7 @@ export class PostgresAccessService implements AccessService {
       installationId: row.installation_id,
       subscriptionEnvironment: null,
       originalTransactionId: null,
+      storeEnvironment: null,
     };
   }
 

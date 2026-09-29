@@ -18,10 +18,11 @@ enum PhotoWordCardStatus: Equatable {
 
 struct ResultView: View {
     let image: UIImage
-    let recordID: UUID
+    let recordID: UUID?
     var missionUpdate: MissionUpdate?
     var revealsAnnotations = true
     var usesNavigationBackButton = false
+    var focusedWord: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
@@ -40,20 +41,30 @@ struct ResultView: View {
     init(
         image: UIImage,
         result: AnalyzeResult,
-        recordID: UUID,
+        recordID: UUID?,
         missionUpdate: MissionUpdate? = nil,
         revealsAnnotations: Bool = true,
-        usesNavigationBackButton: Bool = false
+        usesNavigationBackButton: Bool = false,
+        focusedWord: String? = nil
     ) {
         self.image = image
         self.recordID = recordID
         self.missionUpdate = missionUpdate
         self.revealsAnnotations = revealsAnnotations
+        self.focusedWord = focusedWord
         self.usesNavigationBackButton = usesNavigationBackButton
         _result = State(initialValue: result)
     }
 
     var body: some View {
+        if usesNavigationBackButton || focusedWord != nil {
+            resultContent
+        } else {
+            resultContent.pictureWordBackSwipe(action: close)
+        }
+    }
+
+    private var resultContent: some View {
         ZStack(alignment: .bottom) {
             NotebookBackground()
             PhotoWordCardDetailView(
@@ -68,9 +79,10 @@ struct ResultView: View {
                 onFeedback: {
                     openFeedback()
                 },
-                onRetry: retry,
-                onResultChange: persist,
-                usesNavigationBackButton: usesNavigationBackButton
+                onRetry: recordID == nil ? nil : retry,
+                onResultChange: recordID == nil ? nil : persist,
+                usesNavigationBackButton: usesNavigationBackButton,
+                focusedWord: focusedWord
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -103,7 +115,6 @@ struct ResultView: View {
             PaywallView(onPurchaseCompleted: retry)
                 .environmentObject(membership)
         }
-        .pictureWordBackSwipe(action: close)
     }
 
     private var visibleResult: AnalyzeResult {
@@ -163,7 +174,7 @@ struct ResultView: View {
     }
 
     private func handleReanalysisPhase(_ phase: AnalysisPhase) {
-        guard isReanalyzing else { return }
+        guard isReanalyzing, let recordID else { return }
         switch phase {
         case .success(let updatedResult):
             do {
@@ -183,6 +194,7 @@ struct ResultView: View {
     }
 
     private func persist(_ updated: AnalyzeResult) -> String? {
+        guard let recordID else { return "当前照片尚未保存。" }
         do {
             try historyStore.updateResult(id: recordID, result: updated)
             result = updated
@@ -257,6 +269,7 @@ struct PhotoWordCardDetailView: View {
     var onRetry: (() -> Void)?
     var onResultChange: ((AnalyzeResult) -> String?)?
     var usesNavigationBackButton = false
+    var focusedWord: String? = nil
 
     @State private var selectedObject: LearningObject?
     @State private var confirmationObject: LearningObject?
@@ -269,7 +282,7 @@ struct PhotoWordCardDetailView: View {
     @State private var editingObjectID: String?
     @State private var suppressPageDismissUntil = Date.distantPast
     @State private var isRevealingCompletion = false
-    @StateObject private var speech = SpeechService()
+    @StateObject private var speech = SpeechService(refreshesVoicesOnInit: false)
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @EnvironmentObject private var membership: MembershipStore
@@ -308,16 +321,18 @@ struct PhotoWordCardDetailView: View {
             legacyHeader
                 .zIndex(10)
         }
+        .onDisappear { speech.stop() }
         .sheet(item: $selectedObject) { object in
             WordDetailSheet(
                 object: object,
                 objects: displayedObjects,
                 photoProvider: { object, _ in
-                    WordDetailPhoto(recordID: sourceRecordID, date: nil, objects: [object], imageSize: image.size, load: { image })
+                    WordDetailPhoto(recordID: sourceRecordID, date: nil, objects: [object], imageSize: image.size, snapshot: result, load: { image })
                 },
                 onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil,
                 onDelete: status.isComplete && onResultChange != nil ? deleteObject : nil,
-                onManualCorrection: status.isComplete && onResultChange != nil ? reportRecognitionFeedback : nil
+                onManualCorrection: status.isComplete && onResultChange != nil ? reportRecognitionFeedback : nil,
+                onReturnToPhoto: { selectedObject = nil }
             )
         }
         .sheet(item: $confirmationObject, onDismiss: finishConfirmationPresentation) { object in
@@ -388,7 +403,7 @@ struct PhotoWordCardDetailView: View {
                         .font(.system(size: 14, weight: .bold))
                         .frame(width: 50, height: 50)
                 }
-                .accessibilityLabel("返回")
+                .accessibilityLabel(focusedWord == nil ? "返回" : "关闭照片")
                 .buttonStyle(.plain)
             }
         } trailing: {
@@ -560,6 +575,9 @@ struct PhotoWordCardDetailView: View {
             revealsAnnotations: revealsAnnotations,
             isEditable: status.isComplete && onResultChange != nil,
             masteredObjectIDs: masteredObjectIDs,
+            emphasizedObjectIDs: focusedWord == nil ? nil : Set(result.objects.filter {
+                WordLearningStore.normalizedKey(for: $0.english) == WordLearningStore.normalizedKey(for: focusedWord ?? "")
+            }.map(\.id)),
             editingObjectID: annotationEditingBinding,
             showsShadow: false,
             usesOriginalAspectRatio: true
@@ -662,7 +680,7 @@ struct PhotoWordCardDetailView: View {
     }
 
     private func presentNextConfirmation() {
-        guard status.isComplete,
+        guard focusedWord == nil, status.isComplete,
               onResultChange != nil,
               confirmationObject == nil,
               selectedObject == nil else { return }

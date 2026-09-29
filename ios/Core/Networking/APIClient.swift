@@ -92,6 +92,9 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
         request.timeoutInterval = 120
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
+        if let environment = credentials.storeEnvironment {
+            request.setValue(environment, forHTTPHeaderField: "X-Store-Environment")
+        }
         request.setValue(credentials.deviceCheckToken, forHTTPHeaderField: "X-DeviceCheck-Token")
         request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Operation-ID")
         let body = MultipartBuilder(boundary: boundary)

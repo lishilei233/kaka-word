@@ -7,6 +7,7 @@ import {
   type BootstrapInput,
   type BootstrapResult,
   type EntitlementSummary,
+  type InstallationMetric,
   type QuotaReservation,
   type RecognitionFeedbackInput,
   type StoreSyncResult,
@@ -23,6 +24,7 @@ export class DisabledAccessService implements AccessService {
       installationId: "disabled",
       subscriptionEnvironment: null,
       originalTransactionId: null,
+      storeEnvironment: null,
     };
   }
 
@@ -39,7 +41,8 @@ export class DisabledAccessService implements AccessService {
 
   async processStoreNotification(_signedPayload: string, _requestId?: string): Promise<void> {}
   async recordMetric(_input: AggregateMetricInput): Promise<void> {}
-  async recordRecognitionFeedback(_input: RecognitionFeedbackInput): Promise<void> {}
+  async recordRecognitionFeedback(_installationId: string, _input: RecognitionFeedbackInput): Promise<void> {}
+  async recordInstallationMetric(_installationId: string, _metric: InstallationMetric): Promise<void> {}
 
   async reserveAnalyze(): Promise<QuotaReservation> {
     return { allowed: true, reservationId: randomUUID(), entitlement: disabledEntitlement() };

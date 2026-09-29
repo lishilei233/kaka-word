@@ -434,32 +434,126 @@ final class WordLearningStoreTests: XCTestCase {
         XCTAssertEqual(fallback.size.width / fallback.size.height, 4, accuracy: 0.01)
     }
 
-    func testPhotoNavigationKeepsFixedHeightWhenReturningFromPreview() {
-        let record = makeRecord(word: "cup", chinese: "杯子", date: Date())
-        let photo = WordDetailPhoto(recordID: record.id, date: nil, objects: [], load: { nil })
+    func testWordDetailSessionRetainsGalleryAndSpeechUntilClosed() {
+        let session = WordDetailSession()
+        let photo = WordDetailPhoto(recordID: UUID(), date: nil, objects: [], load: { nil })
         let gallery = WordPhotoRoute(content: .gallery([photo], "cup", nil))
-        let preview = WordPhotoRoute(content: .preview(photo, "cup", false))
-        for detent in WordPhotoNavigationState.detents {
-            for prefix in [[], [gallery]] as [[WordPhotoRoute]] {
-                var navigation = WordPhotoNavigationState()
-                XCTAssertEqual(navigation.transition(to: prefix + [preview], currentDetent: detent), detent)
-                XCTAssertEqual(navigation.transition(to: prefix + [preview], currentDetent: detent), detent)
-                XCTAssertEqual(navigation.path.last, preview)
-                XCTAssertEqual(navigation.transition(to: [], currentDetent: detent), detent)
-            }
+        session.navigation.transition(to: [gallery])
+        session.selectedIndex = 3
+        session.galleryPosition = photo.id
+        XCTAssertTrue(session.autoPlayTracker.shouldPlay(objectID: "cup", english: "cup", isEnabled: true))
+        XCTAssertFalse(session.autoPlayTracker.shouldPlay(objectID: "cup", english: "cup", isEnabled: true))
+        XCTAssertEqual(session.navigation.path, [gallery])
+        session.reset()
+        XCTAssertNil(session.selectedIndex)
+        XCTAssertNil(session.galleryPosition)
+        XCTAssertTrue(session.navigation.path.isEmpty)
+        XCTAssertTrue(session.autoPlayTracker.shouldPlay(objectID: "cup", english: "cup", isEnabled: true))
+    }
+
+    func testCurrentPhotoUsesUnsavedSnapshotAndDeletedHistoryDoesNotFallBack() throws {
+        let history = HistoryStore(container: container)
+        let record = makeRecord(word: "cup", chinese: "杯子", date: Date())
+        let image = UIImage()
+        let current = WordDetailPhoto(recordID: nil, date: nil, objects: record.result.allWords,
+                                      snapshot: record.result, load: { image })
+        let opened = try WordPhotoPresentation.resolve(photo: current, word: "cup", history: history)
+        XCTAssertNil(opened.recordID)
+        XCTAssertEqual(opened.result.allWords, record.result.allWords)
+        XCTAssertTrue(opened.image === image)
+        let deleted = WordDetailPhoto(recordID: record.id, date: nil, objects: [],
+                                      snapshot: record.result, load: { image })
+        XCTAssertThrowsError(try WordPhotoPresentation.resolve(photo: deleted, word: "cup", history: history))
+        let missing = WordDetailPhoto(recordID: nil, date: nil, objects: [], snapshot: record.result, load: { nil })
+        XCTAssertThrowsError(try WordPhotoPresentation.resolve(photo: missing, word: "cup", history: history))
+    }
+
+    func testAdaptiveSheetOnlyScrollsWhenContentExceedsViewport() {
+        XCTAssertEqual(WordSheetSizing.height(content: 400, chrome: 72), 488)
+        XCTAssertFalse(WordSheetSizing.needsScrolling(content: 400, viewport: 400))
+        XCTAssertFalse(WordSheetSizing.needsScrolling(content: 400, viewport: 500))
+        XCTAssertFalse(WordSheetSizing.needsScrolling(content: 400.5, viewport: 400))
+        XCTAssertTrue(WordSheetSizing.needsScrolling(content: 800, viewport: 620))
+    }
+
+    func testUnmeasuredWordDoesNotReplaceCurrentSheetHeight() {
+        XCTAssertNil(WordSheetSizing.detent(content: nil, chrome: 72))
+        XCTAssertNil(WordSheetSizing.detent(content: 500, chrome: nil))
+        XCTAssertEqual(WordSheetSizing.detent(content: 500, chrome: 72), .height(588))
+        XCTAssertEqual(WordSheetSizing.detent(content: 300, chrome: 72), .height(388))
+    }
+
+    func testSheetDefersHeightChangesUntilPagingStops() {
+        var resize = WordSheetResizeState()
+        XCTAssertTrue(resize.update(.height(480), isPaging: false))
+        XCTAssertFalse(resize.update(.height(720), isPaging: true))
+        XCTAssertEqual(resize.applied, .height(480))
+        XCTAssertFalse(resize.update(.height(540), isPaging: true))
+        XCTAssertTrue(resize.update(.height(540), isPaging: false))
+        XCTAssertEqual(resize.applied, .height(540))
+        XCTAssertFalse(resize.update(.height(540), isPaging: false))
+    }
+
+    func testCancelledPagingKeepsOriginalHeightAndOversizeContentIsCapped() {
+        var resize = WordSheetResizeState()
+        _ = resize.update(.height(480), isPaging: false)
+        _ = resize.update(.height(720), isPaging: true)
+        XCTAssertFalse(resize.update(.height(480), isPaging: false))
+        XCTAssertEqual(resize.applied, .height(480))
+        XCTAssertEqual(WordSheetTarget.height(1100).resolved(maximum: 750), 750)
+        XCTAssertEqual(WordSheetTarget.height(400).resolved(maximum: 750), 400)
+    }
+
+    func testNativeSheetResizesWithoutReplacingItsDetentIdentifier() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let session = WordDetailSession()
+        session.detent = .height(300)
+        let host = UIHostingController(rootView: SheetResizeProbe(session: session))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            host.dismiss(animated: false)
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
         }
+        for _ in 0..<40 {
+            if host.presentedViewController?.sheetPresentationController?.detents.first?.identifier.rawValue == "word-content" { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let presented = try XCTUnwrap(host.presentedViewController)
+        let sheet = try XCTUnwrap(presented.sheetPresentationController)
+        let identifier = sheet.detents.first?.identifier
+        XCTAssertEqual(identifier?.rawValue, "word-content")
+        // Wait for the initial modal transition before comparing resolved frame heights.
+        try await Task.sleep(for: .milliseconds(400))
+        let initialHeight = presented.view.bounds.height
+        session.detent = .height(500)
+        for _ in 0..<40 {
+            if presented.view.bounds.height > initialHeight + 150 { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(sheet.detents.first?.identifier, identifier)
+        XCTAssertGreaterThan(presented.view.bounds.height, initialHeight + 150)
     }
 
-    func testPhotoViewportReservesAspectRatioBeforeImageDecoding() {
-        XCTAssertEqual(WordPhotoViewportLayout.height(for: 320, imageSize: CGSize(width: 1600, height: 900)), 180)
-        XCTAssertEqual(WordPhotoViewportLayout.height(for: 320, imageSize: CGSize(width: 900, height: 1600)), 480)
-        XCTAssertEqual(WordPhotoViewportLayout.height(for: 320, imageSize: nil), 240)
-        XCTAssertEqual(WordPhotoViewportLayout.height(for: 320, imageSize: .zero), 240)
-        XCTAssertEqual(WordPhotoViewportLayout.height(for: 0, imageSize: nil), 0)
-    }
-
-    func testWordPhotoSheetHasOneFixedHeight() {
-        XCTAssertEqual(WordPhotoNavigationState.detents, [.large])
+    func testSavedPhotoResolvesLatestHistoryResult() throws {
+        let history = HistoryStore(container: container)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        }
+        let original = makeRecord(word: "cup", chinese: "杯子", date: Date()).result
+        let record = try history.save(image: image, result: original)
+        defer { history.delete(record) }
+        let updated = makeRecord(word: "book", chinese: "书", date: Date()).result
+        try history.updateResult(id: record.id, result: updated)
+        let photo = WordDetailPhoto(recordID: record.id, date: nil, objects: original.allWords, snapshot: original, load: { nil })
+        let resolved = try WordPhotoPresentation.resolve(photo: photo, word: "book", history: history)
+        XCTAssertEqual(resolved.recordID, record.id)
+        XCTAssertEqual(resolved.result, try XCTUnwrap(history.record(id: record.id)).result)
+        XCTAssertEqual(resolved.result.allWords.map(\.english), ["book"])
     }
 
     private func makeStore(now: Date = Date()) -> WordLearningStore {
@@ -605,5 +699,16 @@ final class ReviewHitTestingTests: XCTestCase {
             CGRect(x: 0.96, y: 0.94, width: 0.08, height: 0.1),
             with: context
         ))
+    }
+}
+
+
+private struct SheetResizeProbe: View {
+    @ObservedObject var session: WordDetailSession
+
+    var body: some View {
+        Color.clear.sheet(isPresented: .constant(true)) {
+            Color.clear.background(WordSheetResizeBridge(target: session.detent, reduceMotion: true))
+        }
     }
 }

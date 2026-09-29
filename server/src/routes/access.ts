@@ -8,6 +8,7 @@ import { authenticateAccess, unauthorized } from "./access-auth.js";
 const bootstrapSchema = z.object({
   installationId: z.string().uuid(),
   deviceToken: z.string().trim().min(16).max(16_384),
+  storeEnvironment: z.enum(["Sandbox", "Production", "Xcode", "LocalTesting"]).optional(),
 });
 
 export function registerAccessRoutes(

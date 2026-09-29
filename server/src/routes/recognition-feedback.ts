@@ -30,7 +30,7 @@ export function registerRecognitionFeedbackRoute(
     if (!parsed.success) return c.json({ error: "INVALID_RECOGNITION_FEEDBACK" }, 400);
 
     try {
-      await accessService.recordRecognitionFeedback(parsed.data);
+      await accessService.recordRecognitionFeedback(principal.installationId, parsed.data, principal.storeEnvironment);
       return c.body(null, 204);
     } catch (error) {
       // Do not include a request ID or the submitted words in this privacy-sensitive log.

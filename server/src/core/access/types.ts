@@ -1,6 +1,7 @@
 export type SubscriptionState = "none" | "active" | "grace" | "expired" | "revoked";
 export type SyncedTransactionState = Exclude<SubscriptionState, "none">;
 export type AccessEnvironment = "Sandbox" | "Production" | "Xcode" | "LocalTesting";
+export const accessEnvironments: readonly AccessEnvironment[] = ["Sandbox", "Production", "Xcode", "LocalTesting"];
 
 export type EntitlementSummary = {
   tier: "free" | "member";
@@ -23,11 +24,13 @@ export type AccessPrincipal = {
   installationId: string;
   subscriptionEnvironment: AccessEnvironment | null;
   originalTransactionId: string | null;
+  storeEnvironment: AccessEnvironment | null;
 };
 
 export type BootstrapInput = {
   installationId: string;
   deviceToken: string;
+  storeEnvironment?: AccessEnvironment;
 };
 
 export type BootstrapResult = {
@@ -58,6 +61,8 @@ export type RecognitionFeedbackInput = {
   selected: RecognitionFeedbackWord;
   selection: RecognitionFeedbackSelection;
 };
+
+export type InstallationMetric = "recognition_attempt" | "recognition_success";
 
 export type SubscriptionTransaction = {
   environment: AccessEnvironment;
@@ -112,7 +117,7 @@ export interface DeviceChecking {
 
 export interface AccessService {
   bootstrap(input: BootstrapInput): Promise<BootstrapResult>;
-  authenticate(rawToken: string | undefined): Promise<AccessPrincipal | null>;
+  authenticate(rawToken: string | undefined, storeEnvironment?: AccessEnvironment): Promise<AccessPrincipal | null>;
   status(principal: AccessPrincipal): Promise<EntitlementSummary>;
   syncSubscription(
     principal: AccessPrincipal,
@@ -122,7 +127,8 @@ export interface AccessService {
   ): Promise<StoreSyncResult>;
   processStoreNotification(signedPayload: string, requestId?: string): Promise<void>;
   recordMetric(input: AggregateMetricInput): Promise<void>;
-  recordRecognitionFeedback(input: RecognitionFeedbackInput): Promise<void>;
+  recordRecognitionFeedback(installationId: string, input: RecognitionFeedbackInput, storeEnvironment?: AccessEnvironment | null): Promise<void>;
+  recordInstallationMetric(installationId: string, metric: InstallationMetric, storeEnvironment?: AccessEnvironment | null): Promise<void>;
   reserveAnalyze(principal: AccessPrincipal, operationId: string, deviceToken?: string): Promise<QuotaReservation>;
   commitAnalyze(reservationId: string, deviceToken?: string): Promise<EntitlementSummary>;
   releaseAnalyze(reservationId: string): Promise<void>;

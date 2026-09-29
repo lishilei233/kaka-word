@@ -1,5 +1,5 @@
 import { annotationHighlight, leaderStyle, objectCapsuleStyle } from './annotation-style';
-import { AbsoluteFill, Audio, Freeze, Img, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Audio, Freeze, Img, OffthreadVideo, Sequence, interpolate, interpolateColors, staticFile, useCurrentFrame } from 'remotion';
 import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, FPS, openingMedia, timeline, objectWords, readingWords, type Project } from '../lib/project';
 import { SceneCards } from './SceneCards';
 import { SceneSentence } from './SceneSentence';
@@ -17,6 +17,14 @@ const round = '"Hiragino Maru Gothic ProN", "PingFang SC", sans-serif';
 const center: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const twoLines: CSSProperties = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
 function rectStyle(rect: Rect): CSSProperties { return { position: 'absolute', left: rect.x, top: rect.y, width: rect.width, height: rect.height }; }
+function mixRect(from: Rect, to: Rect, progress: number): Rect {
+    return {
+        x: interpolate(progress, [0, 1], [from.x, to.x]),
+        y: interpolate(progress, [0, 1], [from.y, to.y]),
+        width: interpolate(progress, [0, 1], [from.width, to.width]),
+        height: interpolate(progress, [0, 1], [from.height, to.height]),
+    };
+}
 
 type AnnotationMove = (id: string, kind: 'label' | 'target', point: { x: number; y: number }) => void;
 
@@ -26,10 +34,30 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
     const captionSegment = t.captions.find(s => frame >= s.from && frame < s.from + s.duration) ?? t.captions[0];
     const interactionActive = !!p.interaction?.enabled && frame >= t.interactionFrom;
     const opening = !direct && frame < t.intro;
+    const transitioning = !direct && frame >= t.intro && frame < t.intro + t.reveal;
+    const revealProgress = !direct
+        ? interpolate(frame, [t.intro, t.intro + t.reveal], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+        : 1;
     const layout = filmLayout(p);
-    const photo = opening ? layout.camera : layout.photo;
-    const image = opening ? layout.cameraImage : layout.photoImage;
+    const photo = opening ? layout.camera : transitioning ? mixRect(layout.camera, layout.photo, revealProgress) : layout.photo;
+    const image = opening ? layout.cameraImage : transitioning ? mixRect(layout.cameraImage, layout.photoImage, revealProgress) : layout.photoImage;
     const mediaStyle: CSSProperties = { ...rectStyle({ ...image, x: image.x - photo.x, y: image.y - photo.y }), objectFit: 'contain' };
+    const revealFrame = Math.min(t.intro + t.reveal, Math.max(t.intro, frame));
+    const stageBackground = direct
+        ? paper
+        : interpolateColors(revealFrame, [t.intro, t.intro + t.reveal], ['#191919', paper]);
+    const textColor = direct
+        ? ink
+        : interpolateColors(revealFrame, [t.intro, t.intro + t.reveal], ['#ffffff', ink]);
+    const paperLineOpacity = transitioning ? revealProgress : opening ? 0 : 1;
+    const mediaBackground = opening
+        ? '#292929'
+        : transitioning
+            ? interpolateColors(revealProgress, [0, 1], ['#292929', '#e9dec9'])
+            : '#e9dec9';
+    const mediaRadius = opening ? 0 : transitioning ? 18 * revealProgress : 18;
+    const mediaShadowOpacity = opening ? 0 : transitioning ? revealProgress : 1;
+    const viewfinder = transitioning ? mixRect(layout.viewfinder, layout.photo, revealProgress) : layout.viewfinder;
     const captureFrame = Math.round(p.captureSeconds * FPS);
     const { holdFrames, startFrom } = openingMedia(p);
     const wordIndex = current ? t.words.findIndex(item => item.word.id === current.id) : -1;
@@ -88,18 +116,13 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
         const finished = drag.current; drag.current = undefined;
         onAnnotationMove(finished.id, finished.kind, finished.point);
     }
-    return <AbsoluteFill style={{ background: opening ? '#191919' : paper }}>
-        <div style={{ position: 'absolute', width: 540, height: 960, transform: `scale(${2 * renderScale})`, transformOrigin: 'top left', color: opening ? '#fff' : ink, fontFamily: round, overflow: 'hidden', backgroundImage: opening ? undefined : 'repeating-linear-gradient(0deg,transparent 0px,transparent 27px,rgba(109,99,88,.055) 27px,rgba(109,99,88,.055) 28px)' }}>
-            <div data-film-media={opening ? 'camera' : 'photo'} style={{ ...rectStyle(photo), overflow: 'hidden', borderRadius: opening ? 0 : 18, background: opening ? '#292929' : '#e9dec9', boxShadow: opening ? undefined : 'inset 0 0 0 4px #fffdf8, 0 3px 0 #24211e24' }}>
+    return <AbsoluteFill style={{ background: stageBackground }}>
+        <div style={{ position: 'absolute', width: 540, height: 960, transform: `scale(${2 * renderScale})`, transformOrigin: 'top left', color: textColor, fontFamily: round, overflow: 'hidden', backgroundImage: `repeating-linear-gradient(0deg,transparent 0px,transparent 27px,rgba(109,99,88,${0.055 * paperLineOpacity}) 27px,rgba(109,99,88,${0.055 * paperLineOpacity}) 28px)` }}>
+            <div data-film-media={opening ? 'camera' : 'photo'} style={{ ...rectStyle(photo), overflow: 'hidden', borderRadius: mediaRadius, background: mediaBackground, boxShadow: `inset 0 0 0 4px rgba(255,253,248,${mediaShadowOpacity}), 0 3px 0 rgba(36,33,30,${0.14 * mediaShadowOpacity})` }}>
                 {p.image && <Img src={p.image} style={mediaStyle} />}
                 {!p.image && <div style={{ ...center, height: '100%', color: '#a69884', flexDirection: 'column', gap: 16 }}><span style={{ fontSize: 54 }}>＋</span><span style={{ fontSize: 17 }}>从一张生活照片开始</span></div>}
                 {opening && p.video && holdFrames > 0 && <Sequence durationInFrames={Math.min(holdFrames, t.intro)} layout="none"><Freeze frame={0}><OffthreadVideo src={p.video} muted style={mediaStyle} /></Freeze></Sequence>}
                 {opening && p.video && captureFrame > 0 && <Sequence from={holdFrames} durationInFrames={Math.max(1, t.intro - holdFrames)} layout="none"><OffthreadVideo src={p.video} startFrom={startFrom} muted style={mediaStyle} /></Sequence>}
-                {opening && <svg viewBox={`0 0 ${photo.width} ${photo.height}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-                    <path d={`M${layout.viewfinder.x+50} ${layout.viewfinder.y+20}H${layout.viewfinder.x+16}V${layout.viewfinder.y+54} M${layout.viewfinder.x+layout.viewfinder.width-50} ${layout.viewfinder.y+20}H${layout.viewfinder.x+layout.viewfinder.width-16}V${layout.viewfinder.y+54} M${layout.viewfinder.x+16} ${layout.viewfinder.y+layout.viewfinder.height-54}V${layout.viewfinder.y+layout.viewfinder.height-20}H${layout.viewfinder.x+50} M${layout.viewfinder.x+layout.viewfinder.width-50} ${layout.viewfinder.y+layout.viewfinder.height-20}H${layout.viewfinder.x+layout.viewfinder.width-16}V${layout.viewfinder.y+layout.viewfinder.height-54}`} stroke="#ffffffbd" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                    <circle cx={layout.viewfinder.x + layout.viewfinder.width / 2} cy={layout.viewfinder.y + layout.viewfinder.height / 2} r="18" fill="none" stroke="#ffffff66" strokeWidth="1.5" />
-                    <path d={`M${layout.viewfinder.x+layout.viewfinder.width/2-28} ${layout.viewfinder.y+layout.viewfinder.height/2}H${layout.viewfinder.x+layout.viewfinder.width/2+28} M${layout.viewfinder.x+layout.viewfinder.width/2} ${layout.viewfinder.y+layout.viewfinder.height/2-28}V${layout.viewfinder.y+layout.viewfinder.height/2+28}`} stroke="#ffffff66" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>}
                 {!opening && <>
                     <svg viewBox={`0 0 ${photo.width} ${photo.height}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>{annotations.routes.map(route => {
                         const segment=t.words.find(item=>item.word.id===route.id), visible=!!segment && frame >= segment.from;
@@ -152,6 +175,11 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
                     <div style={{ fontFamily: mono, fontSize: 12, marginTop: 10, letterSpacing: 2 }}>{String(wordIndex + 1).padStart(2, '0')} / {String(p.words.length).padStart(2, '0')} · 跟我读</div>
                 </> : <></>}
             </div>
+            {!direct && (opening || transitioning) && <svg viewBox="0 0 540 960" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', opacity: opening ? 1 : 1 - revealProgress }}>
+                <path d={`M${viewfinder.x+50} ${viewfinder.y+20}H${viewfinder.x+16}V${viewfinder.y+54} M${viewfinder.x+viewfinder.width-50} ${viewfinder.y+20}H${viewfinder.x+viewfinder.width-16}V${viewfinder.y+54} M${viewfinder.x+16} ${viewfinder.y+viewfinder.height-54}V${viewfinder.y+viewfinder.height-20}H${viewfinder.x+50} M${viewfinder.x+viewfinder.width-50} ${viewfinder.y+viewfinder.height-20}H${viewfinder.x+viewfinder.width-16}V${viewfinder.y+viewfinder.height-54}`} stroke="#ffffffbd" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <circle cx={viewfinder.x + viewfinder.width / 2} cy={viewfinder.y + viewfinder.height / 2} r="18" fill="none" stroke="#ffffff66" strokeWidth="1.5" />
+                <path d={`M${viewfinder.x+viewfinder.width/2-28} ${viewfinder.y+viewfinder.height/2}H${viewfinder.x+viewfinder.width/2+28} M${viewfinder.x+viewfinder.width/2} ${viewfinder.y+viewfinder.height/2-28}V${viewfinder.y+viewfinder.height/2+28}`} stroke="#ffffff66" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>}
             {!direct && frame >= t.intro && frame < t.intro + 5 && <div style={{ position: 'absolute', inset: 0, background: 'white', opacity: (5-(frame-t.intro))/5 }} />}
         </div>
         {!direct && <Sequence from={Math.max(0, t.intro - 3)} durationInFrames={45}><Audio src={staticFile('camera-shutter.mp3')} volume={0.72} pauseWhenBuffering /></Sequence>}

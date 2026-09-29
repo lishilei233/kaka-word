@@ -281,6 +281,7 @@ struct MembershipNotice: Equatable, Sendable {
 struct AccessCredentials: Sendable {
     let accessToken: String
     let deviceCheckToken: String
+    let storeEnvironment: String?
 }
 
 enum AccessCredentialError: LocalizedError, Sendable {
@@ -384,7 +385,8 @@ actor AccessCredentialStore {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(BootstrapRequest(
                 installationId: installationId,
-                deviceToken: deviceToken
+                deviceToken: deviceToken,
+                storeEnvironment: await self.storeEnvironment()
             ))
             let response: BootstrapResponse = try await self.send(
                 request,
@@ -415,6 +417,7 @@ actor AccessCredentialStore {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/access/status"))
         request.timeoutInterval = 15
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let environment = await storeEnvironment() { request.setValue(environment, forHTTPHeaderField: "X-Store-Environment") }
         let response: EntitlementResponse = try await send(
             request,
             retryingTransientFailures: 2,
@@ -436,6 +439,7 @@ actor AccessCredentialStore {
         request.timeoutInterval = 45
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let environment = await storeEnvironment() { request.setValue(environment, forHTTPHeaderField: "X-Store-Environment") }
         request.setValue(requestID, forHTTPHeaderField: "X-Request-ID")
         request.httpBody = try JSONEncoder().encode(StoreSyncRequest(
             signedTransaction: signedTransaction,
@@ -460,6 +464,7 @@ actor AccessCredentialStore {
         request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let environment = await storeEnvironment() { request.setValue(environment, forHTTPHeaderField: "X-Store-Environment") }
         request.httpBody = try? JSONEncoder().encode(MetricRequest(
             eventName: eventName,
             productId: productId,
@@ -481,6 +486,7 @@ actor AccessCredentialStore {
         request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let environment = await storeEnvironment() { request.setValue(environment, forHTTPHeaderField: "X-Store-Environment") }
         request.httpBody = try? JSONEncoder().encode(RecognitionFeedbackRequest(
             original: RecognitionFeedbackWordRequest(english: originalEnglish, chinese: originalChinese),
             selected: RecognitionFeedbackWordRequest(english: selectedEnglish, chinese: selectedChinese),
@@ -492,8 +498,20 @@ actor AccessCredentialStore {
     func credentialsForAnalyze() async throws -> AccessCredentials {
         AccessCredentials(
             accessToken: try await authorizationToken(),
-            deviceCheckToken: try await deviceTokenProvider()
+            deviceCheckToken: try await deviceTokenProvider(),
+            storeEnvironment: await storeEnvironment()
         )
+    }
+
+    private func storeEnvironment() async -> String? {
+        let result = await AppTransaction.shared
+        guard case .verified(let transaction) = result else { return nil }
+        switch transaction.environment {
+        case .production: return "Production"
+        case .sandbox: return "Sandbox"
+        case .xcode: return "Xcode"
+        @unknown default: return nil
+        }
     }
 
     func authorizationToken() async throws -> String {
@@ -1497,6 +1515,7 @@ final class MembershipStore: ObservableObject {
 private struct BootstrapRequest: Encodable {
     let installationId: UUID
     let deviceToken: String
+    let storeEnvironment: String?
 }
 
 private struct CachedEntitlement: Codable {

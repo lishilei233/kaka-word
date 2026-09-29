@@ -44,6 +44,7 @@ test("records authenticated recognition feedback without exposing a request ID",
     selected: { english: "VASE", chinese: "花瓶" },
     selection: "second",
   }]);
+  assert.equal(service.installationIds[0], service.expectedInstallationId);
   assert.equal(logs.some(({ fields }) => "requestId" in fields), false);
   assert.equal(logs.some(({ fields }) => JSON.stringify(fields).includes("should-not-be-logged")), false);
 });
@@ -116,18 +117,22 @@ function appFor(accessService: RecordingAccessService) {
 
 class RecordingAccessService extends DisabledAccessService {
   readonly inputs: RecognitionFeedbackInput[] = [];
+  readonly installationIds: string[] = [];
+  readonly expectedInstallationId = randomUUID();
 
   override async authenticate(rawToken: string | undefined): Promise<AccessPrincipal | null> {
     if (rawToken !== "Bearer test-access-token") return null;
     return {
       accessTokenHash: "test",
-      installationId: randomUUID(),
+      installationId: this.expectedInstallationId,
       subscriptionEnvironment: null,
       originalTransactionId: null,
+      storeEnvironment: null,
     };
   }
 
-  override async recordRecognitionFeedback(input: RecognitionFeedbackInput): Promise<void> {
+  override async recordRecognitionFeedback(installationId: string, input: RecognitionFeedbackInput): Promise<void> {
+    this.installationIds.push(installationId);
     this.inputs.push(input);
   }
 }

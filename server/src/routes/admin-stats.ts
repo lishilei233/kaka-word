@@ -10,6 +10,7 @@ import type { Logger } from "../utils/logger.js";
 
 type Dependencies = { key?: string; repository?: AdminStatsRepository; logger: Logger };
 const allowedDays = new Set([1, 7, 30, 90]);
+const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Dependencies): void {
   app.use("/admin/*", async (c, next) => {
@@ -25,13 +26,38 @@ export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Depend
   app.get("/admin/stats", (c) => c.html(adminStatsPage));
 
   app.get("/admin/api/stats", async (c) => {
-    const days = Number(c.req.query("days") ?? 30);
+    const requestedStartDate = c.req.query("startDate");
+    const requestedEndDate = c.req.query("endDate");
+    const daysValue = c.req.query("days");
+    const allTimeValue = c.req.query("allTime");
     const environment = c.req.query("environment") ?? "Production";
-    if (!allowedDays.has(days) || !isAdminStatsEnvironment(environment)) {
+    let startDate: string | null;
+    let endDate: string | null;
+    if (allTimeValue !== undefined) {
+      if (allTimeValue !== "true" || requestedStartDate !== undefined || requestedEndDate !== undefined || daysValue !== undefined) {
+        return c.json({ error: "INVALID_STATS_QUERY" }, 400);
+      }
+      startDate = null;
+      endDate = null;
+    } else if (requestedStartDate !== undefined || requestedEndDate !== undefined) {
+      if (!requestedStartDate || !requestedEndDate || daysValue !== undefined
+        || !isValidDate(requestedStartDate) || !isValidDate(requestedEndDate)
+        || requestedStartDate > requestedEndDate) {
+        return c.json({ error: "INVALID_STATS_QUERY" }, 400);
+      }
+      startDate = requestedStartDate;
+      endDate = requestedEndDate;
+    } else {
+      const days = daysValue === undefined ? 30 : Number(daysValue);
+      if (!allowedDays.has(days)) return c.json({ error: "INVALID_STATS_QUERY" }, 400);
+      endDate = todayInShanghai();
+      startDate = addDays(endDate, -(days - 1));
+    }
+    if (!isAdminStatsEnvironment(environment)) {
       return c.json({ error: "INVALID_STATS_QUERY" }, 400);
     }
     try {
-      return c.json(await dependencies.repository!.load(days, environment as AdminStatsEnvironment));
+      return c.json(await dependencies.repository!.load(startDate, endDate, environment as AdminStatsEnvironment));
     } catch (error) {
       dependencies.logger.error("admin_stats.load_failed", {
         requestId: c.get("requestId"),
@@ -40,6 +66,26 @@ export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Depend
       return c.json({ error: "STATS_UNAVAILABLE" }, 503);
     }
   });
+}
+
+function isValidDate(value: string): boolean {
+  if (!datePattern.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function todayInShanghai(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)!.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function addDays(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function isAuthorized(header: string | undefined, expectedKey: string): boolean {
@@ -73,18 +119,19 @@ const adminStatsPage = String.raw`<!doctype html>
     body { margin:0; color:var(--ink); font-family:"Avenir Next","PingFang SC","Hiragino Sans GB",sans-serif; background-color:var(--paper); background-image:linear-gradient(var(--line) 1px,transparent 1px),radial-gradient(rgba(37,42,43,.10) .8px,transparent .8px); background-size:100% 32px,18px 18px; }
     body::before { content:""; position:fixed; inset:0 auto 0 54px; width:2px; background:rgba(239,113,95,.22); pointer-events:none; }
     main { width:min(1440px,calc(100% - 36px)); margin:0 auto; padding:36px 0 72px; }
-    header { display:grid; grid-template-columns:1fr auto; gap:24px; align-items:end; margin:0 10px 34px 42px; }
+    header { display:grid; grid-template-columns:1fr; gap:24px; align-items:end; margin:0 10px 34px 42px; }
     .eyebrow,.tag,.section-kicker { font-family:"SFMono-Regular",Menlo,monospace; letter-spacing:.16em; text-transform:uppercase; font-size:11px; font-weight:800; }
     h1 { margin:8px 0 6px; font-family:Georgia,"Songti SC",serif; font-size:clamp(36px,6vw,72px); line-height:.95; letter-spacing:-.04em; }
     .subtitle { max-width:630px; color:var(--muted); font-weight:600; }
     .filters { display:flex; flex-wrap:wrap; gap:10px; padding:12px; background:rgba(255,250,240,.84); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); }
-    select,button { border:0; background:var(--deep); color:var(--ink); border-radius:999px; padding:11px 14px; font:700 13px inherit; cursor:pointer; }
+    select,input,button { border:0; background:var(--deep); color:var(--ink); border-radius:999px; padding:11px 14px; font:700 13px inherit; cursor:pointer; }
     button { background:var(--ink); color:var(--light); min-width:78px; }
     .notice { margin:0 10px 28px 42px; padding:16px 20px; background:var(--sun); border:1px solid rgba(37,42,43,.18); border-radius:14px 24px 18px 12px; font-weight:700; transform:rotate(-.25deg); box-shadow:4px 6px 0 rgba(37,42,43,.08); }
     .section { margin:34px 0 0 42px; }
     .section-head { display:flex; justify-content:space-between; align-items:end; gap:16px; margin:0 8px 14px; }
     h2 { margin:5px 0 0; font-family:Georgia,"Songti SC",serif; font-size:28px; }
     .section-note { color:var(--muted); font-size:13px; font-weight:600; text-align:right; }
+    .device-panel { padding-top:18px; }
     .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; }
     .card,.panel { background:rgba(255,250,240,.93); border:1px solid var(--line); box-shadow:var(--shadow); }
     .card { min-height:132px; padding:18px; border-radius:22px 18px 28px 16px; position:relative; overflow:visible; }
@@ -96,7 +143,7 @@ const adminStatsPage = String.raw`<!doctype html>
     .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; }
     .panel { border-radius:24px; padding:22px; min-height:250px; overflow:visible; position:relative; }
     .card:has(.tip[open]),.panel:has(.tip[open]) { z-index:30; }
-    .span-8 { grid-column:span 8; }.span-7 { grid-column:span 7; }.span-6 { grid-column:span 6; }.span-5 { grid-column:span 5; }.span-4 { grid-column:span 4; }
+    .span-12 { grid-column:span 12; }.span-8 { grid-column:span 8; }.span-7 { grid-column:span 7; }.span-6 { grid-column:span 6; }.span-5 { grid-column:span 5; }.span-4 { grid-column:span 4; }
     .panel h3 { margin:0; font-size:16px; }.muted { color:var(--muted); }
     .panel-title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
     .tip { position:relative; z-index:5; }
@@ -111,7 +158,29 @@ const adminStatsPage = String.raw`<!doctype html>
     .track { height:14px; background:var(--deep); border-radius:999px; overflow:hidden; }.fill { height:100%; min-width:2px; border-radius:inherit; background:var(--accent,var(--mint)); transition:width .5s ease; }
     svg { width:100%; height:190px; overflow:visible; }.line { fill:none; stroke:var(--coral); stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }.area { fill:rgba(239,113,95,.12); }
     .legend { display:flex; gap:14px; flex-wrap:wrap; color:var(--muted); font-size:11px; font-weight:700; margin-top:10px; }
-    table { width:100%; border-collapse:collapse; font-size:13px; } th { text-align:left; color:var(--muted); font-size:10px; letter-spacing:.12em; text-transform:uppercase; } th,td { padding:10px 8px; border-bottom:1px dashed var(--line); } td:last-child,th:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+    .table-wrap { width:100%; overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; font-size:13px; } th { text-align:left; color:var(--ink); font-size:14px; font-weight:850; letter-spacing:.02em; white-space:nowrap; } th,td { padding:10px 8px; border-bottom:1px dashed var(--line); } td:not(:first-child),th:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .device-table { min-width:1080px; }
+    .filter-heading { vertical-align:top; }
+    .heading-content { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .filter-toggle { display:inline-grid; place-items:center; width:25px; height:25px; flex:0 0 25px; padding:0; min-width:0; border:1px solid var(--line); border-radius:8px; background:var(--light); color:var(--muted); font-size:14px; line-height:1; }
+    .filter-toggle:hover,.filter-toggle[aria-pressed="true"] { background:var(--sun); color:var(--ink); }
+    .filter-toggle.is-active { border-color:var(--coral); color:var(--coral); box-shadow:inset 0 0 0 1px var(--coral); }
+    .filter-row td { padding:8px; background:rgba(246,201,76,.12); vertical-align:top; }
+    .column-filter { min-width:130px; max-width:180px; padding:10px; border:1px solid var(--line); border-radius:12px; background:var(--light); box-shadow:0 8px 20px rgba(70,55,34,.10); text-align:left; white-space:normal; }
+    .column-filter label { display:block; margin:0 0 5px; color:var(--muted); font-size:10px; font-weight:750; }
+    .column-filter input,.column-filter select { width:100%; min-width:0; margin:0 0 8px; padding:8px 9px; border:1px solid var(--line); border-radius:9px; background:#fffdf7; color:var(--ink); font:600 12px "Avenir Next","PingFang SC","Hiragino Sans GB",sans-serif; }
+    .filter-pair { display:grid; grid-template-columns:1fr 1fr; gap:7px 6px; }
+    .filter-field { display:block; min-width:0; margin:0; color:var(--muted); font-size:10px; font-weight:750; }
+    .filter-field input,.filter-field select { display:block; margin-top:5px; }
+    .filter-actions { display:flex; gap:6px; margin-top:4px; }
+    .filter-actions button { min-width:0; flex:1; padding:8px 9px; border-radius:9px; font-size:11px; }
+    .filter-actions .clear-column { background:var(--deep); color:var(--ink); }
+    .device-table-status { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 10px; color:var(--muted); font-size:12px; font-weight:700; }
+    .clear-filters { min-width:0; padding:7px 11px; border:1px solid var(--line); background:var(--light); color:var(--ink); font-size:11px; }
+    .clear-filters:disabled { opacity:.48; cursor:default; }
+    .filtered-empty { min-height:120px; }
+    tfoot { font-weight:800; background:rgba(246,201,76,.18); }
     .empty,.error { display:grid; place-items:center; min-height:150px; color:var(--muted); font-weight:700; }.error { color:var(--coral); }
     .loading .panel,.loading .card { opacity:.48; }
     footer { margin:36px 8px 0 50px; color:var(--muted); font-size:11px; font-family:Menlo,monospace; }
@@ -122,12 +191,12 @@ const adminStatsPage = String.raw`<!doctype html>
 </head>
 <body>
 <main id="app" class="loading">
-  <header><div><div class="eyebrow">Picture Word · Operations Notebook</div><h1>数据手账</h1><div class="subtitle">从安装、识别到订阅，把产品每天发生的事情摊开来看。</div></div><div class="filters"><select id="days" aria-label="统计时间范围"><option value="1">今天</option><option value="7">最近 7 天</option><option value="30" selected>最近 30 天</option><option value="90">最近 90 天</option></select><select id="environment" aria-label="订阅环境"><option>Production</option><option>Sandbox</option><option>Xcode</option><option>LocalTesting</option></select><button id="refresh">刷新</button></div></header>
-  <div class="notice">口径提示：付费墙、购买与识别事件没有环境字段，按全部客户端事件统计；订阅快照与交易才按右上角环境筛选。所有转化率均为事件次数口径，不代表独立用户。</div>
-  <section class="section"><div class="section-head"><div><div class="section-kicker">At a glance</div><h2>关键指标概览</h2></div><div class="section-note" id="generated">正在读取数据…</div></div><div class="cards" id="summary"></div></section>
-  <section class="section"><div class="section-head"><div><div class="section-kicker">Usage pulse</div><h2>使用与稳定性</h2></div></div><div class="grid"><div class="panel span-8"><div class="panel-title"><h3>每日识别结果</h3><span data-tip="trend"></span></div><div id="trend"></div></div><div class="panel span-4"><div class="panel-title"><h3>结果构成</h3><span data-tip="results"></span></div><div id="results"></div></div><div class="panel span-4"><div class="panel-title"><h3>免费额度使用分布</h3><span data-tip="freeUsage"></span></div><div id="freeUsage"></div></div><div class="panel span-4"><div class="panel-title"><h3>额度操作</h3><span data-tip="quota"></span></div><div id="quota"></div></div><div class="panel span-4"><div class="panel-title"><h3>订阅状态</h3><span data-tip="subscriptionStates"></span></div><div id="subscriptionStates"></div></div></div></section>
+  <header><div><div class="eyebrow">Picture Word · Operations Notebook</div><h1>数据手账</h1><div class="subtitle">查看所选日期内新增设备的识别表现和当前额度；不限日期时显示所有安装。</div></div></header>
+  <div class="notice">口径提示：设备识别与反馈按设备记录的 StoreKit 环境筛选；无环境归属的数据仅包含在“全部环境”。注册时间按北京时间显示。</div>
+  <div class="section-note" id="generated" style="margin:18px 8px 0 50px">正在读取数据…</div>
+  <section class="section"><div class="section-head"><div><div class="section-kicker">Device detail</div><h2>设备识别统计</h2></div><div class="section-note">识别计数按设备、按日累计；免费额度和会员类型为当前快照</div></div><div class="panel device-panel"><div class="table-wrap" id="devices"></div></div></section>
   <section class="section"><div class="section-head"><div><div class="section-kicker">Conversion trail</div><h2>付费路径</h2></div><div class="section-note">漏斗为全环境事件；产品订阅与交易受环境筛选</div></div><div class="grid"><div class="panel span-7"><div class="panel-title"><h3>事件漏斗</h3><span data-tip="funnel"></span></div><div id="funnel"></div></div><div class="panel span-5"><div class="panel-title"><h3>套餐选择</h3><span data-tip="plans"></span></div><div id="plans"></div></div><div class="panel span-6"><div class="panel-title"><h3>购买结果</h3><span data-tip="purchase"></span></div><div id="purchase"></div></div><div class="panel span-6"><div class="panel-title"><h3>恢复购买</h3><span data-tip="restore"></span></div><div id="restore"></div></div></div></section>
-  <section class="section"><div class="section-head"><div><div class="section-kicker">Recognition quality</div><h2>识别质量</h2></div></div><div class="grid"><div class="panel span-4"><div class="panel-title"><h3>候选选择</h3><span data-tip="selections"></span></div><div id="selections"></div></div><div class="panel span-8"><div class="panel-title"><h3>常见纠正 · Top 20</h3><span data-tip="corrections"></span></div><div id="corrections"></div></div></div></section>
+  <section class="section"><div class="section-head"><div><div class="section-kicker">Recognition quality</div><h2>纠正词</h2></div></div><div class="grid"><div class="panel span-12"><div class="panel-title"><h3>常见纠正 · Top 20</h3><span data-tip="corrections"></span></div><div id="corrections"></div></div></div></section>
   <footer id="footer"></footer>
 </main>
 <script>
@@ -163,16 +232,121 @@ function lineChart(rows,days){const map=new Map(rows.map(x=>[x.date,x.count]));c
 function tipControl(t){return '<details class="tip"><summary aria-label="查看指标说明">i</summary><div class="tip-pop"><p><b>是什么：</b>'+escapeHtml(t[0])+'</p><p><b>表示什么：</b>'+escapeHtml(t[1])+'</p><p><b>如何统计：</b>'+escapeHtml(t[2])+'</p><p><b>注意：</b>'+escapeHtml(t[3])+'</p></div></details>'}
 function card(label,value,foot,color,tip){return '<article class="card" style="--accent:'+color+'">'+tipControl(tip)+'<div class="card-label">'+label+'</div><div class="card-value">'+value+'</div><div class="card-foot">'+foot+'</div></article>'}
 function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-async function load(){const app=$('app');app.classList.add('loading');try{const res=await fetch('/admin/api/stats?days='+$('days').value+'&environment='+encodeURIComponent($('environment').value));if(!res.ok)throw new Error('HTTP '+res.status);render(await res.json());}catch(e){$('summary').innerHTML='<div class="error">统计数据暂时无法读取：'+escapeHtml(e.message)+'</div>';}finally{app.classList.remove('loading')}}
-function render(data){const attempts=total(data,'recognition_attempt'),success=total(data,'recognition_result','success'),active=(data.subscriptions.states.find(x=>x.name==='active')||{}).count||0,feedback=sum(data.feedback.selections),first=(data.feedback.selections.find(x=>x.name==='first')||{}).count||0,newInstallations=sum(data.installations.daily),rangeLabel=data.days===1?'今天':'最近 '+data.days+' 天';
-$('summary').innerHTML=card('累计安装',fmt(data.installations.total),'全部历史','var(--sky)',tips.installations)+card(data.days===1?'今日新增安装':'周期新增安装',fmt(newInstallations),rangeLabel,'var(--coral)',tips.newInstallations)+card('活跃订阅',fmt(active),data.environment+' 当前快照','var(--mint)',tips.activeSubscriptions)+card('识别尝试',fmt(attempts),rangeLabel,'var(--sun)',tips.attempts)+card('识别成功率',pct(success,attempts),fmt(success)+' 次成功','var(--coral)',tips.successRate)+card('免费额度耗尽',fmt(total(data,'quota_exhausted','free')),'事件次数','var(--sun)',tips.quotaExhausted)+card('用户改选率',pct(feedback-first,feedback),fmt(feedback)+' 次反馈','var(--sky)',tips.changeRate);
-const resultRows=aggregate(metrics(data,'recognition_result'),x=>x.outcome||'未知');$('results').innerHTML=bars(resultRows,'var(--coral)');const daily=aggregate(metrics(data,'recognition_result'),x=>x.date).sort((a,b)=>a.name.localeCompare(b.name)).map(x=>({date:x.name,count:x.count}));$('trend').innerHTML=lineChart(daily,data.days);
-$('freeUsage').innerHTML=bars(data.installations.freeUsage.map(x=>({name:x.name+' 次',count:x.count})),'var(--sun)');$('quota').innerHTML=bars(data.quotaOperations.map(x=>({name:(labels[x.subjectType]||x.subjectType)+' · '+(labels[x.state]||x.state),count:x.count})),'var(--sky)');$('subscriptionStates').innerHTML=bars(data.subscriptions.states,'var(--mint)');
+function shiftDate(value,days){const date=new Date(value+'T00:00:00.000Z');date.setUTCDate(date.getUTCDate()+days);return date.toISOString().slice(0,10)}
+function rangeForDays(days){const endDate=dateKey(new Date());return {preset:String(days),startDate:shiftDate(endDate,-(days-1)),endDate}}
+let dateRange={...rangeForDays(30)};
+let pendingDateRange={...dateRange};
+let deviceTableError='';
+async function load(){const app=$('app');app.classList.add('loading');try{const params=new URLSearchParams({environment:'All'});if(dateRange.preset==='all')params.set('allTime','true');else{if(!dateRange.startDate||!dateRange.endDate||dateRange.startDate>dateRange.endDate)throw new Error('请选择有效的注册日期范围');params.set('startDate',dateRange.startDate);params.set('endDate',dateRange.endDate)}const res=await fetch('/admin/api/stats?'+params.toString());if(!res.ok)throw new Error('HTTP '+res.status);render(await res.json());}catch(e){deviceTableError='统计数据暂时无法读取，请检查日期范围或稍后重试。';$('generated').textContent='统计数据暂时无法读取：'+e.message;currentDeviceRows=[];renderDeviceTable();}finally{app.classList.remove('loading')}}
+const deviceFilterColumns=[
+{key:'deviceId',title:'设备',fields:[['query','搜索设备编号','search']]},
+{key:'registrationDate',title:'注册时间（北京时间）',fields:[]},
+{key:'environment',title:'环境',fields:[['value','运行环境','select']]},
+{key:'membershipType',title:'会员类型',fields:[['value','会员类型','select']]},
+{key:'recognitionAttempts',title:'识别尝试',fields:[['min','最少','number'],['max','最多','number']]},
+{key:'recognitionSuccesses',title:'成功识别',fields:[['min','最少','number'],['max','最多','number']]},
+{key:'successRate',title:'识别成功率',fields:[['min','最低 %','percent'],['max','最高 %','percent']]},
+{key:'freeQuota',title:'免费额度已用 / 剩余',fields:[['usedMin','已用最少','number'],['usedMax','已用最多','number'],['remainingMin','剩余最少','number'],['remainingMax','剩余最多','number']]},
+{key:'changeRate',title:'用户改选率',fields:[['min','最低 %','percent'],['max','最高 %','percent']]}
+];
+let currentDeviceRows=[];
+let openDeviceFilter=null;
+const emptyDeviceFilter=column=>Object.fromEntries(column.fields.map(([field])=>[field,'']));
+let deviceFilters=Object.fromEntries(deviceFilterColumns.map(column=>[column.key,emptyDeviceFilter(column)]));
+function activeDeviceFilter(key){if(key==='registrationDate')return dateRange.preset!=='all';return Object.values(deviceFilters[key]||{}).some(value=>value!==''&&value!=null)}
+function anyDeviceFilter(){return deviceFilterColumns.some(column=>activeDeviceFilter(column.key))}
+function deviceMatchesFilters(device){
+return deviceFilterColumns.every(column=>{
+const filter=deviceFilters[column.key]||{};
+if(column.key==='deviceId'&&filter.query&&!device.deviceId.toLowerCase().includes(filter.query.trim().toLowerCase()))return false;
+if(column.key==='environment'&&filter.value&&device.environment!==filter.value)return false;
+if(column.key==='membershipType'&&filter.value&&device.membershipType!==filter.value)return false;
+if(column.key==='recognitionAttempts'&&!withinRange(device.recognitionAttempts,filter.min,filter.max))return false;
+if(column.key==='recognitionSuccesses'&&!withinRange(device.recognitionSuccesses,filter.min,filter.max))return false;
+if(column.key==='successRate'){
+const rate=device.recognitionAttempts?device.recognitionSuccesses/device.recognitionAttempts*100:null;
+if((filter.min!==''||filter.max!=='')&&(rate===null||!withinRange(rate,filter.min,filter.max)))return false;
+}
+if(column.key==='freeQuota'){
+const remaining=Math.max(0,3-device.freeUsed);
+if(!withinRange(device.freeUsed,filter.usedMin,filter.usedMax)||!withinRange(remaining,filter.remainingMin,filter.remainingMax))return false;
+}
+if(column.key==='changeRate'){
+const rate=device.confirmationCount?device.reselectionCount/device.confirmationCount*100:null;
+if((filter.min!==''||filter.max!=='')&&(rate===null||!withinRange(rate,filter.min,filter.max)))return false;
+}
+return true;
+});
+}
+function withinRange(value,min,max){return (min===''||value>=Number(min))&&(max===''||value<=Number(max))}
+function filterControl(column){
+const state=deviceFilters[column.key]||{};
+const input=(field,label,type)=>'<label class="filter-field">'+label+'<input data-filter-field="'+field+'" type="'+(type==='percent'?'number':type)+'"'+(type==='number'||type==='percent'?' min="0" step="'+(type==='percent'?'0.1':'1')+'"':'')+(type==='percent'?' max="100"':'')+' value="'+escapeHtml(state[field]||'')+'" placeholder="不限"></label>';
+let controls='';
+if(column.key==='registrationDate'){
+const option=(value,label)=>'<option value="'+value+'"'+(pendingDateRange.preset===value?' selected':'')+'>'+label+'</option>';
+controls='<label class="filter-field">快捷范围<select data-date-preset>'+option('custom','自定义')+option('1','今天')+option('7','最近 7 天')+option('30','最近 30 天')+option('90','最近 90 天')+option('all','不限时间')+'</select></label><div class="filter-pair"><label class="filter-field">开始日期<input data-date-start type="date" value="'+escapeHtml(pendingDateRange.startDate||'')+'"'+(pendingDateRange.preset==='all'?' disabled':'')+'></label><label class="filter-field">结束日期<input data-date-end type="date" value="'+escapeHtml(pendingDateRange.endDate||'')+'"'+(pendingDateRange.preset==='all'?' disabled':'')+'></label></div>';
+}else if(column.key==='environment'){
+controls='<label class="filter-field">运行环境<select data-filter-field="value"><option value="">全部环境</option><option value="Production"'+(state.value==='Production'?' selected':'')+'>正式环境</option><option value="Sandbox"'+(state.value==='Sandbox'?' selected':'')+'>沙盒环境</option><option value="Xcode"'+(state.value==='Xcode'?' selected':'')+'>Xcode</option><option value="LocalTesting"'+(state.value==='LocalTesting'?' selected':'')+'>本地测试</option><option value="Unknown"'+(state.value==='Unknown'?' selected':'')+'>未知</option></select></label>';
+}else if(column.key==='membershipType'){
+controls='<label class="filter-field">会员类型<select data-filter-field="value"><option value="">全部类型</option><option value="free"'+(state.value==='free'?' selected':'')+'>免费版</option><option value="monthly"'+(state.value==='monthly'?' selected':'')+'>月会员</option><option value="annual"'+(state.value==='annual'?' selected':'')+'>年会员</option></select></label>';
+}else if(column.key==='deviceId')controls=input('query','设备编号包含','search');
+else if(column.key==='freeQuota')controls='<div class="filter-pair">'+input('usedMin','已用最少','number')+input('usedMax','已用最多','number')+input('remainingMin','剩余最少','number')+input('remainingMax','剩余最多','number')+'</div>';
+else if(column.key==='successRate'||column.key==='changeRate')controls='<div class="filter-pair">'+input('min','最低 %','percent')+input('max','最高 %','percent')+'</div>';
+else controls='<div class="filter-pair">'+input('min','最少','number')+input('max','最多','number')+'</div>';
+return '<div class="column-filter" data-filter-panel="'+column.key+'">'+controls+'<div class="filter-actions"><button type="button" data-filter-action="apply" data-filter-key="'+column.key+'">应用</button><button type="button" class="clear-column" data-filter-action="clear-column" data-filter-key="'+column.key+'">清除此列</button></div></div>';
+}
+function renderDeviceTable(){
+const root=$('devices');
+const devices=currentDeviceRows.filter(deviceMatchesFilters);
+const attempts=devices.reduce((n,x)=>n+x.recognitionAttempts,0),successes=devices.reduce((n,x)=>n+x.recognitionSuccesses,0),confirmations=devices.reduce((n,x)=>n+x.confirmationCount,0),reselected=devices.reduce((n,x)=>n+x.reselectionCount,0),freeUsed=devices.reduce((n,x)=>n+x.freeUsed,0),freeRemaining=devices.reduce((n,x)=>n+Math.max(0,3-x.freeUsed),0);
+const header=column=>'<th class="filter-heading"><div class="heading-content"><span>'+column.title+'</span><button type="button" class="filter-toggle'+(activeDeviceFilter(column.key)?' is-active':'')+'" data-filter-toggle="'+column.key+'" aria-label="筛选：'+column.title+'" aria-pressed="'+(openDeviceFilter===column.key)+'">'+(activeDeviceFilter(column.key)?'⌕':'▽')+'</button></div></th>';
+const envLabels={Production:'正式环境',Sandbox:'沙盒环境',Xcode:'Xcode',LocalTesting:'本地测试',Unknown:'未知'};
+const cell=device=>'<tr><td>设备 '+escapeHtml(device.deviceId)+'</td><td>'+escapeHtml(device.registrationDate||'—')+'</td><td>'+escapeHtml(envLabels[device.environment]||device.environment||'未知')+'</td><td>'+({free:'免费版',monthly:'月会员',annual:'年会员'}[device.membershipType]||'会员')+'</td><td>'+fmt(device.recognitionAttempts)+'</td><td>'+fmt(device.recognitionSuccesses)+'</td><td>'+pct(device.recognitionSuccesses,device.recognitionAttempts)+'</td><td>'+fmt(device.freeUsed)+' / '+fmt(Math.max(0,3-device.freeUsed))+'</td><td>'+pct(device.reselectionCount,device.confirmationCount)+'</td></tr>';
+const filterRow=openDeviceFilter?'<tr class="filter-row">'+deviceFilterColumns.map(column=>'<td>'+(openDeviceFilter===column.key?filterControl(column):'')+'</td>').join('')+'</tr>':'';
+const emptyMessage=deviceTableError|| (currentDeviceRows.length?'没有设备符合这些筛选条件。':'所选注册日期范围内没有新增设备。');
+const body=devices.length?devices.map(cell).join(''):'<tr><td class="empty filtered-empty" colspan="9">'+emptyMessage+(anyDeviceFilter()?'<button type="button" class="clear-filters" data-filter-action="clear-all">清除筛选</button>':'')+'</td></tr>';
+const total=devices.length?'<tfoot><tr><td>总计（'+fmt(devices.length)+' 台）</td><td>—</td><td>—</td><td>—</td><td>'+fmt(attempts)+'</td><td>'+fmt(successes)+'</td><td>'+pct(successes,attempts)+'</td><td>'+fmt(freeUsed)+' / '+fmt(freeRemaining)+'</td><td>'+pct(reselected,confirmations)+'</td></tr></tfoot>':'';
+root.innerHTML='<div class="device-table-status"><span>当前显示 '+fmt(devices.length)+' / '+fmt(currentDeviceRows.length)+' 台设备</span><div><button type="button" class="clear-filters" data-filter-action="clear-all"'+(anyDeviceFilter()?'':' disabled')+'>清除全部筛选</button> <button type="button" data-filter-action="refresh">刷新数据</button></div></div><table class="device-table"><thead><tr>'+deviceFilterColumns.map(header).join('')+'</tr>'+filterRow+'</thead><tbody>'+body+'</tbody>'+total+'</table>';
+}
+function handleDeviceFilterChange(event){
+const target=event.target;
+if(target.dataset.datePreset!==undefined){
+const preset=target.value;
+pendingDateRange=preset==='all'?{preset,startDate:'',endDate:''}:preset==='custom'?{...pendingDateRange,preset}:rangeForDays(Number(preset));
+renderDeviceTable();
+return;
+}
+if(target.dataset.dateStart!==undefined||target.dataset.dateEnd!==undefined){
+pendingDateRange={...pendingDateRange,preset:'custom',startDate:target.dataset.dateStart!==undefined?target.value:pendingDateRange.startDate,endDate:target.dataset.dateEnd!==undefined?target.value:pendingDateRange.endDate};
+const preset=$('devices').querySelector('[data-date-preset]');if(preset)preset.value='custom';
+}
+}
+function handleDeviceFilterClick(event){
+const target=event.target.closest('[data-filter-toggle],[data-filter-action]');
+if(!target)return;
+const action=target.dataset.filterAction;
+if(target.dataset.filterToggle){const key=target.dataset.filterToggle;openDeviceFilter=openDeviceFilter===key?null:key;if(openDeviceFilter==='registrationDate')pendingDateRange={...dateRange};renderDeviceTable();return}
+const key=target.dataset.filterKey;
+if(action==='refresh')return load();
+if(action==='apply'&&key==='registrationDate'){
+if(pendingDateRange.preset!=='all'&&(!pendingDateRange.startDate||!pendingDateRange.endDate||pendingDateRange.startDate>pendingDateRange.endDate)){$('generated').textContent='请选择有效的注册日期范围';return}
+dateRange={...pendingDateRange};openDeviceFilter=null;return load();
+}
+if(action==='apply'&&key){const panel=$('devices').querySelector('[data-filter-panel="'+key+'"]');const state={};panel.querySelectorAll('[data-filter-field]').forEach(field=>{state[field.dataset.filterField]=field.value.trim()});deviceFilters[key]=state;openDeviceFilter=null;renderDeviceTable();return}
+if(action==='clear-column'&&key==='registrationDate'){dateRange={preset:'all',startDate:'',endDate:''};pendingDateRange={...dateRange};openDeviceFilter=null;return load()}
+if(action==='clear-column'&&key){deviceFilters[key]=emptyDeviceFilter(deviceFilterColumns.find(column=>column.key===key));openDeviceFilter=null;renderDeviceTable();return}
+if(action==='clear-all'){deviceFilters=Object.fromEntries(deviceFilterColumns.map(column=>[column.key,emptyDeviceFilter(column)]));dateRange={preset:'all',startDate:'',endDate:''};pendingDateRange={...dateRange};openDeviceFilter=null;renderDeviceTable();return load()}
+}
+$('devices').addEventListener('click',handleDeviceFilterClick);
+function render(data){
+deviceTableError='';
+currentDeviceRows=data.installations.devices;openDeviceFilter=null;renderDeviceTable();
 const paywall=total(data,'paywall_exposure'),selected=total(data,'plan_selection'),bought=total(data,'purchase_result','success');$('funnel').innerHTML=bars([{name:'付费墙曝光',count:paywall},{name:'套餐选择',count:selected},{name:'购买成功',count:bought}],'var(--coral)')+'<div class="legend"><span>选择率 '+pct(selected,paywall)+'</span><span>事件转化率 '+pct(bought,paywall)+'</span></div>';
-$('plans').innerHTML=bars(aggregate(metrics(data,'plan_selection'),x=>shortProduct(x.productId)),'var(--sun)');$('purchase').innerHTML=bars(aggregate(metrics(data,'purchase_result'),x=>labels[x.outcome]||x.outcome||'未知'),'var(--coral)');$('restore').innerHTML=bars(aggregate(metrics(data,'restore_result'),x=>labels[x.outcome]||x.outcome||'未知'),'var(--sky)');$('selections').innerHTML=bars(data.feedback.selections,'var(--mint)');
+$('plans').innerHTML=bars(aggregate(metrics(data,'plan_selection'),x=>shortProduct(x.productId)),'var(--sun)');$('purchase').innerHTML=bars(aggregate(metrics(data,'purchase_result'),x=>labels[x.outcome]||x.outcome||'未知'),'var(--coral)');$('restore').innerHTML=bars(aggregate(metrics(data,'restore_result'),x=>labels[x.outcome]||x.outcome||'未知'),'var(--sky)');
 $('corrections').innerHTML=data.feedback.corrections.length?'<table><thead><tr><th>模型原词</th><th>用户修正</th><th>次数</th></tr></thead><tbody>'+data.feedback.corrections.map(x=>'<tr><td>'+escapeHtml(x.originalEnglish)+' · '+escapeHtml(x.originalChinese)+'</td><td>'+escapeHtml(x.correctedEnglish)+' · '+escapeHtml(x.correctedChinese)+'</td><td>'+fmt(x.count)+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">暂无纠正反馈</div>';
-$('generated').textContent='生成于 '+new Date(data.generatedAt).toLocaleString('zh-CN')+' · '+data.environment;$('footer').textContent='范围：'+(data.days===1?'今天':'最近 '+data.days+' 天')+' · 时区：Asia/Shanghai · 订阅环境：'+data.environment+' · 页面不缓存';}
+$('generated').textContent='生成于 '+new Date(data.generatedAt).toLocaleString('zh-CN')+' · '+({All:'全部环境',Production:'正式环境',Sandbox:'沙盒环境',Xcode:'Xcode',LocalTesting:'本地测试'}[data.environment]||data.environment);$('footer').textContent='范围：'+(data.startDate&&data.endDate?data.startDate+' 至 '+data.endDate:'不限时间')+' · 时区：Asia/Shanghai · 订阅环境：'+data.environment+' · 页面不缓存';}
 document.querySelectorAll('[data-tip]').forEach(el=>{el.innerHTML=tipControl(tips[el.dataset.tip])});
-$('refresh').addEventListener('click',load);$('days').addEventListener('change',load);$('environment').addEventListener('change',load);load();
+$('devices').addEventListener('change',handleDeviceFilterChange);load();
 </script>
 </body></html>`;

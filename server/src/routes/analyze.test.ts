@@ -241,11 +241,21 @@ test("returns the current entitlement when recognition quota is exhausted", asyn
   assert.equal(response.status, 402);
   assert.equal(provider.calls, 0);
   assert.equal(access.reserveCalls, 1);
+  assert.deepEqual(access.installationMetrics, ["recognition_attempt"]);
   assert.deepEqual(await response.json(), {
     error: "QUOTA_EXHAUSTED",
     message: "免费识别次数已用完，开通会员后可继续识别",
     entitlement: freeEntitlement(3),
   });
+});
+
+test("does not count an operation conflict as a recognition attempt", async () => {
+  const access = new FakeAccessService(freeEntitlement(3));
+  access.reservation = { allowed: false, conflict: true, entitlement: freeEntitlement(3) };
+  const app = makeApp(new FakeUsageLimiter(), new CountingProvider(), access);
+  const response = await app.request("/v1/analyze", analyzeRequest());
+  assert.equal(response.status, 409);
+  assert.deepEqual(access.installationMetrics, []);
 });
 
 test("commits only a non-empty completed recognition and releases an empty result", async () => {
@@ -255,6 +265,7 @@ test("commits only a non-empty completed recognition and releases an empty resul
   await successResponse.text();
   assert.equal(successAccess.commitCalls, 1);
   assert.equal(successAccess.releaseCalls, 0);
+  assert.deepEqual(successAccess.installationMetrics, ["recognition_attempt", "recognition_success"]);
 
   const emptyAccess = new FakeAccessService(freeEntitlement(0));
   const emptyApp = makeApp(new FakeUsageLimiter(), new CountingProvider(), emptyAccess);
@@ -262,6 +273,7 @@ test("commits only a non-empty completed recognition and releases an empty resul
   await emptyResponse.text();
   assert.equal(emptyAccess.commitCalls, 0);
   assert.equal(emptyAccess.releaseCalls, 1);
+  assert.deepEqual(emptyAccess.installationMetrics, ["recognition_attempt"]);
 });
 
 test("resolves Chinese or English vocabulary without an image", async () => {
@@ -573,12 +585,14 @@ class FakeAccessService implements AccessService {
   reserveCalls = 0;
   commitCalls = 0;
   releaseCalls = 0;
+  installationMetrics: string[] = [];
   reservation: QuotaReservation;
   private readonly principal: AccessPrincipal = {
     accessTokenHash: "test",
     installationId: randomUUID(),
     subscriptionEnvironment: null,
     originalTransactionId: null,
+    storeEnvironment: null,
   };
 
   constructor(private entitlement: EntitlementSummary, private authenticates = true) {
@@ -596,6 +610,9 @@ class FakeAccessService implements AccessService {
   async processStoreNotification(): Promise<void> {}
   async recordMetric(): Promise<void> {}
   async recordRecognitionFeedback(): Promise<void> {}
+  async recordInstallationMetric(_installationId: string, metric: "recognition_attempt" | "recognition_success"): Promise<void> {
+    this.installationMetrics.push(metric);
+  }
   async reserveAnalyze(): Promise<QuotaReservation> {
     this.reserveCalls += 1;
     return this.reservation;

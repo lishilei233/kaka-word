@@ -60,8 +60,8 @@ test('direct template waits for its configurable photo hold before word-by-word 
 
     const camera = timeline({ ...p, videoTemplate: 'camera', introSeconds: 2 });
     assert.equal(camera.intro, 60);
-    assert.equal(camera.reveal, 45);
-    assert.equal(camera.words[0].from, 105);
+    assert.equal(camera.reveal, 24);
+    assert.equal(camera.words[0].from, 84);
 });
 test('recognized objects sort by photo rows, then from left to right', () => {
     const objects = [

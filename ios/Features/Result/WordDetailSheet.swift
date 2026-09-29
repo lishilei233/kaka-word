@@ -10,8 +10,10 @@ struct WordDetailSheet: View {
     var onDelete: ((LearningObject) -> String?)?
     var onManualCorrection: ((LearningObject, LearningObject) -> Void)?
     var onEditingChanged: ((Bool) -> Void)?
+    var onReturnToPhoto: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var membership: MembershipStore
     @EnvironmentObject private var wordLearningStore: WordLearningStore
     // Voice enumeration is only needed by Settings. Deferring it here keeps
@@ -32,10 +34,12 @@ struct WordDetailSheet: View {
     @State private var showPaywall = false
     @State private var imageCache: [Int: UIImage]
     @State private var unavailableImageIndexes: Set<Int> = []
-    @State private var sheetDetent: PresentationDetent = .large
     @State private var showsSwipeHint = false
     @State private var navigation = WordPhotoNavigationState()
-    @State private var openedPhoto: PhotoDetailDestination?
+    @StateObject private var session: WordDetailSession
+    @EnvironmentObject private var historyStore: HistoryStore
+    @State private var openedPhoto: WordPhotoPresentation?
+    @State private var photoError: String?
 
     init(
         object: LearningObject,
@@ -45,8 +49,11 @@ struct WordDetailSheet: View {
         onUpdate: ((LearningObject) -> String?)? = nil,
         onDelete: ((LearningObject) -> String?)? = nil,
         onManualCorrection: ((LearningObject, LearningObject) -> Void)? = nil,
-        onEditingChanged: ((Bool) -> Void)? = nil
+        onEditingChanged: ((Bool) -> Void)? = nil,
+        onReturnToPhoto: (() -> Void)? = nil,
+        session: WordDetailSession = WordDetailSession()
     ) {
+        _session = StateObject(wrappedValue: session)
         self.object = object
         let resolvedObjects = objects.isEmpty ? [object] : objects
         let initialPageIndex = resolvedObjects.firstIndex(of: object)
@@ -59,8 +66,12 @@ struct WordDetailSheet: View {
         self.onDelete = onDelete
         self.onManualCorrection = onManualCorrection
         self.onEditingChanged = onEditingChanged
-        _displayedObject = State(initialValue: object)
-        _selectedPageIndex = State(initialValue: initialPageIndex)
+        self.onReturnToPhoto = onReturnToPhoto
+        let restoredIndex = session.selectedIndex.flatMap { resolvedObjects.indices.contains($0) ? $0 : nil } ?? initialPageIndex
+        _displayedObject = State(initialValue: resolvedObjects[restoredIndex])
+        _selectedPageIndex = State(initialValue: restoredIndex)
+        _navigation = State(initialValue: session.navigation)
+        _autoPlayTracker = State(initialValue: session.autoPlayTracker)
         // Cropping a camera photo can require decoding or normalizing the full
         // image. Keep that work out of the sheet's presentation transaction so
         // the first frame appears immediately after a capsule tap.
@@ -75,12 +86,24 @@ struct WordDetailSheet: View {
                     photoDestination(route)
                 }
         }
-        .onDisappear { speech.stop() }
-        .fullScreenCover(item: $openedPhoto) { destination in
-            ResultView(image: destination.image, result: destination.record.result,
-                       recordID: destination.record.id, usesNavigationBackButton: true)
+        .onDisappear {
+            speech.stop()
+            session.autoPlayTracker = autoPlayTracker
         }
-        .presentationDetents(WordPhotoNavigationState.detents, selection: $sheetDetent)
+        .onPreferenceChange(WordSheetHeightKey.self) { measurements in
+            session.heights.merge(measurements) { _, new in new }
+        }
+        .onChange(of: preferredDetent, initial: true) { _, detent in
+            if let detent { session.detent = detent }
+        }
+        .background(WordSheetResizeBridge(target: session.detent, reduceMotion: reduceMotion))
+        .fullScreenCover(item: $openedPhoto) { photo in
+            ResultView(image: photo.image, result: photo.result, recordID: photo.recordID,
+                       focusedWord: photo.word)
+        }
+        .alert("无法打开照片", isPresented: Binding(get: { photoError != nil }, set: { if !$0 { photoError = nil } })) {
+            Button("知道了", role: .cancel) {}
+        } message: { Text(photoError ?? "") }
         .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
         .presentationBackground(Color.paper)
@@ -140,6 +163,7 @@ struct WordDetailSheet: View {
                 .padding(.top, 12)
                 .padding(.bottom, 0)
                 .background(Color.paper)
+                .wordSheetHeight("footer")
             }
         }
         .alert("删除这个单词？", isPresented: $showDeleteConfirmation) {
@@ -171,13 +195,20 @@ struct WordDetailSheet: View {
         }
     }
 
+    private var preferredDetent: WordSheetTarget? {
+        if !navigation.path.isEmpty { return .large }
+        return WordSheetSizing.detent(content: session.heights["word-\(selectedPageIndex)"],
+                                     chrome: isEditing ? 0 : session.heights["footer"])
+    }
+
     private var navigationPath: Binding<[WordPhotoRoute]> {
         Binding(get: { navigation.path }, set: { path in
             if !path.isEmpty {
                 speech.stop()
                 showsSwipeHint = false
             }
-            sheetDetent = navigation.transition(to: path, currentDetent: sheetDetent)
+            navigation.transition(to: path)
+            session.navigation = navigation
         })
     }
 
@@ -190,14 +221,24 @@ struct WordDetailSheet: View {
     private func photoDestination(_ route: WordPhotoRoute) -> some View {
         switch route.content {
         case .gallery(let photos, let word, let currentID):
-            WordPhotoGallery(photos: photos, word: word, currentID: currentID, onNavigate: push)
-        case .preview(let photo, let word, let isCurrent):
-            WordPhotoPreview(photo: photo, word: word, isCurrent: isCurrent,
-                             onOpenPhoto: { destination in
-                                 guard openedPhoto == nil else { return }
-                                 speech.stop()
-                                 openedPhoto = destination
-                             })
+            WordPhotoGallery(photos: photos, word: word, currentID: currentID, session: session, onOpenPhoto: openPhoto)
+        }
+    }
+
+    private func openPhoto(_ photo: WordDetailPhoto, word: String) {
+        guard openedPhoto == nil else { return }
+        if photo.isCurrentPhoto, let onReturnToPhoto {
+            speech.stop()
+            onReturnToPhoto()
+            return
+        }
+        do {
+            let resolved = try WordPhotoPresentation.resolve(photo: photo, word: word, history: historyStore)
+            speech.stop()
+            showsSwipeHint = false
+            openedPhoto = resolved
+        } catch {
+            photoError = error.localizedDescription
         }
     }
 
@@ -234,69 +275,67 @@ struct WordDetailSheet: View {
     }
 
     private func wordPage(for object: LearningObject, at index: Int) -> some View {
-        GeometryReader { geometry in
-            PictureWordSheet(scrolls: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    header(for: object, at: index)
+        WordAdaptiveSheetContent(measurementID: "word-\(index)") {
+            VStack(alignment: .leading, spacing: 12) {
+                header(for: object, at: index)
 
-                    if index == selectedPageIndex, let errorMessage {
-                        Text(errorMessage)
-                            .font(.system(.caption, design: .rounded, weight: .semibold))
-                            .foregroundStyle(Color.coral)
+                if index == selectedPageIndex, let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(.caption, design: .rounded, weight: .semibold))
+                        .foregroundStyle(Color.coral)
+                }
+
+                HStack(spacing: 9) {
+                    Text(object.chinese)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.ink.opacity(0.82))
+                    Text("\(object.kind.title)词")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .foregroundStyle(Color.ink.opacity(0.66))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background((object.kind == .action ? Color.sun : object.kind == .state ? Color.sky : Color.mint).opacity(0.3), in: Capsule())
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("例句")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .tracking(1.5)
+                        .foregroundStyle(Color.coral)
+                    Button {
+                        speech.speak(object.example, rate: speechRate)
+                    } label: {
+                        Text(object.example)
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.ink)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-
-                    HStack(spacing: 9) {
-                        Text(object.chinese)
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color.ink.opacity(0.82))
-                        Text("\(object.kind.title)词")
-                            .font(.system(size: 11, weight: .black, design: .rounded))
-                            .foregroundStyle(Color.ink.opacity(0.66))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background((object.kind == .action ? Color.sun : object.kind == .state ? Color.sky : Color.mint).opacity(0.3), in: Capsule())
-                    }
-
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("例句")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .tracking(1.5)
-                            .foregroundStyle(Color.coral)
-                        Button {
-                            speech.speak(object.example, rate: speechRate)
-                        } label: {
-                            Text(object.example)
-                                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                .foregroundStyle(Color.ink)
-                                .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!speechEnabled)
-                        .accessibilityLabel("朗读例句")
-                        .accessibilityHint(speechEnabled ? "点击播放英文例句" : "请先在设置中开启英文发音")
-                        if let exampleChinese = object.exampleChinese, !exampleChinese.isEmpty {
-                            Text(exampleChinese)
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundStyle(Color.ink.opacity(0.56))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 18))
-
-                    if let photoProvider {
-                        WordDetailPhotos(object: object, thumbnailHeight: min(90, max(44, (geometry.size.height - 360) / 2)), source: { photoProvider(object, index) }, onNavigate: push)
-                            .id(object)
-                    } else if imageProvider != nil {
-                        WordPhotoImage(image: imageCache[index], unavailable: unavailableImageIndexes.contains(index), height: 200)
+                    .buttonStyle(.plain)
+                    .disabled(!speechEnabled)
+                    .accessibilityLabel("朗读例句")
+                    .accessibilityHint(speechEnabled ? "点击播放英文例句" : "请先在设置中开启英文发音")
+                    if let exampleChinese = object.exampleChinese, !exampleChinese.isEmpty {
+                        Text(exampleChinese)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.ink.opacity(0.56))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 18))
+
+                if let photoProvider {
+                    WordDetailPhotos(object: object, thumbnailHeight: 90, source: { photoProvider(object, index) }, onNavigate: push, onOpenPhoto: openPhoto)
+                        .id(object)
+                } else if imageProvider != nil {
+                    WordPhotoImage(image: imageCache[index], unavailable: unavailableImageIndexes.contains(index), height: 200)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -416,7 +455,6 @@ struct WordDetailSheet: View {
         errorMessage = nil
         onEditingChanged?(true)
         isEditing = true
-        sheetDetent = .large
     }
 
     private func cancelEditing() {
@@ -425,7 +463,6 @@ struct WordDetailSheet: View {
         errorMessage = nil
         isEditing = false
         onEditingChanged?(false)
-        sheetDetent = .large
     }
 
     private func resolveVocabulary() {
@@ -443,7 +480,6 @@ struct WordDetailSheet: View {
                     displayedObject = updated
                     isEditing = false
                     onEditingChanged?(false)
-                    sheetDetent = .large
                 }
             } catch {
                 errorMessage = error.localizedDescription
@@ -469,6 +505,8 @@ struct WordDetailPhoto: Identifiable {
     let date: Date?
     let objects: [LearningObject]
     var imageSize: CGSize? = nil
+    var snapshot: AnalyzeResult? = nil
+    var isCurrentPhoto = false
     let load: () -> UIImage?
 
     @MainActor
@@ -538,6 +576,7 @@ private struct WordDetailPhotos: View {
     let thumbnailHeight: CGFloat
     let source: () -> WordDetailPhoto?
     let onNavigate: (WordPhotoRoute) -> Void
+    let onOpenPhoto: (WordDetailPhoto, String) -> Void
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var wordLearningStore: WordLearningStore
     // Metadata is available before decoding; the first frame reserves the final grid.
@@ -550,7 +589,7 @@ private struct WordDetailPhotos: View {
         } ?? []
         return WordDetailPhoto(recordID: resolved.recordID, date: resolved.date ?? record?.createdAt,
             objects: resolved.objects + matches.filter { match in !resolved.objects.contains(where: { $0.id == match.id }) },
-            imageSize: resolved.imageSize, load: resolved.load)
+            imageSize: resolved.imageSize, snapshot: resolved.snapshot, isCurrentPhoto: true, load: resolved.load)
     }
 
     private func related(excluding recordID: UUID?) -> [WordDetailPhoto] {
@@ -581,7 +620,7 @@ private struct WordDetailPhotos: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: 3), spacing: 12) {
                 ForEach(Array(photos.prefix(6))) { photo in
                     WordPhotoTile(photo: photo, height: thumbnailHeight, isCurrent: photo.id == current?.id) {
-                        onNavigate(WordPhotoRoute(content: .preview(photo, object.english, photo.id == current?.id)))
+                        onOpenPhoto(photo, object.english)
                     }
                 }
                 if photos.isEmpty {
@@ -665,16 +704,19 @@ private struct WordPhotoGallery: View {
     let photos: [WordDetailPhoto]
     let word: String
     let currentID: String?
-    let onNavigate: (WordPhotoRoute) -> Void
+    @ObservedObject var session: WordDetailSession
+    let onOpenPhoto: (WordDetailPhoto, String) -> Void
 
     var body: some View {
         PictureWordSheet {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10, alignment: .top), GridItem(.flexible(), alignment: .top)], spacing: 10) {
                 ForEach(photos) { photo in
-                    WordPhotoTile(photo: photo, height: 150, isCurrent: photo.id == currentID) { onNavigate(WordPhotoRoute(content: .preview(photo, word, photo.id == currentID))) }
+                    WordPhotoTile(photo: photo, height: 150, isCurrent: photo.id == currentID) { onOpenPhoto(photo, word) }
                 }
             }
+            .scrollTargetLayout()
         }
+        .scrollPosition(id: $session.galleryPosition)
         .safeAreaInset(edge: .top, spacing: 0) {
             WordPhotoNavigationHeader(eyebrow: "PHOTO MEMORIES", title: "照片里的 \(word)")
         }
@@ -682,159 +724,6 @@ private struct WordPhotoGallery: View {
         .background(InteractivePopGestureEnabler())
     }
 }
-
-private struct WordPhotoPreview: View {
-    let photo: WordDetailPhoto
-    let word: String
-    let isCurrent: Bool
-    @EnvironmentObject private var historyStore: HistoryStore
-    let onOpenPhoto: (PhotoDetailDestination) -> Void
-    @State private var detailError: String?
-    @State private var image: UIImage?
-    @State private var loaded = false
-
-    var body: some View {
-        PictureWordSheet(scrolls: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                if let date = photo.date {
-                    Text(date, format: .dateTime.year().month().day())
-                        .font(.caption).foregroundStyle(Color.ink.opacity(0.55))
-                }
-                WordPhotoViewportLayout(imageSize: photo.imageSize) {
-                    ZStack {
-                        Color.paperDeep.opacity(0.45)
-                        if let image {
-                            WordPhotoZoom(image: image, boxes: photo.objects.filter { $0.kind == .object }.compactMap { WordDetailPhoto.rect(for: $0.box) })
-                                .accessibilityLabel("\(word) 原始照片，已标出对应物体")
-                        } else if loaded {
-                            Label("照片暂不可用", systemImage: "photo").foregroundStyle(Color.ink.opacity(0.5))
-                        } else {
-                            ProgressView()
-                        }
-                    }
-                }
-                .layoutPriority(-1)
-                Text("双指缩放，查看照片细节")
-                    .font(.caption).foregroundStyle(Color.ink.opacity(0.5))
-                if !isCurrent, photo.recordID != nil {
-                    PictureWordButton(
-                        "打开这张照片",
-                        systemImage: "photo.on.rectangle",
-                        style: .secondary,
-                        size: .compact,
-                        action: openPhotoDetail
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 4)
-                }
-            }
-
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            WordPhotoNavigationHeader(eyebrow: "PHOTO MEMORY", title: word)
-        }
-        .toolbar(.hidden, for: .navigationBar)
-        .background(InteractivePopGestureEnabler())
-        .alert("无法打开照片详情", isPresented: Binding(
-            get: { detailError != nil },
-            set: { if !$0 { detailError = nil } }
-        )) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text(detailError ?? "")
-        }
-        .task {
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            let original = photo.load()
-            let preview = await Task.detached(priority: .userInitiated) {
-                original.flatMap { ImageProcessor.normalizedImage(from: $0, maxDimension: 1800) }
-            }.value
-            guard !Task.isCancelled else { return }
-            image = preview
-            loaded = true
-        }
-    }
-
-    private func openPhotoDetail() {
-        guard !isCurrent else { return }
-        guard let recordID = photo.recordID,
-              let record = historyStore.record(id: recordID) else {
-            detailError = "这张照片的历史记录已不存在。"
-            return
-        }
-        guard let original = historyStore.image(for: record) else {
-            detailError = "暂时无法读取这张照片，请稍后重试。"
-            return
-        }
-        onOpenPhoto(PhotoDetailDestination(record: record, image: original))
-    }
-
-
-}
-
-private struct WordPhotoZoom: UIViewRepresentable {
-    let image: UIImage
-    let boxes: [CGRect]
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeUIView(context: Context) -> ZoomCanvas {
-        let view = ZoomCanvas()
-        view.delegate = context.coordinator
-        view.minimumZoomScale = 1
-        view.maximumZoomScale = 5
-        view.showsHorizontalScrollIndicator = false
-        view.showsVerticalScrollIndicator = false
-        return view
-    }
-    func updateUIView(_ view: ZoomCanvas, context: Context) {
-        view.photoView.image = image
-        view.boxes = boxes
-        view.setNeedsLayout()
-    }
-    final class Coordinator: NSObject, UIScrollViewDelegate {
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? { (scrollView as? ZoomCanvas)?.photoView }
-    }
-    final class ZoomCanvas: UIScrollView {
-        let photoView = UIImageView()
-        var boxes: [CGRect] = []
-        private let marks = CAShapeLayer()
-        private var previousSize = CGSize.zero
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            photoView.contentMode = .scaleAspectFit
-            addSubview(photoView)
-            photoView.layer.addSublayer(marks)
-            marks.fillColor = UIColor.clear.cgColor
-            marks.strokeColor = UIColor(Color.sun).cgColor
-            marks.lineWidth = 3
-        }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            guard let image = photoView.image, bounds.width > 0, bounds.height > 0 else { return }
-            if bounds.size != previousSize {
-                previousSize = bounds.size
-                setZoomScale(1, animated: false)
-                photoView.frame = CGRect(origin: .zero, size: bounds.size)
-                contentSize = bounds.size
-            }
-            let size = photoView.bounds.size
-            let scale = min(size.width / image.size.width, size.height / image.size.height)
-            let fitted = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let origin = CGPoint(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2)
-            let path = UIBezierPath()
-            for box in boxes {
-                path.append(UIBezierPath(roundedRect: CGRect(x: origin.x + box.minX * fitted.width,
-                    y: origin.y + box.minY * fitted.height, width: box.width * fitted.width,
-                    height: box.height * fitted.height), cornerRadius: 6))
-            }
-            marks.path = path.cgPath
-        }
-    }
-}
-
 
 private struct WordPhotoNavigationHeader: View {
     let eyebrow: String
@@ -865,7 +754,6 @@ struct PhotoDetailDestination: Identifiable {
 struct WordPhotoRoute: Hashable {
     enum Content {
         case gallery([WordDetailPhoto], String, String?)
-        case preview(WordDetailPhoto, String, Bool)
     }
     let id = UUID()
     let content: Content
@@ -876,44 +764,269 @@ struct WordPhotoRoute: Hashable {
         switch (content, other.content) {
         case let (.gallery(_, word, current), .gallery(_, otherWord, otherCurrent)):
             return word == otherWord && current == otherCurrent
-        case let (.preview(photo, word, _), .preview(otherPhoto, otherWord, _)):
-            return photo.id == otherPhoto.id && word == otherWord
-        default:
-            return false
+
         }
     }
 }
 
-/// Content loading never changes the sheet's height or the user's chosen detent.
 struct WordPhotoNavigationState {
-    static let detents: Set<PresentationDetent> = [.large]
     private(set) var path: [WordPhotoRoute] = []
 
-    mutating func transition(to newPath: [WordPhotoRoute], currentDetent: PresentationDetent) -> PresentationDetent {
+    mutating func transition(to newPath: [WordPhotoRoute]) {
         path = newPath
-        return currentDetent
     }
 }
 
-/// Computes the image viewport in the same layout pass, without geometry/state feedback.
-struct WordPhotoViewportLayout: Layout {
-    let imageSize: CGSize?
+/// Holds the word sheet state while its full-screen photo is visible.
+final class WordDetailSession: ObservableObject {
+    var selectedIndex: Int?
+    var navigation = WordPhotoNavigationState()
+    var autoPlayTracker = WordDetailAutoPlayTracker()
+    @Published var detent: WordSheetTarget = .height(620)
+    @Published var heights: [String: CGFloat] = [:]
+    @Published var galleryPosition: String?
 
-    static func height(for width: CGFloat, imageSize: CGSize?) -> CGFloat {
-        let size = imageSize ?? CGSize(width: 4, height: 3)
-        let valid = size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0
-        return min(max(width, 0) * (valid ? size.height / size.width : 0.75), 480)
+    func reset() {
+        selectedIndex = nil
+        navigation = WordPhotoNavigationState()
+        autoPlayTracker.reset()
+        detent = .height(620)
+        heights = [:]
+        galleryPosition = nil
+    }
+}
+
+private struct WordSheetHeightKey: PreferenceKey {
+    static var defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private extension View {
+    func wordSheetHeight(_ key: String) -> some View {
+        background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: WordSheetHeightKey.self, value: [key: ceil(geometry.size.height)])
+            }
+        }
+    }
+}
+
+/// Measure unconstrained content, and only enable scrolling when the actual viewport is smaller.
+private struct WordAdaptiveSheetContent<Content: View>: View {
+    let measurementID: String
+    @ViewBuilder let content: () -> Content
+    @State private var contentHeight: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { viewport in
+            ScrollView(.vertical, showsIndicators: false) {
+                content()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(16)
+                    .wordSheetHeight(measurementID)
+                    .onGeometryChange(for: CGFloat.self) { ceil($0.size.height) } action: { contentHeight = $0 }
+            }
+            .scrollDisabled(!WordSheetSizing.needsScrolling(content: contentHeight, viewport: viewport.size.height))
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .background(Color.paper)
+    }
+}
+
+/// Detent heights are capped by UIKit; compare scrolling against the resulting viewport.
+enum WordSheetSizing {
+    static func detent(content: CGFloat?, chrome: CGFloat?) -> WordSheetTarget? {
+        guard let content, let chrome else { return nil }
+        return .height(height(content: content, chrome: chrome))
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 300
-        let idealHeight = Self.height(for: width, imageSize: imageSize)
-        return CGSize(width: width, height: min(idealHeight, max(0, proposal.height ?? idealHeight)))
+    static func height(content: CGFloat, chrome: CGFloat) -> CGFloat {
+        ceil(content + chrome + 16)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for subview in subviews {
-            subview.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+    static func needsScrolling(content: CGFloat, viewport: CGFloat) -> Bool {
+        content > viewport + 1
+    }
+}
+
+
+/// Keep one UIKit detent identifier as its resolved height changes.
+enum WordSheetTarget: Equatable {
+    case height(CGFloat)
+    case large
+
+    func resolved(maximum: CGFloat) -> CGFloat {
+        switch self {
+        case .height(let height): return min(height, maximum)
+        case .large: return maximum
+        }
+    }
+}
+
+struct WordSheetResizeState {
+    private(set) var pending: WordSheetTarget = .height(620)
+    private(set) var applied: WordSheetTarget?
+
+    mutating func update(_ target: WordSheetTarget, isPaging: Bool) -> Bool {
+        pending = target
+        guard !isPaging, applied != pending else { return false }
+        applied = pending
+        return true
+    }
+}
+
+/// UIKit animates just the sheet, after the page scroll view has finished decelerating.
+/// No scroll delegate is replaced and no additional swipe gesture is installed.
+struct WordSheetResizeBridge: UIViewControllerRepresentable {
+    let target: WordSheetTarget
+    let reduceMotion: Bool
+
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.requested = target
+        controller.reduceMotion = reduceMotion
+        controller.applyIfReady()
+    }
+
+    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) {
+        controller.stopObserving()
+    }
+
+    final class Controller: UIViewController {
+        var requested: WordSheetTarget = .height(620)
+        var reduceMotion = false
+        private var resize = WordSheetResizeState()
+        private weak var installedSheet: UISheetPresentationController?
+        private weak var pager: UIScrollView?
+        private var displayLink: CADisplayLink?
+        private var paging = false
+        private let identifier = UISheetPresentationController.Detent.Identifier("word-content")
+
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            applyIfReady()
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            observePagerIfNeeded()
+            applyIfReady()
+        }
+
+        private var host: UIViewController {
+            var controller: UIViewController = self
+            while let parent = controller.parent { controller = parent }
+            return controller
+        }
+
+        func applyIfReady() {
+            guard let sheet = host.sheetPresentationController else { return }
+            if installedSheet !== sheet || sheet.detents.first?.identifier != identifier {
+                installedSheet = sheet
+                _ = resize.update(requested, isPaging: false)
+                sheet.detents = [.custom(identifier: identifier) { [weak self] context in
+                    (self?.resize.applied ?? .height(620)).resolved(maximum: context.maximumDetentValue)
+                }]
+                sheet.selectedDetentIdentifier = identifier
+                return
+            }
+            let isMoving = paging || pager?.isTracking == true || pager?.isDragging == true || pager?.isDecelerating == true
+            guard resize.update(requested, isPaging: isMoving) else { return }
+            if reduceMotion || view.window == nil {
+                sheet.invalidateDetents()
+            } else {
+                sheet.animateChanges { sheet.invalidateDetents() }
+            }
+        }
+
+        private func observePagerIfNeeded() {
+            guard pager == nil else { return }
+            func findPager(in view: UIView) -> UIScrollView? {
+                if let scroll = view as? UIScrollView, scroll.isPagingEnabled { return scroll }
+                for child in view.subviews {
+                    if let found = findPager(in: child) { return found }
+                }
+                return nil
+            }
+            guard let scroll = findPager(in: host.view) else { return }
+            pager = scroll
+            scroll.panGestureRecognizer.addTarget(self, action: #selector(pagePanChanged))
+        }
+
+        @objc private func pagePanChanged() {
+            guard let pager else { return }
+            if pager.panGestureRecognizer.state == .began || pager.panGestureRecognizer.state == .changed {
+                paging = true
+            }
+            // Continue observing through deceleration, including a cancelled/rapidly reversed swipe.
+            if displayLink == nil {
+                let link = CADisplayLink(target: self, selector: #selector(checkPagingFinished))
+                link.add(to: .main, forMode: .common)
+                displayLink = link
+            }
+        }
+
+        @objc private func checkPagingFinished() {
+            guard let pager else {
+                finishPaging()
+                return
+            }
+            guard !pager.isTracking, !pager.isDragging, !pager.isDecelerating else { return }
+            finishPaging()
+        }
+
+        private func finishPaging() {
+            displayLink?.invalidate()
+            displayLink = nil
+            paging = false
+            applyIfReady()
+        }
+
+        func stopObserving() {
+            displayLink?.invalidate()
+            displayLink = nil
+            pager?.panGestureRecognizer.removeTarget(self, action: #selector(pagePanChanged))
+            pager = nil
+        }
+    }
+}
+
+
+struct WordPhotoPresentation: Identifiable {
+    let id = UUID()
+    let recordID: UUID?
+    let result: AnalyzeResult
+    let image: UIImage
+    let word: String
+
+    @MainActor
+    static func resolve(photo: WordDetailPhoto, word: String, history: HistoryStore) throws -> Self {
+        if let id = photo.recordID {
+            guard let record = history.record(id: id) else { throw OpenError.missingRecord }
+            guard let image = history.image(for: record) else { throw OpenError.missingImage }
+            return Self(recordID: id, result: record.result, image: image, word: word)
+        }
+        guard let result = photo.snapshot, let image = photo.load() else { throw OpenError.missingImage }
+        return Self(recordID: nil, result: result, image: image, word: word)
+    }
+
+    enum OpenError: LocalizedError {
+        case missingRecord, missingImage
+        var errorDescription: String? {
+            switch self {
+            case .missingRecord: return "这张照片的历史记录已不存在。"
+            case .missingImage: return "暂时无法读取这张照片，请稍后重试。"
+            }
         }
     }
 }

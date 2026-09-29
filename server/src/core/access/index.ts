@@ -20,6 +20,7 @@ export type {
   AggregateMetricInput,
   AccessService,
   EntitlementSummary,
+  InstallationMetric,
   QuotaReservation,
   RecognitionFeedbackInput,
   RecognitionFeedbackSelection,
@@ -32,3 +33,4 @@ export type {
 } from "./types.js";
 export { StoreSyncUnavailableError, StoreTransactionInvalidError } from "./types.js";
 export { disabledEntitlement, isValidOperationId } from "./types.js";
+export { accessEnvironments } from "./types.js";

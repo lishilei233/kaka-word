@@ -1,3 +1,3 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { Studio } from '../components/Studio';
-export const Route = createFileRoute('/')({ component: Studio });
+import { ProjectLibrary } from '../components/ProjectLibrary';
+export const Route = createFileRoute('/')({ component: ProjectLibrary });

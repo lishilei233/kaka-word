@@ -74,12 +74,18 @@ struct HomeView: View {
             .ignoresSafeArea()
         }
         .fullScreenCover(item: $recognitionImage) { item in
-            RecognitionFlowView(image: item.image)
-                .environmentObject(historyStore)
-                .environmentObject(journeyStore)
+            NavigationStack {
+                RecognitionFlowView(image: item.image)
+                    .toolbar(.hidden, for: .navigationBar)
+            }
+            .environmentObject(historyStore)
+            .environmentObject(journeyStore)
         }
         .fullScreenCover(item: $presentedHistory) { item in
-            ResultView(image: item.image, result: item.record.result, recordID: item.record.id)
+            NavigationStack {
+                ResultView(image: item.image, result: item.record.result, recordID: item.record.id)
+                    .toolbar(.hidden, for: .navigationBar)
+            }
         }
         .sheet(isPresented: $paywallPresented) {
             PaywallView {

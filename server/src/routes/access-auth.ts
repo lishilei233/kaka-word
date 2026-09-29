@@ -1,13 +1,18 @@
 import type { Context } from "hono";
 import { timingSafeEqual } from "node:crypto";
 import type { AccessPrincipal, AccessService } from "../core/access/index.js";
+import { accessEnvironments } from "../core/access/index.js";
 import type { AppEnv } from "../app.js";
 
 export async function authenticateAccess(
   c: Context<AppEnv>,
   accessService: AccessService,
 ): Promise<AccessPrincipal | null> {
-  return await accessService.authenticate(c.req.header("authorization"));
+  const rawEnvironment = c.req.header("x-store-environment");
+  const environment = accessEnvironments.includes(rawEnvironment as typeof accessEnvironments[number])
+    ? rawEnvironment as typeof accessEnvironments[number]
+    : undefined;
+  return await accessService.authenticate(c.req.header("authorization"), environment);
 }
 
 export function unauthorized(c: Context<AppEnv>) {

@@ -35,6 +35,8 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
     await readFile(new URL("../../../migrations/002_subscriptions.sql", import.meta.url), "utf8"),
     await readFile(new URL("../../../migrations/003_subscription_transactions.sql", import.meta.url), "utf8"),
     await readFile(new URL("../../../migrations/004_recognition_feedback.sql", import.meta.url), "utf8"),
+    await readFile(new URL("../../../migrations/005_installation_stats.sql", import.meta.url), "utf8"),
+    await readFile(new URL("../../../migrations/006_installation_environment.sql", import.meta.url), "utf8"),
   ].join("\n");
   const setupPool = new Pool({ connectionString: isolatedURL.toString() });
   await setupPool.query(migration);
@@ -49,16 +51,20 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
     await setupPool.end();
   });
 
-  await service.recordRecognitionFeedback({
+  const firstBootstrap = await service.bootstrap({ installationId: randomUUID(), deviceToken: "device-a-token-value", storeEnvironment: "Sandbox" });
+  const firstPrincipal = await service.authenticate(`Bearer ${firstBootstrap.accessToken}`, "Sandbox");
+  assert.ok(firstPrincipal);
+
+  await service.recordRecognitionFeedback(firstPrincipal.installationId, {
     original: { english: " Mug ", chinese: " 杯子 " },
     selected: { english: "VASE", chinese: " 花瓶 " },
     selection: "second",
-  });
-  await service.recordRecognitionFeedback({
+  }, "Sandbox");
+  await service.recordRecognitionFeedback(firstPrincipal.installationId, {
     original: { english: "mug", chinese: "杯子" },
     selected: { english: "vase", chinese: "花瓶" },
     selection: "second",
-  });
+  }, "Sandbox");
   const confirmation = await setupPool.query(
     `SELECT confirmation_count
        FROM picture_word_recognition_confirmations_daily
@@ -76,10 +82,21 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
         AND corrected_english = 'vase'`,
   );
   assert.equal(correction.rows[0]?.correction_count, "2");
-
-  const firstBootstrap = await service.bootstrap({ installationId: randomUUID(), deviceToken: "device-a-token-value" });
-  const firstPrincipal = await service.authenticate(`Bearer ${firstBootstrap.accessToken}`);
-  assert.ok(firstPrincipal);
+  await service.recordInstallationMetric(firstPrincipal.installationId, "recognition_attempt", "Sandbox");
+  await service.recordInstallationMetric(firstPrincipal.installationId, "recognition_success", "Sandbox");
+  const installationMetric = await setupPool.query(
+    `SELECT recognition_attempt_count, recognition_success_count, confirmation_count, reselection_count
+       FROM picture_word_installation_metrics_daily
+      WHERE installation_id = $1::uuid AND environment = 'Sandbox'
+        AND metric_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date`,
+    [firstPrincipal.installationId],
+  );
+  assert.deepEqual(installationMetric.rows[0], {
+    recognition_attempt_count: "1",
+    recognition_success_count: "1",
+    confirmation_count: "2",
+    reselection_count: "2",
+  });
 
   const freeReservations = await Promise.all(
     Array.from({ length: 4 }, () => service.reserveAnalyze(firstPrincipal, randomUUID(), "device-a-token-value")),

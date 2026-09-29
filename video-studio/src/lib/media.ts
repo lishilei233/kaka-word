@@ -1,9 +1,12 @@
+export class ApiError extends Error {
+    constructor(message: string, public status: number) { super(message); }
+}
 export async function api<T>(path: string, data?: unknown): Promise<T> {
     const response = await fetch(`/studio-api/${path}`, data === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     const result = await response.json().catch(() => ({ error: '网页服务返回异常，请检查 npm run dev 终端' }));
     if (!response.ok || (result && typeof result === 'object' && 'error' in result)) {
         const failure = result && typeof result === 'object' ? result as { message?: string; error?: string } : {};
-        throw new Error(failure.message || failure.error || '请求失败');
+        throw new ApiError(failure.message || failure.error || '请求失败', response.status);
     }
     return result;
 }

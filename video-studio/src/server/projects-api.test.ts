@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('project HTTP lifecycle, conflict status, invalid input, retired endpoint and isolated export lookup', async t => {
+    const root = await mkdtemp(join(tmpdir(), 'studio-api-projects-'));
+    const previous = process.env.STUDIO_DATA_DIR;
+    process.env.STUDIO_DATA_DIR = root;
+    t.after(async () => { if (previous === undefined) delete process.env.STUDIO_DATA_DIR; else process.env.STUDIO_DATA_DIR = previous; await rm(root, { recursive: true, force: true }); });
+    const { handleStudioRequest } = await import('./api.server');
+    const request = (path: string, body?: unknown) => handleStudioRequest(new Request(`http://127.0.0.1/studio-api/${path}`, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+    const created = await request('projects', {}); assert.equal(created.status, 201);
+    const record = await created.json();
+    const path = `projects/${record.id}`;
+    const updated = await request(path, { revision: 0, content: { ...record, editor: { source: '/studio-api/assets/abcd.mp4', pendingLivePhotoVideo: '' } } });
+    assert.equal(updated.status, 200);
+    assert.equal((await request(path, { revision: 0, content: record })).status, 409);
+    assert.equal((await request(path, { revision: 1, content: { ...record, editor: { source: '../bad' } } })).status, 400);
+    const copy = await (await request(`${path}/copy`, {})).json();
+    assert.notEqual(copy.id, record.id);
+    assert.equal(copy.editor.source, '/studio-api/assets/abcd.mp4');
+    assert.equal(await (await request(`${path}/export`)).json(), null);
+    const runtime = globalThis as typeof globalThis & { studioProjectJobs: Map<string, { id: string; content: string }>; kakawordStudioJobs: { jobs: Map<string, unknown> } };
+    runtime.studioProjectJobs.set(record.id, { id: 'test-job', content: JSON.stringify(record.project) });
+    runtime.kakawordStudioJobs.jobs.set('test-job', { status: 'complete', progress: 1, file: '/studio-api/exports/test.mp4' });
+    assert.equal((await (await request(`${path}/export`)).json()).status, 'complete');
+    assert.equal(await (await request(`projects/${copy.id}/export`)).json(), null);
+    assert.equal((await request('project', record.project)).status, 410);
+    assert.equal((await request(`${path}/delete`, { revision: 1 })).status, 200);
+    assert.equal((await request(path)).status, 404);
+    assert.equal((await (await request('projects')).json()).length, 1);
+});

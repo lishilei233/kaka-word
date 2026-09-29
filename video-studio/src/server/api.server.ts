@@ -1,7 +1,9 @@
+import { ProjectStore, ProjectError } from './projects.server';
+import { projectContentSchema } from '../lib/project-record';
 import { captionSentenceSchema, descriptionSentences, type CaptionSentence } from '../lib/project';
 import { coverExportReady, coverConflicts } from '../lib/cover-layout.ts';
 import 'dotenv/config';
-import { mkdir, readFile, writeFile, stat, rename, unlink } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, stat, unlink } from 'node:fs/promises';
 import { createReadStream, existsSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { resolve, join } from 'node:path';
@@ -19,6 +21,11 @@ import { learningPost } from '../lib/learning-post.ts';
 
 const exec = promisify(execFile);
 const root = resolve(process.env.STUDIO_DATA_DIR || '.data');
+const projectRuntime = globalThis as typeof globalThis & { studioProjectStores?: Map<string, ProjectStore>; studioProjectJobs?: Map<string, { id: string; content: string }> };
+const stores = projectRuntime.studioProjectStores ??= new Map();
+if (!stores.has(root)) stores.set(root, new ProjectStore(root));
+const projects = stores.get(root)!;
+const projectJobs = projectRuntime.studioProjectJobs ??= new Map();
 const assets = join(root, 'assets');
 const exportsDir = join(root, 'exports');
 const localChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -155,11 +162,32 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             }
             return send(project);
         }
-        if (req.method === 'POST' && path === '/studio-api/project') {
-            const p = projectSchema.parse(await json(req));
-            const temp = join(root, `${randomUUID()}.json`);
-            await writeFile(temp, JSON.stringify(p, null, 2)); await rename(temp, join(root, 'project.json'));
-            return send({ saved: true });
+        if (req.method === 'POST' && path === '/studio-api/project') return send({ error: '工作室已升级，请刷新页面后在作品列表中继续编辑。' }, 410);
+        if (path === '/studio-api/projects') {
+            if (req.method === 'GET') return send(await projects.list());
+            if (req.method === 'POST') {
+                const input = await json(req);
+                return send(await projects.create(input.content ? projectContentSchema.parse(input.content) : undefined), 201);
+            }
+        }
+        const projectRoute = /^\/studio-api\/projects\/([^/]+)(?:\/(copy|delete|export))?$/.exec(path);
+        if (projectRoute) {
+            const [, id, action] = projectRoute;
+            if (req.method === 'GET' && action === 'export') {
+                const record = await projects.get(id);
+                const entry = projectJobs.get(id);
+                return send(entry ? { ...state.jobs.get(entry.id), id: entry.id, stale: entry.content !== JSON.stringify(record.project) } : null);
+            }
+            if (req.method === 'GET' && !action) return send(await projects.get(id));
+            if (req.method === 'POST' && action === 'copy') return send(await projects.copy(id), 201);
+            if (req.method === 'POST' && action === 'delete') {
+                const { revision } = z.object({ revision: z.number().int().nonnegative() }).parse(await json(req));
+                await projects.remove(id, revision); projectJobs.delete(id); return send({ deleted: true });
+            }
+            if (req.method === 'POST' && !action) {
+                const { revision, content } = z.object({ revision: z.number().int().nonnegative(), content: projectContentSchema }).parse(await json(req));
+                return send(await projects.update(id, revision, content));
+            }
         }
         if (req.method === 'POST' && path === '/studio-api/upload') {
             const ext = z.enum(['jpg', 'heic', 'heif', 'mp4', 'mov', 'webm']).parse(url.searchParams.get('ext'));
@@ -307,11 +335,16 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         }
         if (req.method === 'POST' && path === '/studio-api/render') {
             const p = projectSchema.parse(await json(req));
+            const projectId = url.searchParams.get('projectId');
+            if (projectId) await projects.get(projectId);
             const blockers = exportBlockers(p);
             if (blockers.length) throw new Error(`导出前还需要：${blockers.join('；')}`);
             if (state.rendering) return send({ error: '已有导出正在进行，请等待完成' }, 409);
             await Promise.all([p.image!, ...descriptionSentences(p).map(s => s.audio!), ...(p.interaction?.enabled ? [p.interaction.audio!] : []), ...(p.video ? [p.video] : []), ...p.words.map(w => w.audio!)].map(asset => stat(assetFile(asset))));
+            // Asset checks yield; another request may have started a render meanwhile.
+            if (state.rendering) return send({ error: '已有导出正在进行，请等待完成' }, 409);
             const id = randomUUID(); state.rendering = true; state.jobs.set(id, { status: 'rendering', progress: 0 });
+            if (projectId) projectJobs.set(projectId, { id, content: JSON.stringify(p) });
             void render(id, p, url.origin);
             return send({ id }, 202);
         }
@@ -341,6 +374,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         }
         return send({ error: '接口不存在' }, 404);
     } catch (error) {
+        if (error instanceof ProjectError) return send({ error: error.message }, error.status);
         const message = error instanceof Error ? error.message : '';
         const safe = /^(请|封面|导出|素材|无法|无效|单词|识别)/.test(message) ? message : '处理失败，请检查素材和网页服务终端。';
         console.error('Studio request failed:', error instanceof z.ZodError ? 'Invalid input' : error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown error');
