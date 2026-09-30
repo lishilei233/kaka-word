@@ -556,6 +556,195 @@ final class WordLearningStoreTests: XCTestCase {
         XCTAssertEqual(resolved.result.allWords.map(\.english), ["book"])
     }
 
+    func testListeningRoundHasThreeUniqueWordsAndLeavesMasteryUntouched() throws {
+        let store = makeStore()
+        let records = (0..<7).map { makeRecord(word: "word-\($0)", chinese: "词", date: Date()) }
+        replaceHistory(with: records, store: store)
+        store.setState(.mastered, for: "word-6")
+        store.startListeningRound()
+        let round = try XCTUnwrap(store.listeningSession).round
+        XCTAssertEqual(round.count, 3)
+        XCTAssertEqual(Set(round.map(\.wordKey)).count, 3)
+        for question in round {
+            store.revealListeningQuestion(.found)
+            store.revealListeningQuestion(.revealed)
+            XCTAssertEqual(store.progressByKey[question.wordKey]?.reviewCount, 1)
+            XCTAssertEqual(store.state(for: question.wordKey), .learning)
+            store.advanceListeningQuestion()
+        }
+        XCTAssertTrue(try XCTUnwrap(store.listeningSession).isFinished)
+        XCTAssertFalse(try XCTUnwrap(store.listeningSession).isMilestone)
+        XCTAssertEqual(store.listeningSession?.foundCount, 3)
+    }
+
+    func testListeningPhotoScopeUsesExactOccurrenceAndCanReplaceOtherRound() throws {
+        let store = makeStore()
+        let older = makeRecord(word: "mug", chinese: "旧杯子", date: Date(timeIntervalSince1970: 100))
+        let newer = makeRecord(word: "mug", chinese: "新杯子", date: Date(timeIntervalSince1970: 200))
+        replaceHistory(with: [older, newer], store: store)
+        store.startListeningRound(recordID: older.id)
+        XCTAssertEqual(store.listeningSession?.current?.recordID, older.id)
+        XCTAssertEqual(store.listeningSession?.current?.object.chinese, "旧杯子")
+        store.startListeningRound(recordID: newer.id)
+        XCTAssertEqual(store.listeningSession?.current?.recordID, newer.id)
+        store.startListeningRound()
+        XCTAssertEqual(store.listeningSession?.current?.recordID, newer.id)
+    }
+
+    func testListeningRevealedAnswerRestoresWithoutCountingTwice() throws {
+        let store = makeStore()
+        replaceHistory(with: [makeRecord(word: "book", chinese: "书", date: Date())], store: store)
+        store.startListeningRound()
+        store.revealListeningQuestion(.revealed)
+        let restored = makeStore()
+        restored.startListeningRound()
+        let question = try XCTUnwrap(restored.listeningSession?.current)
+        XCTAssertEqual(restored.listeningSession?.outcomes[question.id], .revealed)
+        restored.revealListeningQuestion(.found)
+        XCTAssertEqual(restored.progressByKey[question.wordKey]?.reviewCount, 1)
+        restored.advanceListeningQuestion()
+        XCTAssertTrue(try XCTUnwrap(restored.listeningSession).isMilestone)
+        XCTAssertEqual(restored.listeningSession?.foundCount, 0)
+        XCTAssertEqual(restored.state(for: "book"), .learning)
+    }
+
+    func testListeningNextRoundUsesRemainingWordsThenExplicitlyRepeats() throws {
+        let store = makeStore()
+        replaceHistory(with: (0..<5).map { makeRecord(word: "word-\($0)", chinese: "词", date: Date()) }, store: store)
+        store.startListeningRound()
+        let first = Set(try XCTUnwrap(store.listeningSession).round.map(\.id))
+        for _ in 0..<3 { store.revealListeningQuestion(.found); store.advanceListeningQuestion() }
+        store.nextListeningRound()
+        XCTAssertEqual(store.listeningSession?.round.count, 2)
+        XCTAssertTrue(first.isDisjoint(with: try XCTUnwrap(store.listeningSession).round.map(\.id)))
+        for _ in 0..<2 { store.revealListeningQuestion(.revealed); store.advanceListeningQuestion() }
+        XCTAssertTrue(try XCTUnwrap(store.listeningSession).isMilestone)
+        store.nextListeningRound()
+        XCTAssertEqual(store.listeningSession?.isRepeat, true)
+        XCTAssertEqual(store.listeningSession?.round.count, 3)
+    }
+
+    func testListeningDeletionDoesNotBecomeFalseMilestone() throws {
+        let store = makeStore()
+        replaceHistory(with: [makeRecord(word: "book", chinese: "书", date: Date())], store: store)
+        store.startListeningRound()
+        replaceHistory(with: [], store: store)
+        XCTAssertTrue(try XCTUnwrap(store.listeningSession).isFinished)
+        XCTAssertFalse(try XCTUnwrap(store.listeningSession).isMilestone)
+        XCTAssertTrue(try XCTUnwrap(store.listeningSession).contentChanged)
+    }
+
+    func testListeningExcludesUnavailablePhotos() {
+        let store = makeStore()
+        replaceHistory(with: [makeRecord(word: "book", chinese: "书", date: Date())], store: store)
+        store.startListeningRound(photoAvailable: { _ in false })
+        XCTAssertEqual(store.listeningSession?.round.count, 0)
+        XCTAssertEqual(store.listeningSession?.isMilestone, false)
+    }
+
+    func testListeningMixedOutcomesStaySeparateFromMastery() throws {
+        let store = makeStore()
+        replaceHistory(with: (0..<3).map { makeRecord(word: "word-\($0)", chinese: "词", date: Date()) }, store: store)
+        store.startListeningRound()
+        for outcome in [ListeningOutcome.found, .revealed, .found] {
+            store.revealListeningQuestion(outcome)
+            store.advanceListeningQuestion()
+        }
+        XCTAssertEqual(store.listeningSession?.foundCount, 2)
+        XCTAssertEqual(store.masteredEntries.count, 0)
+        XCTAssertTrue(try XCTUnwrap(store.listeningSession).isMilestone)
+    }
+
+    func testListeningDeletionRemovesStaleOutcomeAndPreservesRemainingCursor() throws {
+        let store = makeStore()
+        let first = makeRecord(word: "first", chinese: "一", date: Date(timeIntervalSince1970: 200))
+        let second = makeRecord(word: "second", chinese: "二", date: Date(timeIntervalSince1970: 100))
+        replaceHistory(with: [first, second], store: store)
+        store.startListeningRound()
+        store.revealListeningQuestion(.found)
+        store.advanceListeningQuestion()
+        replaceHistory(with: [second], store: store)
+        XCTAssertEqual(store.listeningSession?.cursor, 0)
+        XCTAssertEqual(store.listeningSession?.round.count, 1)
+        XCTAssertEqual(store.listeningSession?.outcomes.count, 0)
+        store.revealListeningQuestion(.found)
+        store.advanceListeningQuestion()
+        XCTAssertFalse(try XCTUnwrap(store.listeningSession).isMilestone)
+    }
+
+    func testListeningCandidatesIgnoreInvalidBoxesAndSceneWords() throws {
+        let store = makeStore()
+        let record = makeRecord(word: "book", chinese: "书", date: Date())
+        replaceHistory(with: [record], store: store)
+        let context = ModelContext(container)
+        let object = try XCTUnwrap(context.fetch(FetchDescriptor<LearningObjectEntity>()).first)
+        object.boxWidth = 0
+        try context.save()
+        store.reload()
+        XCTAssertTrue(store.listeningCandidates().isEmpty)
+        object.boxWidth = 1
+        object.confirmationStatusRawValue = "scene:action"
+        try context.save()
+        store.reload()
+        XCTAssertTrue(store.listeningCandidates().isEmpty)
+    }
+
+    func testListeningCompletionLayouts() async throws {
+        let history = HistoryStore(container: container)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 400)).image { context in
+            UIColor(red: 0.91, green: 0.86, blue: 0.76, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 600, height: 400))
+            for (index, color) in [UIColor.systemTeal, .systemOrange, .systemGreen].enumerated() {
+                color.setFill()
+                UIBezierPath(roundedRect: CGRect(x: 30 + index * 190, y: 90, width: 150, height: 220), cornerRadius: 24).fill()
+            }
+        }
+        let names = [("mug", "杯子"), ("notebook", "笔记本"), ("plant", "植物")]
+        let objects = names.enumerated().map { index, pair in
+            LearningObject(id: pair.0, english: pair.0, chinese: pair.1, ipa: "", confidence: 1,
+                           box: ObjectBox(x: Double(30 + index * 190) / 600, y: 0.225, width: 0.25, height: 0.55),
+                           anchor: nil, example: "", exampleChinese: nil, labelCenterOverride: nil, targetOverride: nil)
+        }
+        let record = try history.save(image: image, result: AnalyzeResult(imageWidth: 600, imageHeight: 400, objects: objects, caption: nil, captionChinese: nil, captionStyle: nil))
+        defer { history.delete(record) }
+        let questions = objects.map { ListeningQuestion(recordID: record.id, object: $0) }
+        for variant in 0..<6 {
+            var session = ListeningSession(sourceRecordID: record.id, pool: questions, round: questions)
+            session.cursor = 3
+            for (index, question) in questions.enumerated() {
+                session.outcomes[question.id] = variant == 0 || variant == 3 || (variant == 1 && index == 0) ? .found : .revealed
+            }
+            if variant == 3 { session.visited = Set(questions.map(\.id)) }
+            let size = variant == 4 ? CGSize(width: 320, height: 568)
+                : (variant == 5 ? CGSize(width: 430, height: 932) : CGSize(width: 390, height: 844))
+            let view = ZStack {
+                NotebookBackground()
+                ListeningRoundCompletionView(session: session, onSpeak: { _ in }, onDone: {}, onNext: {})
+            }
+            .environmentObject(history)
+            .environment(\.dynamicTypeSize, variant == 4 ? .accessibility2 : .large)
+            let host = UIHostingController(rootView: view)
+            let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            host.view.frame = window.bounds
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(700))
+            let screenshot = UIGraphicsImageRenderer(size: size).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: screenshot)
+            attachment.name = "listening-completion-\(variant)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("listening-completion-\(variant).png")
+            try XCTUnwrap(screenshot.pngData()).write(to: url)
+            print("LISTENING_PREVIEW \(url.path)")
+            XCTAssertEqual(host.view.bounds.size, size)
+            window.isHidden = true
+        }
+    }
+
     private func makeStore(now: Date = Date()) -> WordLearningStore {
         WordLearningStore(container: container, now: { now })
     }

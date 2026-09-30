@@ -493,6 +493,8 @@ private final class ReviewZoomScrollView: UIScrollView {
 }
 
 struct ListeningPracticeView: View {
+    let sourceRecordID: UUID?
+    var onDiscover: (() -> Void)?
     var onClose: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -502,7 +504,6 @@ struct ListeningPracticeView: View {
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.speechRate) private var speechRate = AppSettings.defaultSpeechRate
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var words: [WordEntry] = []
     @State private var questionRevision = 0
     @State private var revealed = false
     @State private var wrongAttempts = 0
@@ -511,7 +512,9 @@ struct ListeningPracticeView: View {
     @State private var didLoad = false
     @State private var showTips = false
 
-    init(onClose: (() -> Void)? = nil) {
+    init(sourceRecordID: UUID? = nil, onDiscover: (() -> Void)? = nil, onClose: (() -> Void)? = nil) {
+        self.sourceRecordID = sourceRecordID
+        self.onDiscover = onDiscover
         self.onClose = onClose
     }
 
@@ -529,6 +532,16 @@ struct ListeningPracticeView: View {
                 .zIndex(10)
         }
         .onAppear { loadPractice() }
+        .onDisappear { speech.stop() }
+        .alert("进度保存", isPresented: Binding(
+            get: { wordLearningStore.listeningSaveError != nil },
+            set: { if !$0 { wordLearningStore.dismissListeningSaveError() } }
+        )) {
+            Button("重试") { wordLearningStore.retryListeningSave() }
+            Button("稍后", role: .cancel) { wordLearningStore.dismissListeningSaveError() }
+        } message: {
+            Text(wordLearningStore.listeningSaveError ?? "")
+        }
         .task(id: currentQuestionID) {
             wrongAttempts = 0
             wrongTapMarker = nil
@@ -537,8 +550,12 @@ struct ListeningPracticeView: View {
             } else {
                 listeningPhoto = nil
             }
+            revealed = wordLearningStore.listeningSession.flatMap { session in
+                session.current.flatMap { session.outcomes[$0.id] }
+            } != nil
             guard let currentWord else { return }
-            try? await Task.sleep(for: .milliseconds(320))
+            do { try await Task.sleep(for: .milliseconds(320)) } catch { return }
+            guard !Task.isCancelled else { return }
             speak(currentWord.object.english)
         }
         .sheet(isPresented: $showTips) {
@@ -559,11 +576,13 @@ struct ListeningPracticeView: View {
     }
 
     private var currentWord: WordEntry? {
-        words.first
+        wordLearningStore.listeningSession?.current?.entry
     }
 
     private var currentQuestionID: String? {
-        currentWord.map { "\($0.id)-\(questionRevision)" }
+        wordLearningStore.listeningSession.flatMap { session in
+            session.current.map { "\(session.id)-\($0.id)-\(questionRevision)" }
+        }
     }
 
     @ViewBuilder
@@ -576,6 +595,20 @@ struct ListeningPracticeView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: layout.stackSpacing) {
+                    if let session = wordLearningStore.listeningSession {
+                        HStack(spacing: 8) {
+                            Text("第 \(session.cursor + 1) / \(session.round.count) 个")
+                                .font(.scrapbookCaption)
+                            Spacer()
+                            ForEach(session.round.indices, id: \.self) { index in
+                                Image(systemName: index < session.cursor ? "checkmark.circle.fill" : "circle.fill")
+                                    .foregroundStyle(index <= session.cursor ? Color.mint : Color.ink.opacity(0.12))
+                            }
+                            .accessibilityHidden(true)
+                        }
+                        .foregroundStyle(Color.ink.opacity(0.65))
+                        .padding(.horizontal, layout.horizontalPadding)
+                    }
                     listeningGame(
                         for: word,
                         photoSize: layout.photoSize,
@@ -680,7 +713,7 @@ struct ListeningPracticeView: View {
                             .multilineTextAlignment(.center)
                             .contentTransition(.opacity)
 
-                        if wrongAttempts >= 2 || listeningPhoto.targetBox == nil {
+                        if !revealed {
                             PictureWordButton(
                                 "看看答案",
                                 systemImage: "eye.fill",
@@ -711,7 +744,7 @@ struct ListeningPracticeView: View {
             playbackButton(for: word)
             Text(speechEnabled
                  ? (isCompact ? "再次播放单词" : "点击喇叭，再听一次")
-                 : "语音已关闭，请在设置中开启")
+                 : "点击喇叭，开启语音并开始")
                 .font(.system(.caption, design: .rounded, weight: .medium))
                 .foregroundStyle(Color.ink.opacity(0.56))
         }
@@ -721,6 +754,7 @@ struct ListeningPracticeView: View {
 
     private func playbackButton(for word: WordEntry) -> some View {
         Button {
+            speechEnabled = true
             speak(word.object.english)
         } label: {
             Image(systemName: speechEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
@@ -731,8 +765,7 @@ struct ListeningPracticeView: View {
                 .shadow(color: Color.ink.opacity(0.18), radius: 0, x: 3, y: 4)
         }
         .buttonStyle(.plain)
-        .disabled(!speechEnabled)
-        .accessibilityLabel(speechEnabled ? "再次播放单词" : "语音已关闭")
+        .accessibilityLabel(speechEnabled ? "再次播放单词" : "开启语音并播放单词")
     }
 
     private func revealedAnswer(for word: WordEntry) -> some View {
@@ -754,36 +787,42 @@ struct ListeningPracticeView: View {
     }
 
     private func answerActions(for word: WordEntry) -> some View {
-        HStack(spacing: 12) {
-            PictureWordButton(
-                "我还不会",
-                systemImage: "arrow.clockwise",
-                style: .secondary
-            ) {
-                finish(word, mastered: false)
-            }
-            PictureWordButton("我会了", systemImage: "checkmark.circle.fill") {
-                finish(word, mastered: true)
-            }
+        let isLast = (wordLearningStore.listeningSession?.cursor ?? 0) + 1
+            == wordLearningStore.listeningSession?.round.count
+        return PictureWordButton(isLast ? "查看本轮回顾" : "下一个", systemImage: "arrow.right") {
+            finishQuestion()
         }
     }
 
     private var completion: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            StickerSeal(symbol: "checkmark", color: .mint)
-                .scaleEffect(1.35)
-            Text("所有学习中的单词都会了")
-                .font(.scrapbookHero)
-                .multilineTextAlignment(.center)
-            Text("去生活里发现新的单词吧。")
-                .font(.scrapbookBody)
-                .foregroundStyle(Color.ink.opacity(0.58))
-            PictureWordButton("回到手账", systemImage: "book.closed.fill") { dismiss() }
-                .padding(.horizontal, 28)
-            Spacer()
+        Group {
+            if let session = wordLearningStore.listeningSession, !session.round.isEmpty {
+                ListeningRoundCompletionView(
+                    session: session,
+                    returnsToPhoto: sourceRecordID != nil,
+                    onDiscover: onDiscover,
+                    onSpeak: { speechEnabled = true; speak($0) },
+                    onDone: closePractice,
+                    onNext: {
+                        speech.stop()
+                        wordLearningStore.nextListeningRound(photoAvailable: photoAvailable)
+                        resetQuestion()
+                    }
+                )
+            } else {
+                VStack(spacing: 20) {
+                    StickerSeal(symbol: "photo", color: .sky)
+                    Text("换一张照片，再去发现")
+                        .font(.scrapbookTitle)
+                    Text("这里暂时没有可以点选的物体词。照片或单词可能已经发生变化。")
+                        .font(.scrapbookBody)
+                        .foregroundStyle(Color.ink.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                    PictureWordButton("返回", systemImage: "arrow.left", action: closePractice)
+                }
+                .padding(28)
+            }
         }
-        .padding(24)
     }
 
     private func reviewImage(for entry: WordEntry, height: CGFloat) -> some View {
@@ -807,19 +846,19 @@ struct ListeningPracticeView: View {
         .shadow(color: Color.ink.opacity(0.12), radius: 0, x: 2, y: 3)
     }
 
-    private func finish(_ word: WordEntry, mastered: Bool) {
-        wordLearningStore.recordPracticeResult(for: word.id, mastered: mastered)
-        let nextWords = wordLearningStore.practiceEntries
-        let nextPhoto = nextWords.first.flatMap {
+    private func finishQuestion() {
+        speech.stop()
+        wordLearningStore.advanceListeningQuestion()
+        resetQuestion()
+    }
+
+    private func resetQuestion() {
+        questionRevision += 1
+        revealed = false
+        wrongAttempts = 0
+        wrongTapMarker = nil
+        listeningPhoto = currentWord.flatMap {
             WordImageCropper.reviewPhoto(for: $0, historyStore: historyStore)
-        }
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
-            words = nextWords
-            questionRevision += 1
-            revealed = false
-            wrongAttempts = 0
-            wrongTapMarker = nil
-            listeningPhoto = nextPhoto
         }
     }
 
@@ -841,7 +880,7 @@ struct ListeningPracticeView: View {
 
         if ReviewHitTesting.hitsTarget(target, with: tap) {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            revealListeningAnswer(word)
+            revealListeningAnswer(word, outcome: .found)
         } else {
             wrongAttempts += 1
             wrongTapMarker = ReviewTapMarker(id: wrongAttempts, normalizedPoint: tap.normalizedPoint)
@@ -849,8 +888,9 @@ struct ListeningPracticeView: View {
         }
     }
 
-    private func revealListeningAnswer(_ word: WordEntry) {
+    private func revealListeningAnswer(_ word: WordEntry, outcome: ListeningOutcome = .revealed) {
         guard !revealed else { return }
+        wordLearningStore.revealListeningQuestion(outcome)
         withAnimation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.78)) {
             revealed = true
         }
@@ -862,17 +902,288 @@ struct ListeningPracticeView: View {
         speech.speak(text, rate: speechRate)
     }
 
+    private func photoAvailable(_ id: UUID) -> Bool {
+        guard let record = historyStore.record(id: id) else { return false }
+        return historyStore.image(for: record) != nil
+    }
+
     private func loadPractice() {
-        guard !didLoad else { return }
-        didLoad = true
-        words = wordLearningStore.startOrResumePractice()
-        questionRevision = 0
-        revealed = false
-        wrongAttempts = 0
-        wrongTapMarker = nil
-        listeningPhoto = words.first.flatMap {
-            WordImageCropper.reviewPhoto(for: $0, historyStore: historyStore)
+        guard !didLoad else {
+            wordLearningStore.validateListeningSession(photoAvailable: photoAvailable)
+            return
         }
+        didLoad = true
+        wordLearningStore.startListeningRound(recordID: sourceRecordID, photoAvailable: photoAvailable)
+        resetQuestion()
+    }
+
+}
+
+struct ListeningRoundCompletionView: View {
+    let session: ListeningSession
+    var returnsToPhoto = true
+    var onDiscover: (() -> Void)? = nil
+    let onSpeak: (String) -> Void
+    let onDone: () -> Void
+    let onNext: () -> Void
+    @EnvironmentObject private var historyStore: HistoryStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
+    private var allFound: Bool { session.foundCount == session.round.count }
+    private var accent: Color { allFound ? .mint : (session.foundCount == 0 ? .sky : .sun) }
+    private var stamp: String {
+        if session.isMilestone { return "探索完成" }
+        if allFound { return "全都找到了" }
+        return session.foundCount == 0 ? "慢慢熟悉" : "又熟悉了一点"
+    }
+    private var title: String {
+        if session.isMilestone {
+            return session.sourceRecordID == nil ? "这一站，探索完成。" : "这张照片，\n多了一层熟悉。"
+        }
+        if allFound { return session.isRepeat ? "又一次，全都找到了。" : "这几个，都难不倒你。" }
+        return session.foundCount == 0 ? "有些词，\n多见几次就熟了。" : "有认出来的，\n也有新认识的。"
+    }
+    private var message: String {
+        if allFound { return "\(session.round.count) 个声音，找到了 \(session.round.count) 个熟悉的身影。" }
+        if session.foundCount == 0 { return "今天先把声音和模样对上，\n下次见面，也许就熟悉了。" }
+        return "找到了 \(session.foundCount) 个，还有 \(session.round.count - session.foundCount) 个下次再见。"
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 24) {
+                photoCollage
+                    .padding(.top, 24)
+                VStack(spacing: 12) {
+                    Text(session.isMilestone ? "A LITTLE MILESTONE" : "ONE LITTLE DISCOVERY")
+                        .font(.system(.caption2, design: .monospaced, weight: .bold))
+                        .tracking(2)
+                        .foregroundStyle(Color.ink.opacity(0.5))
+                    Text(title)
+                        .font(.scrapbookHero)
+                        .foregroundStyle(Color.ink)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(message)
+                        .font(.scrapbookBody)
+                        .foregroundStyle(Color.ink.opacity(0.65))
+                        .multilineTextAlignment(.center)
+                    if session.isMilestone {
+                        Text("这一组 \(session.pool.count) 个物体词，你都听过、找过了。")
+                            .font(.scrapbookCaption)
+                            .foregroundStyle(Color.ink.opacity(0.6))
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                VStack(spacing: 10) {
+                    ForEach(session.round) { question in
+                        wordCard(question)
+                    }
+                }
+                VStack(spacing: 12) {
+                    PictureWordButton(returnsToPhoto ? "回到照片" : "完成",
+                                      systemImage: "checkmark", action: onDone)
+                    if session.isMilestone, !returnsToPhoto, let onDiscover {
+                        PictureWordButton("发现新的", systemImage: "camera.fill", style: .secondary, action: onDiscover)
+                        Button("再玩这几个", action: onNext)
+                            .font(.scrapbookCaption)
+                            .foregroundStyle(Color.ink.opacity(0.6))
+                            .frame(minHeight: 44)
+                    } else {
+                        PictureWordButton(session.hasOtherWords ? "再玩一轮" : "再玩这几个",
+                                          systemImage: "arrow.clockwise", style: .secondary, action: onNext)
+                    }
+                }
+                if session.contentChanged {
+                    Text("部分照片或单词已变化，这里保留本轮仍可回顾的内容。")
+                        .font(.scrapbookCaption)
+                        .foregroundStyle(Color.ink.opacity(0.6))
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 32)
+        }
+        .onAppear {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.8)) {
+                appeared = true
+            }
+        }
+    }
+
+    private var photoCollage: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24)
+                .fill(accent.opacity(0.22))
+                .frame(width: 230, height: 175)
+                .rotationEffect(.degrees(-7))
+            HStack(spacing: -20) {
+                ForEach(Array(session.round.enumerated()), id: \.element.id) { index, question in
+                    Group {
+                        if let image = WordImageCropper.image(for: question.entry, historyStore: historyStore) {
+                            Image(uiImage: image).resizable().scaledToFill()
+                        } else {
+                            Color.paperDeep
+                        }
+                    }
+                    .frame(width: 80, height: 102)
+                    .clipped()
+                    .padding(7)
+                    .padding(.bottom, 14)
+                    .background(Color.paperLight)
+                    .shadow(color: Color.ink.opacity(0.12), radius: 4, x: 2, y: 4)
+                    .rotationEffect(.degrees(appeared ? Double(index - 1) * 8 : 0))
+                }
+            }
+            VStack {
+                HStack {
+                    Image(systemName: allFound ? "sparkles" : "sun.max")
+                    Spacer()
+                    Image(systemName: session.isMilestone ? "checkmark.seal" : "sparkle")
+                }
+                .font(.title2)
+                .foregroundStyle(Color.ink.opacity(0.5))
+                Spacer()
+                Text(stamp)
+                    .font(.system(.headline, design: .rounded, weight: .black))
+                    .foregroundStyle(Color.ink)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(accent, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.ink.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                    .rotationEffect(.degrees(-5))
+                    .scaleEffect(appeared ? 1 : 0.85)
+            }
+            .frame(maxWidth: 285)
+        }
+        .frame(height: 205)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(stamp)
+    }
+
+    private func wordCard(_ question: ListeningQuestion) -> some View {
+        ListeningKeepsakeWordCard(
+            question: question,
+            found: session.outcomes[question.id] == .found,
+            image: WordImageCropper.image(for: question.entry, historyStore: historyStore),
+            onPlay: { onSpeak(question.object.english) }
+        )
+    }
+}
+
+/// A small photo keepsake, with a status stamp separate from the playback affordance.
+private struct ListeningKeepsakeWordCard: View {
+    let question: ListeningQuestion
+    let found: Bool
+    let image: UIImage?
+    let onPlay: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var tint: Color { found ? .mint : .sky }
+    private var status: String { found ? "认出来了" : "下次再见" }
+
+    var body: some View {
+        Button(action: onPlay) {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(alignment: .center, spacing: 16) {
+                            photo
+                            Spacer(minLength: 0)
+                            playback
+                        }
+                        statusStamp
+                        vocabulary
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: 15) {
+                        photo
+                        VStack(alignment: .leading, spacing: 8) {
+                            statusStamp
+                            vocabulary
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        playback
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(Color.ink)
+            .background {
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(Color.paperLight)
+                    .shadow(color: Color.ink.opacity(0.07), radius: 0, x: 2, y: 3)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 22)
+                    .strokeBorder(tint.opacity(0.45), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 22))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(question.object.english)，\(question.object.chinese)，\(status)")
+        .accessibilityHint("点按再听一遍发音")
+    }
+
+    private var photo: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Color.paperDeep.overlay {
+                    Image(systemName: "photo").foregroundStyle(Color.ink.opacity(0.35))
+                }
+            }
+        }
+        .frame(width: 58, height: 66)
+        .clipped()
+        .padding(4)
+        .padding(.bottom, 8)
+        .background(Color.paperLight)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(tint.opacity(0.8))
+                .frame(width: 32, height: 10)
+                .rotationEffect(.degrees(-8))
+                .offset(y: -4)
+        }
+        .shadow(color: Color.ink.opacity(0.15), radius: 2, x: 1, y: 2)
+        .rotationEffect(.degrees(found ? -4 : 3))
+        .accessibilityHidden(true)
+    }
+
+    private var statusStamp: some View {
+        Label(status, systemImage: found ? "checkmark.seal.fill" : "leaf")
+            .font(.system(.caption2, design: .rounded, weight: .bold))
+            .foregroundStyle(Color.ink.opacity(0.76))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.28), in: Capsule())
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var vocabulary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(question.object.english)
+                .font(.system(.title2, design: .serif, weight: .bold))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(question.object.chinese)
+                .font(.system(.subheadline, design: .rounded, weight: .medium))
+                .foregroundStyle(Color.ink.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var playback: some View {
+        Image(systemName: "speaker.wave.2.fill")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Color.ink)
+            .frame(width: 40, height: 40)
+            .background(tint.opacity(0.32), in: Circle())
+            .overlay(Circle().strokeBorder(tint.opacity(0.55)))
+            .accessibilityHidden(true)
     }
 }
 
@@ -948,12 +1259,12 @@ private struct ListeningPracticeTipsSheet: View {
                     tipRow(
                         number: "03",
                         title: "答错后再试一次",
-                        detail: "照片上的红色标记会提示刚才点到的位置，连续答错后可以查看答案。"
+                        detail: "点错了可以继续找，也可以随时点“看看答案”，没有时间限制。"
                     )
                     tipRow(
                         number: "04",
-                        title: "看完答案再判断",
-                        detail: "确认英文、中文和音标后，选择“我还不会”或“我会了”。"
+                        title: "三个词，轻松一轮",
+                        detail: "看过英文、中文和音标后点“下一个”。每轮最多三个词，练习不会自动改变“已会”状态。"
                     )
                 }
 

@@ -504,13 +504,13 @@ actor AccessCredentialStore {
     }
 
     private func storeEnvironment() async -> String? {
-        let result = await AppTransaction.shared
-        guard case .verified(let transaction) = result else { return nil }
+        guard let result = try? await AppTransaction.shared,
+              case .verified(let transaction) = result else { return nil }
         switch transaction.environment {
         case .production: return "Production"
         case .sandbox: return "Sandbox"
         case .xcode: return "Xcode"
-        @unknown default: return nil
+        default: return nil
         }
     }
 

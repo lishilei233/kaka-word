@@ -156,6 +156,146 @@ struct HomeView: View {
     }
 }
 
+struct ListeningHomeEntryCard: View {
+    enum State {
+        case resuming(completed: Int, total: Int)
+        case ready
+        case empty
+
+        var label: String {
+            switch self {
+            case .resuming: return "继续上次"
+            case .ready: return "轻松一轮"
+            case .empty: return "从照片开始"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case let .resuming(completed, total): return "已完成 \(completed)/\(total) 个"
+            case .ready: return "用你的照片，听音找一找"
+            case .empty: return "拍下身边感兴趣的东西"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .resuming: return .mint
+            case .ready: return .sun
+            case .empty: return .sky
+            }
+        }
+
+        var actionHint: String {
+            switch self {
+            case .resuming: return "继续未完成的一轮练习"
+            case .ready: return "开始一轮听音找词"
+            case .empty: return "打开拍照入口"
+            }
+        }
+    }
+
+    let state: State
+    let image: UIImage?
+    let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            photo
+                            Spacer(minLength: 0)
+                            entryArrow
+                        }
+                        copy
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        photo
+                        copy
+                        entryArrow
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(Color.ink)
+            .background {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color.paperLight)
+                    .shadow(color: Color.ink.opacity(0.07), radius: 0, x: 2, y: 3)
+            }
+            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.ink.opacity(0.08)))
+            .contentShape(RoundedRectangle(cornerRadius: 24))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("听音找一找，\(state.label)，\(state.detail)")
+        .accessibilityHint(state.actionHint)
+    }
+
+    private var copy: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("LISTEN & FIND")
+                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(Color.ink.opacity(0.5))
+            Text("听音找一找")
+                .font(.system(.headline, design: .rounded, weight: .heavy))
+            Text(state.label)
+                .font(.system(.caption2, design: .rounded, weight: .bold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(state.tint.opacity(0.3), in: Capsule())
+            Text(state.detail)
+                .font(.system(.caption, design: .rounded, weight: .medium))
+                .foregroundStyle(Color.ink.opacity(0.6))
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var photo: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Color.paperDeep.overlay {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 21, weight: .medium))
+                        .foregroundStyle(Color.ink.opacity(0.4))
+                }
+            }
+        }
+        .frame(width: 54, height: 64)
+        .clipped()
+        .padding(4)
+        .padding(.bottom, 8)
+        .background(Color.paperLight)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(state.tint.opacity(0.8))
+                .frame(width: 30, height: 9)
+                .rotationEffect(.degrees(-7))
+                .offset(y: -4)
+        }
+        .shadow(color: Color.ink.opacity(0.12), radius: 2, x: 1, y: 2)
+        .rotationEffect(.degrees(-4))
+        .accessibilityHidden(true)
+    }
+
+    private var entryArrow: some View {
+        Image(systemName: "arrow.up.right")
+            .font(.system(size: 14, weight: .bold))
+            .frame(width: 36, height: 36)
+            .background(Color.sun.opacity(0.3), in: Circle())
+            .accessibilityHidden(true)
+    }
+}
+
 private struct HomeDashboard: View {
     let mode: LearningMode
     let onModeChange: (LearningMode) -> Void
@@ -167,6 +307,7 @@ private struct HomeDashboard: View {
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
     @EnvironmentObject private var wordLearningStore: WordLearningStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var practicePresented = false
 
     var body: some View {
@@ -190,51 +331,43 @@ private struct HomeDashboard: View {
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
         .navigationDestination(isPresented: $practicePresented) {
-            ListeningPracticeView {
+            ListeningPracticeView(onDiscover: {
+                practicePresented = false
+                onCamera()
+            }) {
                 practicePresented = false
             }
         }
     }
 
-    private var reviewCard: some View {
-        Button {
-            practicePresented = true
-        } label: {
-            HStack(spacing: 16) {
-                StickerSeal(
-                    symbol: wordLearningStore.learningEntries.isEmpty ? "checkmark" : "ear.fill",
-                    color: wordLearningStore.learningEntries.isEmpty ? .mint : .sun,
-                    showsShadow: false
-                )
+    private var hasListeningWords: Bool {
+        !wordLearningStore.listeningCandidates().isEmpty
+    }
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("LISTEN & FIND")
-                        .font(.system(.caption2, design: .rounded, weight: .black))
-                        .tracking(1.5)
-                        .foregroundStyle(Color.coral)
-                    Text("听音找词")
-                        .font(.system(.headline, design: .rounded, weight: .heavy))
-                    Text(wordLearningStore.learningEntries.isEmpty
-                         ? "学习中的单词都会了，去发现新的吧。"
-                         : "还有 \(wordLearningStore.learningEntries.count) 个学习中的词")
-                        .font(.system(.caption, design: .rounded, weight: .medium))
-                        .foregroundStyle(Color.ink.opacity(0.56))
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 14, weight: .black))
-            }
-            .foregroundStyle(Color.ink)
-            .padding(18)
-            .background(Color.paperLight.opacity(0.88), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.ink.opacity(0.08))
+    private var pendingListeningSession: ListeningSession? {
+        guard let session = wordLearningStore.listeningSession, !session.isFinished else { return nil }
+        return session
+    }
+
+    private var listeningPreview: UIImage? {
+        let question = pendingListeningSession?.current ?? wordLearningStore.listeningCandidates().first
+        guard let question, let record = historyStore.record(id: question.recordID) else { return nil }
+        return historyStore.thumbnail(for: record)
+    }
+
+    private var reviewCard: some View {
+        let state: ListeningHomeEntryCard.State = pendingListeningSession.map {
+            .resuming(completed: $0.outcomes.count, total: $0.round.count)
+        } ?? (hasListeningWords ? .ready : .empty)
+        return ListeningHomeEntryCard(state: state, image: listeningPreview) {
+            if pendingListeningSession != nil || hasListeningWords {
+                practicePresented = true
+            } else {
+                onCamera()
             }
         }
-        .buttonStyle(.plain)
-        .disabled(wordLearningStore.learningEntries.isEmpty)
-        .opacity(wordLearningStore.learningEntries.isEmpty ? 0.62 : 1)
+        // The rest of the dashboard caps type size; this card supports the user's full setting.
+        .environment(\.dynamicTypeSize, dynamicTypeSize)
         .padding(.top, 24)
     }
 

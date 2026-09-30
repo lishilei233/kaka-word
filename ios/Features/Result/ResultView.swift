@@ -271,6 +271,7 @@ struct PhotoWordCardDetailView: View {
     var usesNavigationBackButton = false
     var focusedWord: String? = nil
 
+    @State private var practicePresented = false
     @State private var selectedObject: LearningObject?
     @State private var confirmationObject: LearningObject?
     @State private var presentedConfirmationID: String?
@@ -322,6 +323,9 @@ struct PhotoWordCardDetailView: View {
                 .zIndex(10)
         }
         .onDisappear { speech.stop() }
+        .navigationDestination(isPresented: $practicePresented) {
+            ListeningPracticeView(sourceRecordID: sourceRecordID)
+        }
         .sheet(item: $selectedObject) { object in
             WordDetailSheet(
                 object: object,
@@ -516,21 +520,31 @@ struct PhotoWordCardDetailView: View {
             // )
 
             HStack(spacing: 8) {
-                PictureWordButton(
-                    "分享",
-                    systemImage: "square.and.arrow.up",
-                    style: .primary,
-                    size: .large
-                ) {
-                    finishAnnotationEditing()
-                    onShare()
+                if let sourceRecordID,
+                   !wordLearningStore.listeningCandidates(recordID: sourceRecordID).isEmpty {
+                    PictureWordButton(
+                        "听音找一找",
+                        systemImage: "ear.fill",
+                        style: .secondary,
+                        size: .large
+                    ) {
+                        finishAnnotationEditing()
+                        speech.stop()
+                        practicePresented = true
+                    }
+                } else {
+                    Spacer(minLength: 0)
                 }
 
-                if onRetry != nil || onResultChange != nil {
+                Group {
                     PictureWordMenuButton(
                         systemImage: "ellipsis",
                         accessibilityLabel: "更多操作"
                     ) {
+                        Button("分享", systemImage: "square.and.arrow.up") {
+                            finishAnnotationEditing()
+                            onShare()
+                        }
                         if let onRetry {
                             Button("刷新", systemImage: "arrow.clockwise") {
                                 finishAnnotationEditing()

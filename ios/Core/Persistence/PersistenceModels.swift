@@ -18,9 +18,25 @@ enum PictureWordSchemaV1: VersionedSchema {
     }
 }
 
+enum PictureWordSchemaV2: VersionedSchema {
+    static let versionIdentifier = Schema.Version(2, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        PictureWordSchemaV1.models + [ListeningSessionEntity.self]
+    }
+}
+
 enum PictureWordMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] { [PictureWordSchemaV1.self] }
-    static var stages: [MigrationStage] { [] }
+    static var schemas: [any VersionedSchema.Type] { [PictureWordSchemaV1.self, PictureWordSchemaV2.self] }
+    static var stages: [MigrationStage] {
+        [.lightweight(fromVersion: PictureWordSchemaV1.self, toVersion: PictureWordSchemaV2.self)]
+    }
+}
+
+@Model
+final class ListeningSessionEntity {
+    var id: String = "current"
+    var payload: Data = Data()
+    init(payload: Data) { self.payload = payload }
 }
 
 @Model

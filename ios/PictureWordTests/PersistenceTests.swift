@@ -4,6 +4,31 @@ import XCTest
 
 @MainActor
 final class PersistenceTests: XCTestCase {
+    func testV1StoreMigratesToListeningSchemaWithoutLosingHistoryOrMastery() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configuration = ModelConfiguration(url: directory.appendingPathComponent("migration.store"))
+        let record = makeRecord(index: 1)
+        try autoreleasepool {
+            let old = try ModelContainer(for: Schema(versionedSchema: PictureWordSchemaV1.self), configurations: configuration)
+            let context = ModelContext(old)
+            context.insert(HistoryEntity(record: record))
+            context.insert(WordProgressEntity(wordKey: "mug", progress: WordLearningProgress(state: .mastered, reviewCount: 4)))
+            context.insert(PracticeQueueEntity(wordKey: "book", sortIndex: 0))
+            try context.save()
+        }
+        let updated = try ModelContainer(for: Schema(versionedSchema: PictureWordSchemaV2.self),
+                                         migrationPlan: PictureWordMigrationPlan.self, configurations: configuration)
+        let context = ModelContext(updated)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<HistoryEntity>()).map(\.id), [record.id])
+        let progress = try XCTUnwrap(context.fetch(FetchDescriptor<WordProgressEntity>()).first)
+        XCTAssertEqual(progress.stateRawValue, WordLearningState.mastered.rawValue)
+        XCTAssertEqual(progress.reviewCount, 4)
+        XCTAssertTrue(try context.fetch(FetchDescriptor<ListeningSessionEntity>()).isEmpty)
+        XCTAssertNil(WordLearningStore(container: updated).listeningSession)
+    }
+
     func testHistoryMappingPreservesNestedRecognitionData() throws {
         let record = makeRecord(index: 1, candidate: true)
         let restored = PersistenceMapper.historyRecord(from: HistoryEntity(record: record))

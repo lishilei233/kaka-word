@@ -7,6 +7,9 @@ final class WordLearningStore: ObservableObject {
     @Published private(set) var progressByKey: [String: WordLearningProgress] = [:]
     @Published private(set) var practiceQueueKeys: [String] = []
 
+    @Published private(set) var listeningSession: ListeningSession?
+    @Published private(set) var listeningSaveError: String?
+
     private let context: ModelContext
     private let now: () -> Date
 
@@ -38,6 +41,8 @@ final class WordLearningStore: ObservableObject {
         rebuildEntries()
         loadQueue()
         reconcilePracticeQueue()
+        loadListeningSession()
+        validateListeningSession()
     }
 
     func state(for word: String) -> WordLearningState {
@@ -81,6 +86,127 @@ final class WordLearningStore: ObservableObject {
         reconcilePracticeQueue(persistChanges: false)
         persistProgress(key: key, progress: progress)
         persistQueue()
+    }
+
+    func listeningCandidates(recordID: UUID? = nil) -> [ListeningQuestion] {
+        let ordered = entries.sorted { lhs, rhs in
+            let leftMastered = state(for: lhs.id) == .mastered
+            let rightMastered = state(for: rhs.id) == .mastered
+            if leftMastered != rightMastered { return !leftMastered }
+            let left = progressByKey[lhs.id]?.lastReviewedAt ?? .distantPast
+            let right = progressByKey[rhs.id]?.lastReviewedAt ?? .distantPast
+            if left != right { return left < right }
+            if lhs.lastSeenAt != rhs.lastSeenAt { return lhs.lastSeenAt > rhs.lastSeenAt }
+            return lhs.id < rhs.id
+        }
+        return ordered.compactMap { entry in
+            guard recordID != nil || state(for: entry.id) == .learning else { return nil }
+            guard let occurrence = entry.occurrences.first(where: {
+                (recordID == nil || $0.recordID == recordID) && Self.canListen(to: $0.object)
+            }) else { return nil }
+            return ListeningQuestion(recordID: occurrence.recordID, object: occurrence.object)
+        }
+    }
+
+    private static func canListen(to object: LearningObject) -> Bool {
+        let box = object.box
+        return object.kind == .object && !normalizedKey(for: object.english).isEmpty
+            && [box.x, box.y, box.width, box.height].allSatisfy { $0.isFinite }
+            && box.width > 0 && box.height > 0 && box.x < 1 && box.y < 1
+            && box.x + box.width > 0 && box.y + box.height > 0
+    }
+
+    func startListeningRound(recordID: UUID? = nil, photoAvailable: @escaping (UUID) -> Bool = { _ in true }) {
+        validateListeningSession(photoAvailable: photoAvailable)
+        if let session = listeningSession, !session.isFinished,
+           recordID == nil || session.sourceRecordID == recordID { return }
+        let pool = listeningCandidates(recordID: recordID).filter { photoAvailable($0.recordID) }
+        listeningSession = ListeningSession(sourceRecordID: recordID, pool: pool, round: Array(pool.prefix(3)))
+        persistListeningSession()
+    }
+
+    func revealListeningQuestion(_ outcome: ListeningOutcome) {
+        guard var session = listeningSession, let question = session.current,
+              session.outcomes[question.id] == nil else { return }
+        session.outcomes[question.id] = outcome
+        session.visited.insert(question.id)
+        var progress = progressByKey[question.wordKey] ?? WordLearningProgress()
+        progress.lastReviewedAt = now()
+        progress.reviewCount += 1
+        progressByKey[question.wordKey] = progress
+        // No mastery changes: hearing or finding a word once is not a mastery assessment.
+        persistProgress(key: question.wordKey, progress: progress, saveImmediately: false)
+        listeningSession = session
+        persistListeningSession()
+    }
+
+    func advanceListeningQuestion() {
+        guard var session = listeningSession, let question = session.current,
+              session.outcomes[question.id] != nil else { return }
+        session.cursor += 1
+        listeningSession = session
+        persistListeningSession()
+    }
+
+    func nextListeningRound(photoAvailable: @escaping (UUID) -> Bool = { _ in true }) {
+        validateListeningSession(photoAvailable: photoAvailable)
+        guard var session = listeningSession, session.isFinished else { return }
+        let remaining = session.pool.filter { !session.visited.contains($0.id) }
+        session.isRepeat = remaining.isEmpty
+        if remaining.isEmpty { session.visited = [] }
+        session.round = Array((remaining.isEmpty ? session.pool : remaining).prefix(3))
+        session.outcomes = [:]
+        session.cursor = 0
+        session.id = UUID()
+        listeningSession = session
+        persistListeningSession()
+    }
+
+    func validateListeningSession(photoAvailable: @escaping (UUID) -> Bool = { _ in true }) {
+        guard var session = listeningSession else { return }
+        let valid: (ListeningQuestion) -> Bool = { question in
+            photoAvailable(question.recordID) && self.entries.contains { entry in
+                entry.occurrences.contains {
+                    $0.recordID == question.recordID && $0.object == question.object
+                }
+            }
+        }
+        let old = session
+        let completedPrefix = session.round.prefix(session.cursor).filter(valid).count
+        session.pool.removeAll { !valid($0) }
+        session.round.removeAll { !valid($0) }
+        session.cursor = completedPrefix
+        let roundIDs = Set(session.round.map(\.id))
+        session.outcomes = session.outcomes.filter { roundIDs.contains($0.key) }
+        session.visited.formIntersection(session.pool.map(\.id))
+        if session.pool.count != old.pool.count || session.round.count != old.round.count {
+            session.contentChanged = true
+            listeningSession = session
+            persistListeningSession()
+        }
+    }
+
+    private func loadListeningSession() {
+        let entity = try? context.fetch(FetchDescriptor<ListeningSessionEntity>()).first
+        listeningSession = entity.flatMap { try? JSONDecoder().decode(ListeningSession.self, from: $0.payload) }
+    }
+
+    func dismissListeningSaveError() { listeningSaveError = nil }
+    func retryListeningSave() { persistListeningSession() }
+
+    private func persistListeningSession() {
+        guard let listeningSession else { return }
+        do {
+            let payload = try JSONEncoder().encode(listeningSession)
+            let entity = try context.fetch(FetchDescriptor<ListeningSessionEntity>()).first
+                ?? ListeningSessionEntity(payload: payload)
+            if entity.modelContext == nil { context.insert(entity) }
+            entity.payload = payload
+            try context.save()
+            listeningSaveError = nil
+        } catch {
+            listeningSaveError = "练习进度暂时无法保存，请稍后重试。"
+        }
     }
 
     static func normalizedKey(for word: String) -> String {
@@ -142,7 +268,7 @@ final class WordLearningStore: ObservableObject {
         }
     }
 
-    private func persistProgress(key: String, progress: WordLearningProgress) {
+    private func persistProgress(key: String, progress: WordLearningProgress, saveImmediately: Bool = true) {
         let targetKey = key
         var descriptor = FetchDescriptor<WordProgressEntity>(predicate: #Predicate { $0.wordKey == targetKey })
         descriptor.fetchLimit = 1
@@ -151,7 +277,7 @@ final class WordLearningStore: ObservableObject {
         entity.stateRawValue = progress.state.rawValue
         entity.lastReviewedAt = progress.lastReviewedAt
         entity.reviewCount = progress.reviewCount
-        try? context.save()
+        if saveImmediately { try? context.save() }
     }
 
     private func persistQueue() {
