@@ -15,13 +15,18 @@ export function Cover({ project }: { project: Project; onMove?: CoverMove }) {
         <section style={{ position: 'absolute', left: 72, right: 72, [top ? 'top' : 'bottom']: 72 }}>
             <div style={{ fontSize: layout.heading.fontSize, fontWeight: 900, lineHeight: 1.18, letterSpacing: 0, textShadow: '0 3px 18px rgba(0,0,0,.25)' }}>
                 {layout.heading.fits ? layout.heading.lines.map((line, index) => <div key={index} style={{ whiteSpace: 'pre', color: index === layout.heading.lines.length - 1 ? '#ffda63' : '#fff9e9' }}>{line}</div>)
-                    : <div style={{ fontSize: 56, lineHeight: 1.3 }}>{layout.title ? '请缩短标题后导出' : '请填写标题后导出'}</div>}
+                    : <div style={{ fontSize: 56, lineHeight: 1.3 }}>{layout.title ? '请缩短场景名后导出' : '请填写场景名后导出'}</div>}
             </div>
             {layout.words.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 14, marginTop: 32 }}>
-                {layout.wordRows.map((row, index) => <div key={index} style={{ display: 'flex', gap: 16 }}>{row.words.map(word => <span key={word.id} style={{
+                {layout.wordRows.map((row, index) => <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 16 }}>{row.words.map(word => <span key={word.id} style={{
                     display: 'inline-flex', alignItems: 'center', borderRadius: 10, padding: '13px 24px', background: '#fff9e9', color: '#202724',
                     fontFamily: 'Arial, sans-serif', fontWeight: 700, fontSize: layout.wordFontSize, lineHeight: 1.2, whiteSpace: 'nowrap',
-                }}>{word.english}</span>)}</div>)}
+                }}>{word.english}</span>)}{row.moreCount !== undefined && <span style={{
+                    display: 'inline-flex', alignItems: 'center', flexShrink: 0, borderRadius: 10,
+                    padding: '13px 24px',
+                    color: '#202724', background: '#ffda63',
+                    fontSize: 36, fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap',
+                }}>+{row.moreCount} 个词</span>}</div>)}
             </div>}
         </section>
     </div>;

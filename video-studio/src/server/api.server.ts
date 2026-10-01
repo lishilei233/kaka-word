@@ -16,8 +16,8 @@ import { renderMedia, renderStill, selectComposition } from '@remotion/renderer'
 import { getImageDimensions } from './image-dimensions.ts';
 import { normalizedPhoto } from './normalize-photo.ts';
 import { projectSchema, exportBlockers, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
-import { analyzeScene, generateCoverCopy, generateSocialCopy, recognizeImage, regenerateCaption, reviewCaption } from './recognition.server.ts';
-import { learningPost } from '../lib/learning-post.ts';
+import { analyzeScene, generateCoverCopy, recognizeImage, regenerateCaption, reviewCaption } from './recognition.server.ts';
+import { fixedSocialCopy, publishingIssues } from '../lib/learning-post.ts';
 
 const exec = promisify(execFile);
 const root = resolve(process.env.STUDIO_DATA_DIR || '.data');
@@ -322,16 +322,9 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
         }
         if (req.method === 'POST' && path === '/studio-api/social-copy') {
             const p = projectSchema.parse(await json(req));
-            const copy = await generateSocialCopy({
-                sceneTheme: p.sceneTheme,
-                interaction: p.interaction && { english: p.interaction.english, chinese: p.interaction.chinese },
-                caption: p.caption,
-                captionChinese: p.captionChinese,
-                words: p.words.map(({ english, chinese, ipa, kind }) => ({ english, chinese, ipa, kind })),
-                highlightedWords: p.words.filter(word => p.cover?.words[word.id]?.highlighted).map(word => word.english),
-            }, req.signal);
-            // 小红书正文使用本地学习卡片模板，覆盖服务端 AI 返回的 body；标题和标签仍使用 AI 结果。
-            return send({ ...copy, xiaohongshu: { ...copy.xiaohongshu, body: learningPost(p) } });
+            const issues = publishingIssues(p);
+            if (issues.length) throw new Error(issues.join('；'));
+            return send(fixedSocialCopy(p));
         }
         if (req.method === 'POST' && path === '/studio-api/render') {
             const p = projectSchema.parse(await json(req));

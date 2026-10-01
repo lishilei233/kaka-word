@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { balancedCoverRows, coverLayout, coverExportReady } from './cover-layout';
 import { emptyProject, projectSchema, type Project } from './project';
 
-const project: Project = { ...emptyProject, image: '/studio-api/assets/aaaaaaaa-aaaa.jpg', imageWidth: 1200, imageHeight: 1600, words: Array.from({ length: 10 }, (_, i) => ({ id: String(i), english: 'window', chinese: '', ipa: '', box: { x: .4, y: .4, width: .1, height: .1 } })) };
+const project: Project = { ...emptyProject, sceneTheme: '书架一角', image: '/studio-api/assets/aaaaaaaa-aaaa.jpg', imageWidth: 1200, imageHeight: 1600, words: Array.from({ length: 10 }, (_, i) => ({ id: String(i), english: 'window', chinese: '', ipa: '', box: { x: .4, y: .4, width: .1, height: .1 } })) };
 test('cover preserves aspect ratio, fills the canvas and retains all object words deterministically', () => {
     for (const [imageWidth, imageHeight] of [[1200,1600],[1600,900],[6000,200]]) {
         const p = { ...project, imageWidth, imageHeight };
@@ -32,7 +32,7 @@ test('cover title and ordered word rows are independent from video annotation po
     assert.deepEqual(saved.cover, cover);
     assert.deepEqual(project, original);
     const result = coverLayout({ ...saved, sceneTheme: '安静的舞蹈教室' });
-    assert.equal(result.title, '安静的舞蹈教室');
+    assert.equal(result.title, '安静的舞蹈教室，你会几个单词？');
     assert.deepEqual(result.objects.map(word => word.id), project.words.map(word => word.id));
     assert.equal(projectSchema.parse(project).cover, undefined);
 });
@@ -43,9 +43,10 @@ test('cover title override is isolated from the recognized scene theme', () => {
         sceneTheme: '客厅里的休闲时光',
         cover: { template: 'learning-card', title: '周末客厅英语', scale: .9, words: {} },
     });
-    assert.equal(coverLayout(saved).title, '周末客厅英语');
+    assert.equal(coverLayout(saved).title, '客厅里的休闲时光，你会几个单词？');
+    assert.equal(saved.cover?.title, '周末客厅英语');
     assert.equal(saved.sceneTheme, '客厅里的休闲时光');
-    assert.equal(coverLayout({ ...saved, cover: { ...saved.cover!, title: '' } }).title, '客厅里的休闲时光');
+    assert.equal(coverLayout({ ...saved, cover: { ...saved.cover!, title: '' } }).title, '客厅里的休闲时光，你会几个单词？');
 });
 
 test('cover separates up to ten object words from a single row of scene words', () => {
@@ -62,11 +63,12 @@ test('cover separates up to ten object words from a single row of scene words', 
     const layout = coverLayout({ ...project, sceneTheme: '安静的舞蹈教室', words: [...objects, ...scenes] });
     assert.equal(layout.objects.length, 8);
     assert.equal(layout.scenes.length, 4);
-    assert.equal(layout.title, '安静的舞蹈教室');
+    assert.equal(layout.title, '安静的舞蹈教室，你会几个单词？');
     assert.equal(layout.objects.at(-1)?.english, 'air conditioner');
 
     const noScene = coverLayout({ ...project, sceneTheme: undefined, words: project.words.slice(0, 1) });
-    assert.equal(noScene.title, project.title);
+    assert.equal(noScene.title, '');
+    assert.ok(noScene.conflicts.length > 0);
     assert.deepEqual(noScene.scenes, []);
 });
 

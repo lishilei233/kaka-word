@@ -556,6 +556,63 @@ final class WordLearningStoreTests: XCTestCase {
         XCTAssertEqual(resolved.result.allWords.map(\.english), ["book"])
     }
 
+    func testNotificationLearningContentRequiresRealPhotosAndLearningWords() throws {
+        let history = HistoryStore(container: container)
+        let store = makeStore()
+        let missing = makeRecord(word: "missing-photo", chinese: "词", date: Date())
+        replaceHistory(with: [missing], store: store)
+        XCTAssertFalse(LocalNotificationCoordinator.hasLearningContent(words: store, history: history))
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        }
+        let record = try history.save(image: image, result: makeRecord(word: "cup", chinese: "杯子", date: Date()).result)
+        defer { history.delete(record) }
+        store.reload()
+        XCTAssertTrue(LocalNotificationCoordinator.hasLearningContent(words: store, history: history))
+        store.startListeningRound(recordID: record.id)
+        store.setState(.mastered, for: "cup")
+        XCTAssertFalse(LocalNotificationCoordinator.hasLearningContent(words: store, history: history))
+        store.setState(.learning, for: "cup")
+        XCTAssertTrue(LocalNotificationCoordinator.hasLearningContent(words: store, history: history))
+        history.delete(record)
+        store.reload()
+        XCTAssertFalse(LocalNotificationCoordinator.hasLearningContent(words: store, history: history))
+    }
+
+    func testEmptyOrChangedListeningRoundDoesNotCountAsReminderCompletion() {
+        let store = makeStore()
+        var completions = 0
+        store.onListeningRoundCompleted = { _ in completions += 1 }
+        store.startListeningRound()
+        store.advanceListeningQuestion()
+        XCTAssertEqual(completions, 0)
+        let records = (0..<3).map { makeRecord(word: "changed-\($0)", chinese: "词", date: Date()) }
+        replaceHistory(with: records, store: store)
+        store.startListeningRound()
+        let removed = store.listeningSession!.round.last!.recordID
+        store.validateListeningSession(photoAvailable: { $0 != removed })
+        for _ in 0..<2 { store.revealListeningQuestion(.found); store.advanceListeningQuestion() }
+        XCTAssertEqual(completions, 0)
+    }
+
+    func testNotificationCompletionOnlyFiresAfterAdvancingEntireNonemptyRound() {
+        let store = makeStore()
+        let records = (0..<3).map { makeRecord(word: "reminder-\($0)", chinese: "词", date: Date()) }
+        replaceHistory(with: records, store: store)
+        var completions = 0
+        store.onListeningRoundCompleted = { _ in completions += 1 }
+        store.startListeningRound()
+        store.revealListeningQuestion(.revealed)
+        XCTAssertEqual(completions, 0)
+        store.advanceListeningQuestion()
+        XCTAssertEqual(completions, 0)
+        for _ in 0..<2 { store.revealListeningQuestion(.found); store.advanceListeningQuestion() }
+        XCTAssertEqual(completions, 1)
+        store.advanceListeningQuestion()
+        XCTAssertEqual(completions, 1)
+    }
+
     func testListeningRoundHasThreeUniqueWordsAndLeavesMasteryUntouched() throws {
         let store = makeStore()
         let records = (0..<7).map { makeRecord(word: "word-\($0)", chinese: "词", date: Date()) }

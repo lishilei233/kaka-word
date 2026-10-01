@@ -1,3 +1,4 @@
+import { fixedCoverTitle, publishingSceneIssues } from './learning-post';
 import type { CoverConfig, Project, Word } from './project';
 import { sceneWords } from './project';
 
@@ -52,7 +53,8 @@ export function coverLayout(project: Project) {
     const height = project.imageHeight * scale;
     const objects = coverObjectWords(project.words);
     const scenes = sceneWords(project.words);
-    const title = project.cover?.title?.trim() || project.sceneTheme?.trim() || project.title.trim() || '生活里的英语';
+    const title = fixedCoverTitle(project);
+    const heading = fitCoverTitle(title, 820, 62, 40);
 
     return {
         photo: { x: (1080 - width) / 2, y: (1440 - height) / 2, width, height },
@@ -60,7 +62,8 @@ export function coverLayout(project: Project) {
         scenes,
         title,
         wordCount: objects.length + scenes.length,
-        conflicts: [] as string[],
+        heading,
+        conflicts: [...publishingSceneIssues(project), ...(!heading.fits && title ? ['标题超过两行，请缩短场景名。'] : [])],
     };
 }
 
@@ -84,13 +87,7 @@ export function selectedCoverWords(project: Project) {
 }
 
 export function coverQuestionTitle(project: Project) {
-    const audience = project.cover?.audience ?? 'adult';
-    const edited = project.cover?.audienceTitles?.[audience];
-    if (edited !== undefined) return edited.trim();
-    const scene = project.sceneTheme?.trim() || (project.title.trim() !== '生活里的英语' ? project.title.trim() : '') || '这些东西';
-    if (audience === 'family') return `和孩子认一认，${scene}英语怎么说？`;
-    if (audience === 'student') return `${scene}，这些词你会吗？`;
-    return `${scene}，英语怎么说？`;
+    return fixedCoverTitle(project);
 }
 
 // Conservative glyph advances for the pinned heavy PingFang/Arial cover fonts.
@@ -99,21 +96,21 @@ export function coverTextWidth(text: string, fontSize: number) {
     return Array.from(text).reduce((sum, char) => sum + (/\s/.test(char) ? .35 : /[ilI.,!':;|]/.test(char) ? .38 : /[mwMW@%]/.test(char) ? 1.05 : /[A-Z0-9]/.test(char) ? .8 : /[a-z]/.test(char) ? .68 : 1.04), 0) * fontSize;
 }
 
-export function fitCoverTitle(title: string) {
+export function fitCoverTitle(title: string, availableWidth = 936, maximumFontSize = 116, minimumFontSize = 72) {
     const text = title.trim();
-    const fits = (lines: string[], fontSize: number) => lines.length > 0 && lines.length <= 2 && lines.every(line => line.trim() && coverTextWidth(line, fontSize) <= 936);
+    const fits = (lines: string[], fontSize: number) => lines.length > 0 && lines.length <= 2 && lines.every(line => line.trim() && coverTextWidth(line, fontSize) <= availableWidth);
     const explicit = text.includes('\n') ? text.split('\n').map(line => line.trim()) : undefined;
     // Prefer a complete scene phrase followed by a complete question.
     const semantic = Array.from(text.matchAll(/[，,：:；;]/g)).map(match => [text.slice(0, match.index! + 1), text.slice(match.index! + 1).trim()]);
     for (const groups of [explicit ? [explicit] : semantic, explicit ? [] : undefined]) {
         if (groups) {
-            for (let fontSize = 116; fontSize >= 72; fontSize -= 2) {
+            for (let fontSize = maximumFontSize; fontSize >= minimumFontSize; fontSize -= 2) {
                 const lines = groups.find(lines => fits(lines, fontSize));
                 if (lines) return { lines, fontSize, fits: true };
             }
         } else {
             const tokens = text.match(/[a-zA-Z0-9]+(?:['’-][a-zA-Z0-9]+)*|[^a-zA-Z0-9]/gu) ?? [];
-            for (let fontSize = 116; fontSize >= 72; fontSize -= 2) {
+            for (let fontSize = maximumFontSize; fontSize >= minimumFontSize; fontSize -= 2) {
                 if (fits([text], fontSize)) return { lines: [text], fontSize, fits: true };
                 const pairs = tokens.slice(1).map((_, index) => [tokens.slice(0, index + 1).join('').trim(), tokens.slice(index + 1).join('').trim()])
                     .filter(lines => fits(lines, fontSize) && !/^[，。！？、：；,.!?;:）】]/.test(lines[1]))
@@ -122,7 +119,7 @@ export function fitCoverTitle(title: string) {
             }
         }
     }
-    return { lines: [title], fontSize: 72, fits: false };
+    return { lines: [title], fontSize: minimumFontSize, fits: false };
 }
 
 export function questionCoverLayout(project: Project) {
@@ -132,7 +129,7 @@ export function questionCoverLayout(project: Project) {
     const title = coverQuestionTitle(project);
     const heading = fitCoverTitle(title);
     const words = selectedCoverWords(project);
-    const wordRows: { words: Word[]; width: number }[] = [];
+    const wordRows: { words: Word[]; width: number; moreCount?: number }[] = [];
     let wordFontSize = 36;
     while (wordFontSize > 28 && words.some(word => coverTextWidth(word.english, wordFontSize) + 48 > 936)) wordFontSize -= 2;
     for (const word of words) {
@@ -141,8 +138,17 @@ export function questionCoverLayout(project: Project) {
         if (last && last.width + 16 + width <= 936) { last.words.push(word); last.width += 16 + width; }
         else wordRows.push({ words: [word], width });
     }
-    const conflicts = [] as string[];
-    if (!heading.fits) conflicts.push(title ? '标题超过两行，请缩短标题或调整换行。' : '请填写封面标题。');
+    const moreCount = words.length ? Math.max(0, project.words.length - words.length) : 0;
+    if (moreCount > 0) {
+        const badgeWidth = coverTextWidth(`+${moreCount} 个词`, 36) + 48;
+        const last = wordRows.at(-1)!;
+        if (last.width + 16 + badgeWidth <= 936) {
+            last.moreCount = moreCount;
+            last.width += 16 + badgeWidth;
+        } else wordRows.push({ words: [], width: badgeWidth, moreCount });
+    }
+    const conflicts = publishingSceneIssues(project);
+    if (!heading.fits && title) conflicts.push('标题超过两行，请缩短场景名。');
     if (wordRows.some(row => row.width > 936)) conflicts.push('精选英文词过长，请改选较短的词或隐藏该词。');
     return {
         title, heading, words, wordRows, wordFontSize, conflicts,

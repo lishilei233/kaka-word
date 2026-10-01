@@ -37,9 +37,7 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
     const coverConflicts = useMemo(() => drawer === 'cover' ? getCoverConflicts(project) : [], [drawer, project]);
     const coverScale = Math.max(.6, Math.min(1.15, project.cover?.scale ?? defaultCover.scale));
     const t = timeline(project); const word = project.words.find(w => w.id === selected); const exportIssues = exportBlockers(project);
-    const warningText = project.socialCopyStale
-        ? '内容已修改，请重新生成发布文案。'
-        : coverConflicts.length > 0
+    const warningText = coverConflicts.length > 0
             ? coverConflicts.join('；')
             : ready && project.image && exportIssues.length > 0
                 ? `导出前还需要：${exportIssues.join('；')}`
@@ -119,8 +117,6 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
         if (!mounted.current) return;
         p = syncCaption({ ...p, words: readingWords(p.words) });
         p = cleanCoverSelection(p);
-        const content = (value: Project) => JSON.stringify([value.caption, value.captionChinese, value.sceneTheme, value.interaction?.english, value.interaction?.chinese, value.words.map(w => [w.id, w.english, w.chinese, w.ipa, w.kind])]);
-        if (p.socialCopy && p.socialCopy === project.socialCopy && content(p) !== content(project)) p = { ...p, socialCopyStale: true };
         if (p.voiceId !== project.voiceId || p.speechSpeed !== project.speechSpeed) p = clearProjectSpeech(p);
         revision.current++; setProject(p); setDownload('');
     }
@@ -225,7 +221,7 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
                     ...result.words.filter(w => w.kind === 'action'), ...result.words.filter(w => w.kind === 'state'),
                 ];
                 update({ ...project, words, sceneTheme: result.theme, caption: result.caption, captionChinese: result.captionChinese, captionSentences: result.captionSentences, captionReviewRequired: false,
-                    interaction: { ...result.interaction, enabled: false }, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined, cover: undefined });
+                    interaction: { ...result.interaction, enabled: false }, captionAudio: undefined, captionAudioSeconds: undefined, cover: undefined });
                 setSelected(words[0]?.id ?? ''); player.current?.seekTo(0);
                 setMessage(`场景「${result.theme}」：${objectWords(words).length} 个物体词，${sceneWords(words).length} 个场景词。请校对。`);
                 return;
@@ -237,7 +233,7 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
                 id: `${w.id}-${index}`, english: w.english, chinese: w.chinese, ipa: w.ipa,
                 box: w.box,
             }));
-            update({ ...project, words, sceneTheme: undefined, interaction: undefined, cover: undefined, caption: result.caption, captionChinese: result.captionChinese, captionSentences: result.captionSentences, captionReviewRequired: false, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined }); setSelected(words[0]?.id || '');
+            update({ ...project, words, sceneTheme: undefined, interaction: undefined, cover: undefined, caption: result.caption, captionChinese: result.captionChinese, captionSentences: result.captionSentences, captionReviewRequired: false, captionAudio: undefined, captionAudioSeconds: undefined }); setSelected(words[0]?.id || '');
             player.current?.seekTo(t.intro + t.reveal);
             setMessage(words.length ? `找到 ${words.length} 个单词，请校对名称和标签位置` : '没有找到可靠的物体，试试另一张照片或手动添加');
         });
@@ -250,7 +246,7 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
                 words: project.words.map(({ english, chinese, kind }) => ({ english, chinese, kind: kind ?? 'object' })),
             });
             if (version !== revision.current) return;
-            update({ ...project, ...reviewed, captionSentences: reviewed.captionSentences, captionReviewRequired: false, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined });
+            update({ ...project, ...reviewed, captionSentences: reviewed.captionSentences, captionReviewRequired: false, captionAudio: undefined, captionAudioSeconds: undefined });
             setMessage('照片描述已根据原图重新生成，词表和互动句未改变');
         });
     }
@@ -271,13 +267,6 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
             update({ ...project, interaction: project.interaction && { ...project.interaction, ...result.interactionSpeech }, captionSentences: result.captionSentences, captionAudio: result.captionAudio, captionAudioSeconds: result.captionAudioSeconds, words: project.words.map(w => ({ ...w, ...result.words.find(a => a.id === w.id && a.english === w.english) })) });
             seekForEditing(project.videoTemplate === 'direct' ? 0 : t.intro + t.reveal);
             setMessage('配音已就绪，点击预览播放即可跟读');
-        });
-    }
-    async function generatePublishingCopy() {
-        await run('生成发布文案', async () => {
-            const socialCopy = await api<Project['socialCopy']>('social-copy', project);
-            update({ ...project, socialCopy, socialCopyStale: false });
-            setMessage('三个平台的发布文案已生成，可以继续校对或复制');
         });
     }
     function selectWord(w: Word) {
@@ -318,9 +307,9 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
                         <textarea id={`captionChinese-${index}`} className="input caption-input" maxLength={220} value={sentence.chinese} onChange={e => update(editCaptionSentence(project, index, { chinese: e.target.value }))} />
                     </div>) : <>
                     <label className="field-label" htmlFor="caption">最终照片描述 · English</label>
-                    <textarea id="caption" className="input caption-input" maxLength={441} value={project.caption} placeholder="AI 根据照片生成" onChange={e => update({ ...project, caption: e.target.value, captionReviewRequired: true, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined })} />
+                    <textarea id="caption" className="input caption-input" maxLength={441} value={project.caption} placeholder="AI 根据照片生成" onChange={e => update({ ...project, caption: e.target.value, captionReviewRequired: true, captionAudio: undefined, captionAudioSeconds: undefined })} />
                     <label className="field-label" htmlFor="captionChinese">最终照片描述 · 中文</label>
-                    <textarea id="captionChinese" className="input caption-input" maxLength={440} value={project.captionChinese} placeholder="AI 根据画面生成自然中文" onChange={e => update({ ...project, captionChinese: e.target.value, captionReviewRequired: true, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined })} />
+                    <textarea id="captionChinese" className="input caption-input" maxLength={440} value={project.captionChinese} placeholder="AI 根据画面生成自然中文" onChange={e => update({ ...project, captionChinese: e.target.value, captionReviewRequired: true, captionAudio: undefined, captionAudioSeconds: undefined })} />
                     </>}
                     <Button type="button" variant="secondary" size="sm" className="w-full mt-2" disabled={!project.image} onClick={regenerateCaption}><RefreshCw />单独重新生成照片描述</Button>
                     <p className="hint">AI 根据照片生成描述；成片在全部单词读完后展示。</p>
@@ -333,17 +322,16 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
                 </fieldset>
             </aside>
             {mode === 'publish' ? <section className="preview-column publish-column">
-                <PublishPanel project={project} update={update} />
+                <PublishPanel project={project} update={update} disabled={!!busy || !ready} />
             </section> : mode === 'cover' ? <section className="preview-column">
                 <div className="preview-stage"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project }} /></div>
                 <p className="hint">主标题突出“真实场景学英语”，本期场景作为副标题；物体词自动整齐排列。</p>
             </section> : <section className="preview-column"><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, onAnnotationMove: moveAnnotation, onInteractionTargetMove: moveInteractionTarget, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
                 </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊、圆点或互动箭头调整位置</span></div><div className={`timeline-strip ${project.videoTemplate === 'direct' ? 'timeline-direct' : ''}`}>{project.videoTemplate === 'camera' ? <><button onClick={() => seekForEditing(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => seekForEditing(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button></> : <button onClick={() => seekForEditing(0)}><Sparkles size={15} /><span>照片停留</span><small>{project.directIntroSeconds.toFixed(1)}s</small></button>}<button onClick={() => seekForEditing(t.intro+t.reveal)}><Volume2 size={15} /><span>逐词跟读</span><small>{project.words.length} 词</small></button><button onClick={() => seekForEditing(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>{(t.caption / FPS).toFixed(1)}s</small></button>{project.interaction?.enabled && <button onClick={() => seekForEditing(t.interactionFrom+12)}><FilmIcon size={15} /><span>互动提问</span><small>{project.interaction.arrowEnabled ? '拖动箭头' : '3s'}</small></button>}</div></section>}
             {mode === 'publish' ? <aside className="panel settings publish-settings"><div className="panel-heading"><h2>发布助手</h2><Sparkles size={17} /></div><fieldset className="panel-body" disabled={!!busy || !ready}>
-                <div className="editor-note"><span>一套内容，三种说法。</span><p>生成时会使用最终照片描述、全部词汇和封面高亮词。</p></div>
+                <div className="editor-note"><span>一套模板，三个平台。</span><p>场景名、全部英文词和中英文描述自动同步到固定模板。</p></div>
                 <div className="publish-source"><small>PHOTO NOTE</small><p>{project.captionChinese || '请先完成 AI 识别并选定照片描述。'}</p><div>{project.words.map(word => <span key={word.id}>{word.english}</span>)}</div></div>
-                <Button className="w-full mt-4" disabled={!project.caption.trim() || !project.words.length} onClick={generatePublishingCopy}><Sparkles />{project.socialCopy ? '重新生成三平台文案' : '生成三平台文案'}</Button>
-                <p className="hint">重新生成会替换三个平台当前的编辑内容。文案只保存在本地草稿，不会自动发布。</p>
+                <p className="hint">内容自动同步；复制后可粘贴到发布平台。</p>
             </fieldset></aside> : mode === 'cover' ? <aside className="panel settings"><div className="panel-heading"><h2>学习卡片封面</h2></div><fieldset className="panel-body" disabled={!!busy || !ready}>
                 <p className="hint">3:4 满版照片 · 场景标题 · 物体词自动换行 · 场景词单行显示。</p>
                 <label className="range-field"><span>全部胶囊 <strong>{Math.round(coverScale*100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".6" max="1.15" step=".01" value={coverScale} onChange={e => update({ ...project, cover: { ...(project.cover ?? defaultCover), scale: Number(e.target.value) } })} /></label>
@@ -373,11 +361,10 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
             })} />
         </Drawer>
         <Drawer title="发布助手" open={drawer === 'publish'} onClose={() => setDrawer(null)}>
-            <div className="editor-note"><span>一套内容，三种说法。</span><p>生成时会使用最终照片描述、全部词汇和封面高亮词。</p></div>
+            <div className="editor-note"><span>一套模板，三个平台。</span><p>场景名、全部英文词和中英文描述自动同步到固定模板。</p></div>
             <div className="publish-source"><small>PHOTO NOTE</small><p>{project.captionChinese || '请先完成 AI 识别并选定照片描述。'}</p><div>{project.words.map(word => <span key={word.id}>{word.english}</span>)}</div></div>
-            <Button className="w-full mt-4" disabled={!!busy || !ready || !project.caption.trim() || !project.words.length} onClick={generatePublishingCopy}><Sparkles />{busy === '生成发布文案' ? '正在生成…' : project.socialCopy ? '重新生成三平台文案' : '生成三平台文案'}</Button>
-            <p className="hint">重新生成会替换三个平台当前的编辑内容。文案只保存在本地草稿，不会自动发布。</p>
-            <PublishPanel project={project} update={update} />
+            <p className="hint">内容自动同步；复制后可粘贴到发布平台。</p>
+            <PublishPanel project={project} update={update} disabled={!!busy || !ready} />
         </Drawer>
         <footer className="studio-footer"><span>KAKAWORD · CREATIVE NOTEBOOK</span><span>每日一拍，每日一词。让学习留在生活里。</span></footer>
     </div>;

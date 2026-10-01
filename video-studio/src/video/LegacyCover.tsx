@@ -13,11 +13,11 @@ export type CoverMove = (id: string, kind: 'label' | 'target', point: Point) => 
 export function LegacyCover({ project }: { project: Project; onMove?: CoverMove }) {
     const layout = useMemo(
         () => coverLayout(project),
-        [project.imageWidth, project.imageHeight, project.words, project.sceneTheme, project.title, project.cover?.title],
+        [project.imageWidth, project.imageHeight, project.words, project.sceneTheme, project.publishingScene],
     );
     const cover = project.cover ?? legacyDefaultCover;
     const globalScale = Math.max(.72, Math.min(1.15, cover.scale));
-    const sceneTitleFontSize = layout.title.length <= 10 ? 62 : layout.title.length <= 16 ? 56 : 50;
+    const sceneTitleFontSize = layout.heading.fontSize;
     const titleScale = 1.1;
     // Film renders a 540px logical canvas at 2x for the 1080px output.
     // Keep cover capsules on the same physical metrics as Film/SceneCards.
@@ -66,7 +66,7 @@ export function LegacyCover({ project }: { project: Project; onMove?: CoverMove 
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, fontFamily: "'Hiragino Maru Gothic ProN', 'PingFang SC', sans-serif", color: '#3a332c', fontSize: sceneTitleFontSize, fontWeight: 900, letterSpacing: -2.2, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
                 <span style={{ flex: '0 0 auto', color: '#c96855', fontSize: 28 }}>✦</span>
-                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{layout.title}</span>
+                <span style={{ minWidth: 0 }}>{layout.heading.fits ? layout.heading.lines.map((line, index) => <span key={index} style={{ display: 'block', whiteSpace: 'pre' }}>{line}</span>) : '请填写或缩短场景名'}</span>
             </div>
         </header>
 

@@ -16,6 +16,13 @@ enum AppSettings {
         static let lastInstalledVersion = "experience.lastInstalledVersion"
         static let lastPresentedReleaseNotesVersion = "experience.lastPresentedReleaseNotesVersion"
         static let lastPromptedUpdateVersion = "experience.lastPromptedUpdateVersion"
+        static let learningReminderEnabled = "notifications.learningEnabled"
+        static let membershipNotificationEnabled = "notifications.membershipEnabled"
+        static let learningReminderHour = "notifications.learningHour"
+        static let learningReminderMinute = "notifications.learningMinute"
+        static let lastCompletedLearningRoundAt = "notifications.lastCompletedLearningRoundAt"
+        static let membershipNotificationScheduledAt = "notifications.membershipScheduledAt"
+        static let membershipReminderDismissedAt = "experience.membershipReminderDismissedAt"
     }
 
     static let defaultEnglishSpeechEnabled = true

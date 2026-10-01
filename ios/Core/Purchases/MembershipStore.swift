@@ -28,12 +28,27 @@ struct EntitlementSummary: Codable, Equatable, Sendable {
         tier == "member" && (subscriptionState == "active" || subscriptionState == "grace")
     }
 
+    var membershipDisplayName: String {
+        guard isMember else { return "免费体验" }
+        switch productId {
+        case MembershipStore.annualProductId: return "咔咔年会员"
+        case MembershipStore.monthlyProductId: return "咔咔月会员"
+        default: return "咔咔会员"
+        }
+    }
+
     var hasUnlimitedQuota: Bool { unlimited == true }
 
-    var resetDate: Date? { resetAt.flatMap(Self.dateFormatter.date(from:)) }
-    var expirationDate: Date? { expiresAt.flatMap(Self.dateFormatter.date(from:)) }
+    var resetDate: Date? { resetAt.flatMap(Self.parseDate) }
+    var expirationDate: Date? { expiresAt.flatMap(Self.parseDate) }
 
-    private static let dateFormatter = ISO8601DateFormatter()
+    private static func parseDate(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
+    }
 }
 
 struct MembershipPlanConfig: Codable, Equatable, Sendable {
@@ -41,7 +56,7 @@ struct MembershipPlanConfig: Codable, Equatable, Sendable {
     let unlimited: Bool
 
     var paywallBenefitText: String {
-        unlimited ? "每月无限次完整拍照识词" : "每月 \(limit) 次完整拍照识词"
+        unlimited ? "拍照识词不限次数" : "每月 \(limit) 次完整拍照识词"
     }
 }
 
@@ -203,7 +218,7 @@ enum MembershipSettingsDisplayState: Equatable, Sendable {
                 : "正在读取识别额度…"
         }
         let quota = entitlement.hasUnlimitedQuota
-            ? "本期识别额度：无限"
+            ? "拍照识词不限次数"
             : "本期剩余 \(entitlement.remaining)/\(entitlement.limit) 次识别"
         return quota
     }
@@ -1156,9 +1171,9 @@ final class MembershipStore: ObservableObject {
                     recordMetric("purchase_result", productId: product.id, outcome: "success")
                     return .active
                 } else {
-                    setMessage("已清理过期测试交易，请再次点击购买", source: .purchase)
-                    recordMetric("purchase_result", productId: product.id, outcome: "stale_transaction_cleared")
-                    return .notFound
+                    setMessage("购买记录已收到，会员权益尚未确认，请稍后恢复购买或重新读取状态。", source: .purchase)
+                    recordMetric("purchase_result", productId: product.id, outcome: "awaiting_sync")
+                    return .awaitingSync
                 }
             case .pending:
                 await refreshIntroductoryOffer()
@@ -1214,6 +1229,7 @@ final class MembershipStore: ObservableObject {
             setMessage(restoreErrorMessage(error), source: .restore, category: .entitlementFailure)
             if Self.isCancellation(error) {
                 entitlementLoadState = entitlement == nil ? .idle : .loaded
+                dismissMessage()
                 recordMetric("restore_result", outcome: "cancelled")
                 return .cancelled
             }

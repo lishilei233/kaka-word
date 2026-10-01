@@ -57,6 +57,9 @@
 		D00000000000000000000015 /* AnalysisViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000014 /* AnalysisViewModelTests.swift */; };
 		D00000000000000000000016 /* AppVersionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000017 /* AppVersionCoordinatorTests.swift */; };
 		D00000000000000000000018 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000019 /* PersistenceTests.swift */; };
+		E10000000000000000000002 /* LocalNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000001 /* LocalNotificationCoordinator.swift */; };
+		E10000000000000000000004 /* NotificationSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000003 /* NotificationSettingsSection.swift */; };
+		E10000000000000000000006 /* LocalNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000005 /* LocalNotificationTests.swift */; };
 		E1278A010000000000000001 /* KakawordSubscriptions.storekit in Resources */ = {isa = PBXBuildFile; fileRef = A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */; };
 /* End PBXBuildFile section */
 
@@ -126,6 +129,9 @@
 		D00000000000000000000014 /* AnalysisViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisViewModelTests.swift; sourceTree = "<group>"; };
 		D00000000000000000000017 /* AppVersionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersionCoordinatorTests.swift; sourceTree = "<group>"; };
 		D00000000000000000000019 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
+		E10000000000000000000001 /* LocalNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotificationCoordinator.swift; sourceTree = "<group>"; };
+		E10000000000000000000003 /* NotificationSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsSection.swift; sourceTree = "<group>"; };
+		E10000000000000000000005 /* LocalNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotificationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -189,6 +195,8 @@
 				222222222222222222222211 /* AppEnvironment.swift */,
 				222222222222222222222212 /* AppTheme.swift */,
 				22222222222222222222221B /* AppSettings.swift */,
+				E10000000000000000000003 /* NotificationSettingsSection.swift */,
+				E10000000000000000000001 /* LocalNotificationCoordinator.swift */,
 				222222222222222222222223 /* PageHeader.swift */,
 				222222222222222222222224 /* PictureWordButton.swift */,
 				22222222222222222222222C /* PictureWordTextField.swift */,
@@ -361,6 +369,7 @@
 			children = (
 				D00000000000000000000002 /* WordLearningStoreTests.swift */,
 				D00000000000000000000011 /* MembershipStoreTests.swift */,
+				E10000000000000000000005 /* LocalNotificationTests.swift */,
 				D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */,
 				D00000000000000000000014 /* AnalysisViewModelTests.swift */,
 				D00000000000000000000017 /* AppVersionCoordinatorTests.swift */,
@@ -486,6 +495,8 @@
 				111111111111111111111111 /* AnnotationLayoutEngine.swift in Sources */,
 				111111111111111111111112 /* WordDetailSheet.swift in Sources */,
 				111111111111111111111113 /* AppSettings.swift in Sources */,
+				E10000000000000000000004 /* NotificationSettingsSection.swift in Sources */,
+				E10000000000000000000002 /* LocalNotificationCoordinator.swift in Sources */,
 				111111111111111111111114 /* ContentModels.swift in Sources */,
 				111111111111111111111115 /* SettingsView.swift in Sources */,
 				111111111111111111111116 /* LearningJourneyModels.swift in Sources */,
@@ -517,6 +528,7 @@
 			files = (
 				D00000000000000000000001 /* WordLearningStoreTests.swift in Sources */,
 				D00000000000000000000010 /* MembershipStoreTests.swift in Sources */,
+				E10000000000000000000006 /* LocalNotificationTests.swift in Sources */,
 				D00000000000000000000012 /* AnnotationLayoutEngineTests.swift in Sources */,
 				D00000000000000000000015 /* AnalysisViewModelTests.swift in Sources */,
 				D00000000000000000000016 /* AppVersionCoordinatorTests.swift in Sources */,
@@ -542,7 +554,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_TESTABILITY = YES;
@@ -551,7 +563,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词Test";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.5.0;
+				MARKETING_VERSION = 0.6.0;
 				PICTURE_WORD_API_BASE_URL = "http://192.168.0.106:8787";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -572,7 +584,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -580,7 +592,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.5.0;
+				MARKETING_VERSION = 0.6.0;
 				PICTURE_WORD_API_BASE_URL = "https://api.kakaword.com";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

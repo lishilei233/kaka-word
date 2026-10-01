@@ -62,6 +62,7 @@ const legacyProjectFields = {
     analysisMode: z.enum(['objects', 'scene']).optional(),
     sceneContext: z.string().max(500).optional(),
     sceneTheme: z.string().max(100).optional(),
+    publishingScene: z.string().max(29).optional(),
     interaction: z.object({ enabled: z.boolean(), english: z.string().max(220), chinese: z.string().max(220),
         arrowEnabled: z.boolean().optional(), arrowTarget: pointSchema.optional(),
         audio: z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.wav$/).optional(), audioSeconds: z.number().positive().max(60).optional() }).optional(),
@@ -136,7 +137,7 @@ export function descriptionSentences(p: Project): CaptionSentence[] {
     return p.captionSentences ?? [{ english: p.caption, chinese: p.captionChinese, audio: p.captionAudio, audioSeconds: p.captionAudioSeconds }];
 }
 export function editCaptionSentence(p: Project, index: number, patch: Pick<Partial<CaptionSentence>, 'english' | 'chinese'>): Project {
-    return syncCaption({ ...p, captionSentences: descriptionSentences(p).map((sentence, i) => ({ ...sentence, ...(i === index ? patch : {}), audio: undefined, audioSeconds: undefined })), captionReviewRequired: true, captionAudio: undefined, captionAudioSeconds: undefined, socialCopy: undefined });
+    return syncCaption({ ...p, captionSentences: descriptionSentences(p).map((sentence, i) => ({ ...sentence, ...(i === index ? patch : {}), audio: undefined, audioSeconds: undefined })), captionReviewRequired: true, captionAudio: undefined, captionAudioSeconds: undefined });
 }
 export function clearProjectSpeech(p: Project): Project {
     return { ...p, captionAudio: undefined, captionAudioSeconds: undefined,

@@ -6,22 +6,58 @@ private enum HomeTab: String {
     case words
 }
 
+enum HomePaywallSource: String, Identifiable {
+    case camera
+    case reminder
+
+    var id: String { rawValue }
+    var opensCameraAfterPurchase: Bool { self == .camera }
+}
+
+enum HomeMembershipReminderPolicy {
+    static func shouldShow(
+        entitlement: EntitlementSummary?,
+        loadState: EntitlementLoadState,
+        isRefreshing: Bool,
+        dismissedAt: Date?,
+        now: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Bool {
+        guard loadState.hasFreshValue, !isRefreshing, let entitlement,
+              !entitlement.isMember, !entitlement.hasUnlimitedQuota,
+              entitlement.limit > 0, entitlement.used >= entitlement.limit else { return false }
+        return dismissedAt.map { !calendar.isDate($0, inSameDayAs: now) } ?? true
+    }
+}
+
 struct HomeView: View {
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
     @EnvironmentObject private var membership: MembershipStore
+    @EnvironmentObject private var wordLearningStore: WordLearningStore
+    @EnvironmentObject private var notifications: LocalNotificationCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
+    @AppStorage(AppSettings.Key.membershipReminderDismissedAt) private var reminderDismissedAt = 0.0
+    @State private var reminderNow = Date()
 
+    @State private var notificationPracticePresented = false
+    @State private var notificationRootVisible = false
+    @State private var notificationAppearance = 0
+    @State private var notificationAnchor: UIViewController?
+    @State private var resolvingNotification = false
     @State private var selectedTab: HomeTab = .home
     @State private var discoveryAlbumPresented = false
+    @State private var settingsPresented = false
     @State private var cameraPresented = false
     @State private var capturedImage: UIImage?
     @State private var recognitionImage: PresentedImage?
     @State private var presentedHistory: PhotoDetailDestination?
     @State private var historyMessage: String?
     @State private var confirmMissionSwitch = false
-    @State private var paywallPresented = false
+    @State private var paywallSource: HomePaywallSource?
     @State private var membershipUnavailableMessage: String?
     @State private var wordsSearchFocused = false
 
@@ -43,14 +79,33 @@ struct HomeView: View {
                             onCamera: requestCamera,
                             onSwitchMission: switchMission,
                             onOpenHistory: openHistory,
-                            onOpenAlbum: { discoveryAlbumPresented = true }
+                            onOpenAlbum: { discoveryAlbumPresented = true },
+                            onSettings: { settingsPresented = true },
+                            showMembershipReminder: showMembershipReminder,
+                            onMembership: { paywallSource = .reminder },
+                            onDismissMembershipReminder: {
+                                reminderNow = Date()
+                                reminderDismissedAt = reminderNow.timeIntervalSince1970
+                            }
                         )
                     case .words:
-                        MyWordsDashboard(onSearchFocusChange: { wordsSearchFocused = $0 })
+                        MyWordsDashboard(onSearchFocusChange: { wordsSearchFocused = $0 },
+                                         onPresentationEnded: notificationPresentationEnded)
                     }
                 }
             }
+            .background(NotificationNavigationAnchor { controller, visible in
+                notificationAnchor = controller
+                notificationRootVisible = visible
+                notificationAppearance += 1
+            })
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $notificationPracticePresented) {
+                ListeningPracticeView(onDiscover: {
+                    notificationPracticePresented = false
+                    requestCamera()
+                }, onClose: { notificationPracticePresented = false })
+            }
             .overlay(alignment: .bottom) {
                 if !(selectedTab == .words && wordsSearchFocused) {
                     ScrapbookTabBar(selectedTab: $selectedTab) {
@@ -60,6 +115,10 @@ struct HomeView: View {
                 }
             }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: wordsSearchFocused)
+            .navigationDestination(isPresented: $settingsPresented) {
+                SettingsView(onPresentationEnded: notificationPresentationEnded)
+                    .environment(\.dynamicTypeSize, dynamicTypeSize)
+            }
             .navigationDestination(isPresented: $discoveryAlbumPresented) {
                 DiscoveryAlbumView(onOpen: openHistory)
             }
@@ -73,7 +132,7 @@ struct HomeView: View {
             }
             .ignoresSafeArea()
         }
-        .fullScreenCover(item: $recognitionImage) { item in
+        .fullScreenCover(item: $recognitionImage, onDismiss: notificationPresentationEnded) { item in
             NavigationStack {
                 RecognitionFlowView(image: item.image)
                     .toolbar(.hidden, for: .navigationBar)
@@ -81,19 +140,35 @@ struct HomeView: View {
             .environmentObject(historyStore)
             .environmentObject(journeyStore)
         }
-        .fullScreenCover(item: $presentedHistory) { item in
+        .fullScreenCover(item: $presentedHistory, onDismiss: notificationPresentationEnded) { item in
             NavigationStack {
                 ResultView(image: item.image, result: item.record.result, recordID: item.record.id)
                     .toolbar(.hidden, for: .navigationBar)
             }
         }
-        .sheet(isPresented: $paywallPresented) {
+        .sheet(item: $paywallSource, onDismiss: notificationPresentationEnded) { source in
             PaywallView {
-                cameraPresented = true
+                if source.opensCameraAfterPurchase { cameraPresented = true }
             }
             .environmentObject(membership)
         }
-        .onAppear { journeyStore.refreshForTodayIfNeeded() }
+        .task(id: notificationRouteKey) {
+            await routeNotificationIfPossible()
+        }
+        .onAppear {
+            journeyStore.refreshForTodayIfNeeded()
+            reminderNow = Date()
+        }
+        .onChange(of: selectedTab) { _, _ in reminderNow = Date() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { reminderNow = Date() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            reminderNow = Date()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            reminderNow = Date()
+        }
         .confirmationDialog(
             "换一个今日任务？",
             isPresented: $confirmMissionSwitch,
@@ -125,6 +200,86 @@ struct HomeView: View {
         }
     }
 
+    private var notificationRouteKey: String {
+        "\(notifications.pendingDestination?.rawValue ?? "")-\(scenePhase)-\(notificationAppearance)-\(notificationRootVisible)-\(historyMessage == nil)-\(confirmMissionSwitch)-\(membershipUnavailableMessage == nil)"
+    }
+
+    private func notificationPresentationEnded() {
+        notificationAppearance += 1
+    }
+
+    private var canRouteNotification: Bool {
+        guard scenePhase == .active, notificationRootVisible,
+              !cameraPresented, capturedImage == nil, recognitionImage == nil, presentedHistory == nil,
+              paywallSource == nil, !discoveryAlbumPresented, !notificationPracticePresented,
+              historyMessage == nil, !confirmMissionSwitch, membershipUnavailableMessage == nil,
+              let anchor = notificationAnchor, anchor.viewIfLoaded?.window != nil else { return false }
+        var controller: UIViewController? = anchor
+        while let current = controller {
+            if current.presentedViewController != nil || current.isBeingDismissed || current.isBeingPresented { return false }
+            controller = current.parent
+        }
+        return true
+    }
+
+    private var canReturnToHomeForNotification: Bool {
+        guard scenePhase == .active, let anchor = notificationAnchor,
+              let navigation = anchor.navigationController, navigation.viewIfLoaded?.window != nil,
+              !cameraPresented, recognitionImage == nil, presentedHistory == nil, paywallSource == nil else { return false }
+        var controller: UIViewController? = navigation.topViewController
+        while let current = controller {
+            if current.presentedViewController != nil || current.isBeingDismissed || current.isBeingPresented { return false }
+            controller = current.parent
+        }
+        return navigation.transitionCoordinator == nil
+    }
+
+    private func routeNotificationIfPossible() async {
+        // Allow SwiftUI to finish the presentation lifecycle before presenting another destination.
+        await Task.yield()
+        if notifications.pendingDestination != nil, (settingsPresented || discoveryAlbumPresented),
+           canReturnToHomeForNotification {
+            settingsPresented = false
+            discoveryAlbumPresented = false
+            return // Root visibility callback resumes routing after the native pop transition.
+        }
+        guard !resolvingNotification, canRouteNotification, let destination = notifications.pendingDestination else { return }
+        if destination == .membership {
+            resolvingNotification = true
+            await membership.prepare()
+            await membership.refreshCurrentEntitlements()
+            resolvingNotification = false
+            notificationAppearance += 1
+            guard canRouteNotification, notifications.pendingDestination == destination else { return }
+        }
+        selectedTab = .home
+        notifications.consumeDestination()
+        switch destination {
+        case .membership:
+            if HomeMembershipReminderPolicy.shouldShow(entitlement: membership.entitlement,
+                loadState: membership.entitlementLoadState, isRefreshing: membership.isRefreshingEntitlements,
+                dismissedAt: nil) { paywallSource = .reminder }
+        case .learning:
+            wordLearningStore.validateListeningSession(photoAvailable: { id in
+                guard let record = historyStore.record(id: id) else { return false }
+                return historyStore.image(for: record) != nil
+            })
+            if LocalNotificationCoordinator.hasLearningContent(words: wordLearningStore, history: historyStore) {
+                notificationPracticePresented = true
+            }
+        }
+    }
+
+    private var showMembershipReminder: Bool {
+        HomeMembershipReminderPolicy.shouldShow(
+            entitlement: membership.entitlement,
+            loadState: membership.entitlementLoadState,
+            isRefreshing: membership.isRefreshingEntitlements,
+            dismissedAt: reminderDismissedAt == 0 ? nil : Date(timeIntervalSince1970: reminderDismissedAt),
+            now: reminderNow
+        )
+    }
+
     private func switchMission() {
         if journeyStore.completedCount > 0 {
             confirmMissionSwitch = true
@@ -134,6 +289,7 @@ struct HomeView: View {
     }
 
     private func presentCapturedImage() {
+        defer { notificationPresentationEnded() }
         guard let image = capturedImage else { return }
         recognitionImage = PresentedImage(image: image)
         capturedImage = nil
@@ -143,7 +299,7 @@ struct HomeView: View {
         if membership.canStartRecognition || !membership.hasFreshEntitlement {
             cameraPresented = true
         } else {
-            paywallPresented = true
+            paywallSource = .camera
         }
     }
 
@@ -153,6 +309,39 @@ struct HomeView: View {
             return
         }
         presentedHistory = PhotoDetailDestination(record: record, image: image)
+    }
+}
+
+struct HomeMembershipReminderCard: View {
+    let onOpen: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 8) {
+                Text("免费体验次数已用完")
+                    .font(.scrapbookTitle)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("今天不再提醒")
+            }
+            Text("开通咔咔会员，继续拍照发现新单词。已有照片和单词仍可继续学习。")
+                .font(.scrapbookBody)
+                .foregroundStyle(Color.ink.opacity(0.65))
+                .fixedSize(horizontal: false, vertical: true)
+            PictureWordButton("了解会员", style: .secondary, size: .compact, action: onOpen)
+        }
+        .padding(16)
+        .foregroundStyle(Color.ink)
+        .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 24))
+        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.ink.opacity(0.08)))
     }
 }
 
@@ -303,6 +492,10 @@ private struct HomeDashboard: View {
     let onSwitchMission: () -> Void
     let onOpenHistory: (HistoryRecord) -> Void
     let onOpenAlbum: () -> Void
+    let onSettings: () -> Void
+    let showMembershipReminder: Bool
+    let onMembership: () -> Void
+    let onDismissMembershipReminder: () -> Void
 
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var journeyStore: LearningJourneyStore
@@ -320,6 +513,12 @@ private struct HomeDashboard: View {
                     stickerShelf
                 } else {
                     exploreHero
+                }
+
+                if showMembershipReminder {
+                    HomeMembershipReminderCard(onOpen: onMembership, onDismiss: onDismissMembershipReminder)
+                        .environment(\.dynamicTypeSize, dynamicTypeSize)
+                        .padding(.top, 24)
                 }
 
                 reviewCard
@@ -407,9 +606,7 @@ private struct HomeDashboard: View {
                 .overlay { Capsule().stroke(Color.ink.opacity(0.1)) }
             }
 
-            NavigationLink {
-                SettingsView()
-            } label: {
+            Button(action: onSettings) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Color.ink)
@@ -615,6 +812,7 @@ private struct HomeDashboard: View {
 
 private struct MyWordsDashboard: View {
     let onSearchFocusChange: (Bool) -> Void
+    let onPresentationEnded: () -> Void
 
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var wordLearningStore: WordLearningStore
@@ -666,7 +864,7 @@ private struct MyWordsDashboard: View {
         .onDisappear {
             dismissSearch()
         }
-        .sheet(item: $selectedWord) { entry in
+        .sheet(item: $selectedWord, onDismiss: onPresentationEnded) { entry in
             let pageEntries = filteredWords
             WordDetailSheet(
                 object: entry.object,
@@ -1143,9 +1341,38 @@ private struct PresentedImage: Identifiable {
 struct HomeView_Previews: PreviewProvider {
     static var previews: some View {
         HomeView()
+            .environmentObject(LocalNotificationCoordinator.shared)
             .environmentObject(HistoryStore())
             .environmentObject(LearningJourneyStore())
             .environmentObject(WordLearningStore())
             .environmentObject(MembershipStore())
+    }
+}
+
+// Observe the root page's actual UIKit visibility, including return from navigation and modal flows.
+private struct NotificationNavigationAnchor: UIViewControllerRepresentable {
+    let onVisibility: (UIViewController, Bool) -> Void
+    func makeUIViewController(context: Context) -> Controller {
+        let controller = Controller()
+        controller.onVisibility = onVisibility
+        return controller
+    }
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.onVisibility = onVisibility
+    }
+    final class Controller: UIViewController {
+        var onVisibility: ((UIViewController, Bool) -> Void)?
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+        }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            onVisibility?(self, true)
+        }
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            onVisibility?(self, false)
+        }
     }
 }

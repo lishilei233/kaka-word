@@ -3,6 +3,8 @@ import SwiftData
 
 @main
 struct PictureWordApp: App {
+    @UIApplicationDelegateAdaptor(ReminderAppDelegate.self) private var appDelegate
+    @StateObject private var notifications = LocalNotificationCoordinator.shared
     @StateObject private var data = AppDataBootstrap()
     @StateObject private var membershipStore = MembershipStore()
     @StateObject private var appVersionCoordinator = AppVersionCoordinator()
@@ -33,9 +35,14 @@ struct PictureWordApp: App {
             .environmentObject(data.journeyStore)
             .environmentObject(data.wordLearningStore)
             .environmentObject(membershipStore)
+            .environmentObject(notifications)
             .task {
                 data.prepareIfNeeded()
+                if !data.isPreparing && data.migrationError == nil {
+                    notifications.attach(membership: membershipStore, words: data.wordLearningStore, history: data.historyStore)
+                }
                 await membershipStore.prepare()
+                notifications.requestReconcile()
             }
             .task(id: didCompleteOnboarding) {
                 guard didCompleteOnboarding else { return }
@@ -43,7 +50,16 @@ struct PictureWordApp: App {
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
-                Task { await membershipStore.refreshAfterForegroundActivation() }
+                notifications.requestReconcile()
+                Task {
+                    await membershipStore.refreshAfterForegroundActivation()
+                    notifications.requestReconcile()
+                }
+            }
+            .onChange(of: data.migrationError) { _, error in
+                if error == nil && !data.isPreparing {
+                    notifications.attach(membership: membershipStore, words: data.wordLearningStore, history: data.historyStore)
+                }
             }
             // Picture Word uses a paper-first visual system; keep system UI in light appearance.
             .preferredColorScheme(.light)

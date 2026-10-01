@@ -1,33 +1,35 @@
-import type { Project, SocialCopy } from '../lib/project';
+import { useState } from 'react';
+import type { Project } from '../lib/project';
+import { publishingIssues, publishingPost, publishingText } from '../lib/learning-post';
+import { PublishingSceneField } from './PublishingSceneField';
 import { Button } from './ui/button';
 
-const platforms = [
-    ['xiaohongshu', '小红书', 'RED NOTE'],
-    ['douyin', '抖音', 'DOUYIN'],
-    ['channels', '视频号', 'WECHAT CHANNELS'],
-] as const;
-
-export function PublishPanel({ project, update }: { project: Project; update: (project: Project) => void }) {
-    function edit(platform: keyof SocialCopy, patch: Partial<SocialCopy[keyof SocialCopy]>) {
-        if (!project.socialCopy) return;
-        update({ ...project, socialCopy: { ...project.socialCopy, [platform]: { ...project.socialCopy[platform], ...patch } } });
+export function PublishPanel({ project, update, disabled = false }: { project: Project; update: (project: Project) => void; disabled?: boolean }) {
+    const [notice, setNotice] = useState<{ text: string; source: string }>();
+    const source = publishingText(project, 'all');
+    const post = publishingPost(project);
+    const issues = publishingIssues(project);
+    async function copy(part: 'title' | 'body' | 'all') {
+        if (issues.length || disabled) return;
+        try {
+            await navigator.clipboard.writeText(publishingText(project, part));
+            setNotice({ text: '已复制', source });
+        } catch { setNotice({ text: '复制失败，请重试或选中预览文字手动复制。', source }); }
     }
-    async function copy(platform: keyof SocialCopy) {
-        const post = project.socialCopy?.[platform];
-        if (!post) return;
-        await navigator.clipboard.writeText([post.title, post.body, post.hashtags.map(tag => `#${tag}`).join(' ')].filter(Boolean).join('\n\n'));
-    }
-    if (!project.socialCopy) return <section className="publish-empty"><span>✦</span><h2>让这一张照片，去到更多地方。</h2><p>AI 会根据最终照片描述、词表和封面高亮词，为三个平台分别写文案。</p></section>;
     return <section className="publish-board">
-        {platforms.map(([id, label, eyebrow], index) => {
-            const post = project.socialCopy![id];
-            return <article className={`publish-card publish-${id}`} key={id}>
-                <header><span>{String(index + 1).padStart(2, '0')}</span><div><small>{eyebrow}</small><h2>{label}</h2></div><Button variant="ghost" size="sm" onClick={() => void copy(id)}>复制全文</Button></header>
-                <label>标题<input value={post.title} maxLength={80} onChange={event => edit(id, { title: event.target.value })} /></label>
-                <label>正文<textarea value={post.body} maxLength={4000} onChange={event => edit(id, { body: event.target.value })} /></label>
-                <label>话题标签<input value={post.hashtags.join(' ')} onChange={event => edit(id, { hashtags: event.target.value.split(/[\s#，,]+/).filter(Boolean).slice(0, 12) })} /></label>
-                <div className="publish-tags">{post.hashtags.map(tag => <span key={tag}>#{tag}</span>)}</div>
-            </article>;
-        })}
+        <fieldset className="cover-controls" disabled={disabled}><PublishingSceneField project={project} update={update} id="publishingScene" /></fieldset>
+        <article className="publish-card">
+            <header><div><small>PHOTO ENGLISH</small><h2>固定发布文案</h2></div></header>
+            <p className="hint">适用于小红书、抖音、视频号。修改场景名、词表或照片描述后自动同步。</p>
+            {issues.length > 0 ? <div role="status" className="cover-error">{issues.map(issue => <p key={issue}>{issue}</p>)}</div> : null}
+            <label>标题<input value={post.title} readOnly /></label>
+            <label>正文与话题<textarea value={publishingText(project, 'body')} readOnly rows={16} /></label>
+            <div className="publish-copy-actions">
+                <Button variant="outline" size="sm" disabled={disabled || !!issues.length} onClick={() => void copy('title')}>复制标题</Button>
+                <Button variant="outline" size="sm" disabled={disabled || !!issues.length} onClick={() => void copy('body')}>复制正文与话题</Button>
+                <Button size="sm" disabled={disabled || !!issues.length} onClick={() => void copy('all')}>复制全文</Button>
+            </div>
+            {notice?.source === source && <p role="status" className="hint">{notice.text}</p>}
+        </article>
     </section>;
 }

@@ -156,6 +156,7 @@ test("device header filters combine by column, recalculate totals, and clear cle
   run("deviceFilters=Object.fromEntries(deviceFilterColumns.map(column=>[column.key,emptyDeviceFilter(column)])); deviceFilters.membershipType.value='free'; renderDeviceTable()");
   const table = element("devices").innerHTML;
   assert.match(table, /总计（1 台）/);
+  assert.match(table, /免费会员：1<br>月会员：0<br>年会员：0/);
   assert.match(table, /80\.0%/);
   assert.match(table, /25\.0%/);
   assert.match(table, /当前显示 1 \/ 3 台设备/);

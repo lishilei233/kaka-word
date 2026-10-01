@@ -10,7 +10,7 @@ import { learningPost } from './learning-post';
 import { interactionArrowGeometry } from '../video/InteractionArrow';
 
 const audio = '/studio-api/assets/abcd.wav';
-const project: Project = { ...emptyProject, image: '/studio-api/assets/abcd.jpg', caption: 'The shell is broken.', captionChinese: '蛋壳破了。', captionReviewRequired: false, captionAudio: audio, captionAudioSeconds: 2,
+const project: Project = { ...emptyProject, sceneTheme: '碎鸡蛋', image: '/studio-api/assets/abcd.jpg', caption: 'The shell is broken.', captionChinese: '蛋壳破了。', captionReviewRequired: false, captionAudio: audio, captionAudioSeconds: 2,
     words: [
         { id: 'state', kind: 'state', english: 'broken', chinese: '破碎的', ipa: '/ˈbroʊkən/', audio, audioSeconds: 1 },
         { id: 'egg', kind: 'object', english: 'egg', chinese: '鸡蛋', ipa: '/eɡ/', box: { x: .2, y: .2, width: .2, height: .2 }, audio, audioSeconds: 1 },
@@ -112,10 +112,10 @@ test('cover shows object and scene words without requiring photo markers', () =>
     assert.ok(exportBlockers(pending).includes('物体词需要完成定位'));
 });
 
-test('learning post uses exact final vocabulary, IPA, meanings and both sentence languages', () => {
+test('learning post includes English vocabulary and paired descriptions without IPA or meanings', () => {
     const body = learningPost(project);
-    for (const word of project.words) assert.ok(body.includes(`${word.english} ${word.ipa} ${word.chinese}`));
-    assert.ok(body.indexOf('egg') < body.indexOf('broken'));
-    assert.ok(body.includes(project.captionChinese));
-    assert.ok(body.includes(project.interaction!.chinese));
+    assert.ok(body.includes('egg / broken / break'));
+    assert.ok(body.includes('The shell is broken.\n蛋壳破了。'));
+    assert.ok(!body.includes('/eɡ/'));
+    assert.ok(!body.includes('Who made this mess?'));
 });

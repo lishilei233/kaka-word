@@ -10,6 +10,8 @@ final class WordLearningStore: ObservableObject {
     @Published private(set) var listeningSession: ListeningSession?
     @Published private(set) var listeningSaveError: String?
 
+    var onListeningRoundCompleted: ((Date) -> Void)?
+
     private let context: ModelContext
     private let now: () -> Date
 
@@ -146,6 +148,9 @@ final class WordLearningStore: ObservableObject {
         session.cursor += 1
         listeningSession = session
         persistListeningSession()
+        if session.isFinished && !session.round.isEmpty && !session.contentChanged {
+            onListeningRoundCompleted?(now())
+        }
     }
 
     func nextListeningRound(photoAvailable: @escaping (UUID) -> Bool = { _ in true }) {

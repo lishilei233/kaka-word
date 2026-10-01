@@ -3,9 +3,11 @@ import SwiftUI
 
 /// MVP 设置全部保存在本机，不依赖账号或网络服务。
 struct SettingsView: View {
+    var onPresentationEnded: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var membership: MembershipStore
+    @EnvironmentObject private var notifications: LocalNotificationCoordinator
     @StateObject private var speech = SpeechService()
     @AppStorage(AppSettings.Key.englishSpeechEnabled) private var speechEnabled = AppSettings.defaultEnglishSpeechEnabled
     @AppStorage(AppSettings.Key.automaticWordSpeechEnabled) private var automaticWordSpeechEnabled = AppSettings.defaultAutomaticWordSpeechEnabled
@@ -13,6 +15,11 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Key.englishVoiceIdentifier) private var voiceIdentifier = AppSettings.defaultEnglishVoiceIdentifier
     @AppStorage(AppSettings.Key.maxObjects) private var maxObjects = AppSettings.defaultMaxObjects
     @AppStorage(AppSettings.Key.learningMode) private var modeRawValue = AppSettings.defaultLearningMode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var membershipAppeared = false
+    @State private var membershipSuccess = false
+    @State private var pendingMembershipSuccess = false
+    @State private var membershipDetailsPresented = false
     @State private var confirmClearHistory = false
     @State private var paywallPresented = false
     @State private var voicePickerPresented = false
@@ -26,6 +33,7 @@ struct SettingsView: View {
                     experienceSection
                     recognitionSection
                     speechSection
+                    NotificationSettingsSection(notifications: notifications)
                     storageSection
                     informationSection
                     versionFooter
@@ -62,18 +70,25 @@ struct SettingsView: View {
         } message: {
             Text("所有本地照片和识别结果都会被删除，且无法恢复。")
         }
-        .sheet(isPresented: $paywallPresented) {
-            PaywallView()
+        .sheet(isPresented: $paywallPresented, onDismiss: {
+            onPresentationEnded()
+            if pendingMembershipSuccess {
+                pendingMembershipSuccess = false
+                showMembershipSuccess()
+            }
+        }) {
+            PaywallView(onPurchaseCompleted: { pendingMembershipSuccess = true })
                 .environmentObject(membership)
         }
         .sheet(isPresented: $voicePickerPresented, onDismiss: {
             speech.stop()
+            onPresentationEnded()
         }) {
             voiceSelectionSheet
                 .pictureWordSheetPresentation(detents: [.medium, .large])
         }
         .alert("会员", isPresented: Binding(
-            get: { !paywallPresented && membership.message != nil },
+            get: { !paywallPresented && !membershipDetailsPresented && membership.message != nil },
             set: { isPresented in
                 guard !isPresented else { return }
                 // Avoid publishing synchronously from SwiftUI's alert transaction.
@@ -90,119 +105,66 @@ struct SettingsView: View {
     }
 
     private var membershipSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("00")
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
-                    .tracking(1.6)
-                    .foregroundStyle(Color.coral)
-                Text("MEMBERSHIP")
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
-                    .tracking(1.3)
-                    .foregroundStyle(Color.ink.opacity(0.42))
-                Spacer()
-                Text(membership.isMember ? "已开通" : "升级会员")
-                    .font(.system(size: 10, weight: .black, design: .rounded))
-                    .foregroundStyle(Color.ink)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(membership.isMember ? Color.mint.opacity(0.72) : Color.sun, in: Capsule())
-            }
-            .padding(.bottom, 14)
-
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: membership.isMember ? "crown.fill" : "camera.fill")
-                    .font(.system(size: 23, weight: .black))
-                    .foregroundStyle(Color.ink)
-                    .frame(width: 52, height: 52)
-                    .background(Color.sun.opacity(membership.isMember ? 0.95 : 0.7), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 5) {
-                    if membershipDisplayState == .failedWithoutCachedValue {
-                        Text("会员状态")
-                            .font(.system(.title3, design: .rounded, weight: .black))
-                        membershipRefreshStatus
-                    } else {
-                        Text(membershipPlanName)
-                            .font(.system(.title3, design: .rounded, weight: .black))
-                        Text(membershipQuotaText)
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
-                            .foregroundStyle(Color.ink.opacity(0.66))
-                        membershipRefreshStatus
-                        if let membershipResetText {
-                            Text(membershipResetText)
-                                .font(.system(.caption2, design: .monospaced, weight: .bold))
-                                .foregroundStyle(Color.coral)
-                        }
-                    }
+        VStack(alignment: .leading, spacing: 18) {
+            MembershipSummaryCard(
+                entitlement: membership.entitlement,
+                state: membershipDisplayState,
+                showSuccess: membershipSuccess
+            )
+            if membershipDisplayState != .loaded {
+                if membershipDisplayState == .initialLoading || membershipDisplayState == .idle {
+                    ProgressView().accessibilityLabel("正在读取会员状态")
+                } else if membershipDisplayState != .failedWithoutCachedValue {
+                    membershipRefreshStatus
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
-                membershipRefreshButton
+                if membershipDisplayState.isFailure {
+                    Button("重新读取会员状态", action: refreshMembershipStatus)
+                        .disabled(membership.isPurchasing)
+                }
             }
-
-            if !membership.isMember {
-                Divider()
-                    .overlay(Color.ink.opacity(0.1))
-                    .padding(.vertical, 16)
-
-                PictureWordButton(
-                    membership.isRestoring ? "正在恢复购买…" : "开通咔咔会员",
-                    systemImage: "sparkles",
-                    isLoading: membership.isRestoring
-                ) {
+            MembershipTicketDivider()
+            if membership.isMember {
+                MembershipPassEntry { membershipDetailsPresented = true }
+            } else if membership.entitlement != nil && membershipDisplayState != .failedWithoutCachedValue {
+                PictureWordButton("查看会员方案", systemImage: "sparkles") {
                     paywallPresented = true
                 }
-                .disabled(!membership.canPurchase)
-
-                Button {
-                    Task { _ = await membership.restorePurchases() }
-                } label: {
-                    HStack(spacing: 8) {
-                        if membership.isRestoring {
-                            ProgressView().controlSize(.small)
-                        }
-                        Text(membership.isRestoring ? "正在恢复购买…" : "恢复购买")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 13)
-                }
-                .font(.system(.caption, design: .rounded, weight: .bold))
-                .foregroundStyle(Color.ink.opacity(0.62))
-                .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
+                .disabled(membership.isPurchasing)
             }
-
             #if DEBUG
-            Divider()
-                .overlay(Color.ink.opacity(0.1))
-                .padding(.vertical, 12)
-
-            Button {
+            Button("申请沙盒退款") {
                 Task { await membership.requestRefundForDebug() }
-            } label: {
-                Label("申请沙盒退款", systemImage: "arrow.uturn.backward.circle")
-                    .frame(maxWidth: .infinity)
             }
-            .font(.system(.caption, design: .rounded, weight: .bold))
+            .font(.caption)
             .foregroundStyle(Color.coral)
-            .accessibilityHint("仅用于 Debug 沙盒测试")
+            .disabled(membership.isPurchasing)
             #endif
         }
+        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+        .foregroundStyle(Color.ink)
         .padding(20)
-        .background {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.paperLight, Color.sun.opacity(0.16), Color.mint.opacity(0.12)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .shadow(color: Color.ink.opacity(0.12), radius: 0, x: 3, y: 4)
+        .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 28))
+        .overlay { RoundedRectangle(cornerRadius: 28).stroke(Color.ink.opacity(0.08)) }
+        .shadow(color: Color.ink.opacity(0.05), radius: 8, y: 3)
+        .padding(.bottom, membership.isMember ? 0 : 44)
+        .overlay(alignment: .bottom) {
+            if !membership.isMember { MembershipRestoreButton(onRestored: showMembershipSuccess) }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(Color.sun.opacity(0.46), lineWidth: 1)
+        .opacity(membershipAppeared ? 1 : 0)
+        .offset(y: membershipAppeared || reduceMotion ? 0 : 6)
+        .onAppear {
+            guard !membershipAppeared else { return }
+            withAnimation(.easeOut(duration: 0.25)) { membershipAppeared = true }
+        }
+        .navigationDestination(isPresented: $membershipDetailsPresented) {
+            MembershipDetailsView(onRestored: showMembershipSuccess)
+        }
+    }
+
+    private func showMembershipSuccess() {
+        membership.dismissMessage()
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.35)) {
+            membershipSuccess = true
         }
     }
 
@@ -555,60 +517,11 @@ struct SettingsView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
     }
 
-    private var membershipPlanName: String {
-        guard membership.entitlement != nil else { return "会员状态" }
-        guard membership.isMember else { return "免费版" }
-        return membership.entitlement?.productId == MembershipStore.annualProductId ? "年会员" : "月会员"
-    }
-
-    private var membershipQuotaText: String {
-        MembershipSettingsDisplayState.quotaText(
-            entitlement: membership.entitlement,
-            state: membershipDisplayState
-        )
-    }
-
     private var membershipDisplayState: MembershipSettingsDisplayState {
         MembershipSettingsDisplayState.resolve(
             loadState: membership.entitlementLoadState,
             isRefreshing: membership.isRefreshingEntitlements
         )
-    }
-
-    private var membershipResetText: String? {
-        guard let reset = membership.entitlement?.resetDate else { return nil }
-        return "\(reset.formatted(date: .abbreviated, time: .omitted)) 重置"
-    }
-
-    private var membershipRefreshButton: some View {
-        let state = membershipDisplayState
-        return Button(action: refreshMembershipStatus) {
-            Group {
-                if state.isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(.subheadline, weight: .black))
-                }
-            }
-            .foregroundStyle(Color.ink)
-            .frame(width: 44, height: 44)
-            .background(Color.paperLight.opacity(0.78), in: Circle())
-            .overlay { Circle().stroke(Color.ink.opacity(0.08)) }
-            .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(membershipRefreshButtonLabel)
-        .accessibilityValue(state.statusText)
-        .accessibilityHint("确认最新会员方案和识别额度")
-        .disabled(state.isLoading || membership.isLoading || membership.isPurchasing)
-    }
-
-    private var membershipRefreshButtonLabel: String {
-        if membershipDisplayState.isFailure { return "重新读取会员状态" }
-        if membershipDisplayState.isLoading { return "正在刷新会员状态" }
-        return "刷新会员状态"
     }
 
     private func refreshMembershipStatus() {
@@ -868,7 +781,361 @@ struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationStack {
             SettingsView()
+            .environmentObject(LocalNotificationCoordinator.shared)
                 .environmentObject(HistoryStore())
         }
+    }
+}
+
+/// Shared by settings and membership details so cached and unknown states use the same language.
+struct MembershipSummaryCard: View {
+    let entitlement: EntitlementSummary?
+    let state: MembershipSettingsDisplayState
+    var showSuccess = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var displayedRemaining: Int?
+
+    private var visibleEntitlement: EntitlementSummary? {
+        state == .failedWithoutCachedValue || state == .initialLoading || state == .idle ? nil : entitlement
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            let headerLayout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                : AnyLayout(HStackLayout(spacing: 8))
+            headerLayout {
+                Text("KAKA PASS")
+                    .font(.system(.caption2, design: .monospaced, weight: .black))
+                    .tracking(2)
+                    .foregroundStyle(Color.ink.opacity(0.5))
+                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                if let value = visibleEntitlement {
+                    Label(value.isMember ? "已开通" : "体验中", systemImage: value.isMember ? "checkmark.seal" : "sparkles")
+                        .font(.system(.caption2, design: .rounded, weight: .black))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(value.isMember ? Color.mint.opacity(0.35) : Color.sun.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
+                        .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(Color.ink.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [2, 2])) }
+                        .rotationEffect(.degrees(reduceMotion ? 0 : -5))
+                        .id(showSuccess)
+                        .transition(reduceMotion ? .opacity : .offset(y: -8).combined(with: .scale(scale: 1.12)).combined(with: .opacity))
+                }
+            }
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+                : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+            layout {
+                VStack(alignment: .leading, spacing: 5) {
+                    if let value = visibleEntitlement {
+                        Text(value.isMember ? value.membershipDisplayName : "从生活里发现英语")
+                            .font(.system(.headline, design: .rounded, weight: .heavy))
+                            .fixedSize(horizontal: false, vertical: true)
+                        if value.hasUnlimitedQuota {
+                            Image(systemName: "infinity")
+                                .font(.system(size: dynamicTypeSize.isAccessibilitySize ? 58 : 48, weight: .medium))
+                                .foregroundStyle(Color.ink)
+                                .padding(.vertical, 5)
+                                .accessibilityHidden(true)
+                            Text("随心拍，慢慢发现")
+                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                        } else {
+                            Text(value.isMember ? "本期还可识别" : "体验还可识别")
+                                .font(.system(.caption, design: .rounded, weight: .medium))
+                                .foregroundStyle(Color.ink.opacity(0.6))
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                Text("\(max(0, displayedRemaining ?? value.remaining))")
+                                    .font(.system(.largeTitle, design: .serif, weight: .black))
+                                    .contentTransition(reduceMotion ? .identity : .numericText())
+                                Text("次").font(.system(.caption, design: .rounded, weight: .bold))
+                            }
+                        }
+                    } else {
+                        Text("你的生活探索通行证")
+                            .font(.system(.headline, design: .rounded, weight: .heavy))
+                        Text(state.isFailure ? "会员状态暂时无法确认" : "正在读取会员状态…")
+                            .font(.system(.caption, design: .rounded, weight: .medium))
+                            .foregroundStyle(Color.ink.opacity(0.6))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                MembershipCameraArtwork(size: dynamicTypeSize.isAccessibilitySize ? 78 : 94)
+            }
+            if let value = visibleEntitlement {
+                if value.hasUnlimitedQuota {
+                    Text("拍照识词不限次数")
+                        .font(.system(.caption, design: .rounded, weight: .semibold))
+                        .foregroundStyle(Color.ink.opacity(0.6))
+                } else {
+                    GeometryReader { geometry in
+                        let fraction = value.limit > 0 ? min(1, max(0, Double(value.remaining) / Double(value.limit))) : 0
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.ink.opacity(0.07))
+                            Capsule().fill(value.isMember ? Color.mint : Color.sun)
+                                .frame(width: geometry.size.width * fraction)
+                        }
+                    }
+                    .frame(height: 5)
+                    .accessibilityHidden(true)
+                    Text(value.isMember ? "本期共 \(value.limit) 次" : "免费体验共 \(value.limit) 次")
+                        .font(.system(.caption2, design: .rounded, weight: .medium))
+                        .foregroundStyle(Color.ink.opacity(0.55))
+                    if value.isMember, let reset = value.resetDate {
+                        Text("\(reset.formatted(date: .abbreviated, time: .omitted)) 额度更新")
+                            .font(.system(.caption2, design: .rounded, weight: .medium))
+                            .foregroundStyle(Color.ink.opacity(0.55))
+                    }
+                    if value.remaining <= 0 {
+                        Text(value.isMember ? "等待额度更新时，仍可回看照片、听音练习。" : "体验额度已用完，已保存的照片和单词仍可回顾。")
+                            .font(.system(.caption, design: .rounded, weight: .medium))
+                            .foregroundStyle(Color.ink.opacity(0.6))
+                    }
+                }
+            }
+        }
+        .foregroundStyle(Color.ink)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .onChange(of: visibleEntitlement?.remaining) { oldValue, newValue in
+            withAnimation(oldValue != nil && newValue != nil && !reduceMotion ? .easeInOut(duration: 0.25) : nil) {
+                displayedRemaining = newValue
+            }
+        }
+    }
+}
+
+struct MembershipCameraArtwork: View {
+    var size: CGFloat = 100
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.sky.opacity(0.4))
+                .frame(width: size * 0.88, height: size)
+                .rotationEffect(.degrees(12))
+                .offset(x: 7, y: 2)
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.paperLight)
+                .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.ink.opacity(0.12)) }
+                .shadow(color: Color.ink.opacity(0.1), radius: 3, y: 3)
+                .rotationEffect(.degrees(-8))
+            Image("PaywallHeroCamera")
+                .resizable()
+                .scaledToFit()
+                .padding(7)
+                .rotationEffect(.degrees(-8))
+            Rectangle()
+                .fill(Color.sun.opacity(0.5))
+                .frame(width: size * 0.45, height: 15)
+                .rotationEffect(.degrees(-14))
+                .offset(y: -size * 0.49)
+        }
+        .frame(width: size, height: size)
+        .padding(8)
+        .accessibilityHidden(true)
+    }
+}
+
+struct MembershipPassEntry: View {
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text("查看会员权益")
+                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .frame(width: 32, height: 32)
+                    .background(Color.sun.opacity(0.45), in: Circle())
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(Color.ink)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct MembershipTicketDivider: View {
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.ink.opacity(0.14))
+                .mask {
+                    HStack(spacing: 5) {
+                        ForEach(0..<90, id: \.self) { _ in Rectangle().frame(width: 4) }
+                    }
+                }
+                .frame(height: 1)
+            HStack {
+                Circle().fill(Color.paper).frame(width: 16, height: 16).offset(x: -8)
+                Spacer()
+                Circle().fill(Color.paper).frame(width: 16, height: 16).offset(x: 8)
+            }
+        }
+        .frame(height: 16)
+        .padding(.horizontal, -20)
+        .accessibilityHidden(true)
+    }
+}
+
+struct MembershipBenefitCard: View {
+    let symbol: String
+    let title: String
+    let detail: String
+    var tint: Color = .mint
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+        layout {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12).fill(tint.opacity(0.4))
+                    .rotationEffect(.degrees(-7))
+                Image(systemName: symbol)
+                    .font(.system(size: 25, weight: .medium))
+            }
+            .frame(width: 54, height: 58)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.system(.headline, design: .rounded, weight: .bold))
+                Text(detail)
+                    .font(.system(.caption, design: .rounded, weight: .medium))
+                    .foregroundStyle(Color.ink.opacity(0.6))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .foregroundStyle(Color.ink)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(18)
+        .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 22))
+        .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.07)) }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct MembershipRestoreButton: View {
+    var onRestored: () -> Void
+    @EnvironmentObject private var membership: MembershipStore
+
+    var body: some View {
+        Button {
+            Task {
+                if await membership.restorePurchases() == .active {
+                    membership.dismissMessage()
+                    onRestored()
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if membership.isRestoring { ProgressView().controlSize(.small) }
+                Text(membership.isRestoring ? "正在恢复购买…" : "恢复购买")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+        .foregroundStyle(Color.ink.opacity(0.65))
+        .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
+    }
+}
+
+struct MembershipDetailsView: View {
+    var onRestored: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @EnvironmentObject private var membership: MembershipStore
+    @State private var restored = false
+
+    private var displayState: MembershipSettingsDisplayState {
+        .resolve(loadState: membership.entitlementLoadState, isRefreshing: membership.isRefreshingEntitlements)
+    }
+
+    var body: some View {
+        ZStack {
+            NotebookBackground()
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(spacing: 14) {
+                        MembershipSummaryCard(entitlement: membership.entitlement, state: displayState, showSuccess: restored)
+                        MembershipTicketDivider()
+                        Text("生活探索通行证")
+                            .font(.system(.caption, design: .rounded, weight: .bold))
+                            .foregroundStyle(Color.ink.opacity(0.5))
+                    }
+                    .padding(20)
+                    .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 26))
+                    .overlay { RoundedRectangle(cornerRadius: 26).stroke(Color.ink.opacity(0.08)) }
+                    if displayState != .loaded {
+                        Text(displayState.statusText)
+                            .foregroundStyle(Color.ink.opacity(0.6))
+                        if displayState.isFailure {
+                            Button("重新读取") {
+                                Task { await membership.refreshCurrentEntitlements(source: .settings) }
+                            }
+                            .disabled(membership.isPurchasing)
+                        }
+                    }
+                    if let value = membership.entitlement, displayState != .failedWithoutCachedValue {
+                        if value.isMember {
+                            MembershipBenefitCard(symbol: "camera", title: "拍下生活里的好奇", detail: value.hasUnlimitedQuota ? "拍照识词不限次数，随心发现身边的英语。" : "每个订阅月 \(value.limit) 次拍照识词。", tint: .sun)
+                            if value.vocabularyCorrectionEnabled {
+                                MembershipBenefitCard(symbol: "character.book.closed", title: "完善你的单词卡", detail: "AI 单词纠错与补充，让音标、释义和例句更完整。")
+                            }
+
+                        }
+                        MembershipBenefitCard(symbol: "photo.on.rectangle", title: "发现值得留下", detail: "回顾、发音、分享和听音练习，免费版也可使用。", tint: .sky)
+                    }
+                    Divider()
+                    if let value = membership.entitlement, value.isMember, displayState != .failedWithoutCachedValue {
+                            if let expiration = value.expirationDate {
+                                Label("会员有效期至 \(expiration.formatted(date: .abbreviated, time: .omitted))", systemImage: "calendar")
+                            }
+                            if !value.hasUnlimitedQuota {
+                                Text("识别额度按订阅日逐月更新，不结转。额度更新日期与会员有效期不同。")
+                            }
+                    }
+                    Text("订阅由 Apple 管理，可在 App Store 中修改或取消。")
+                        .foregroundStyle(Color.ink.opacity(0.65))
+                    MembershipRestoreButton {
+                        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.35)) { restored = true }
+                        onRestored()
+                    }
+                }
+                .font(.system(.subheadline, design: .rounded, weight: .medium))
+                .foregroundStyle(Color.ink)
+                .padding(20)
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            PictureWordPageHeader(eyebrow: "MEMBERSHIP", title: "会员权益", foreground: .ink, eyebrowColor: .coral, tint: Color.paperLight.opacity(0.52)) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 50, height: 50)
+                        .pictureWordGlass(tint: Color.paperLight, interactive: true, in: Capsule())
+                }
+                .accessibilityLabel("返回")
+            } trailing: {
+                Color.clear.frame(width: 50, height: 50).accessibilityHidden(true)
+            }
+        }
+        .navigationBarBackButtonHidden()
+        .toolbar(.hidden, for: .navigationBar)
+        .background(InteractivePopGestureEnabler())
+        .alert("会员", isPresented: Binding(
+            get: { membership.message != nil },
+            set: { if !$0 { Task { @MainActor in membership.dismissMessage() } } }
+        )) {
+            Button("知道了", role: .cancel) { membership.dismissMessage() }
+        } message: { Text(membership.message ?? "") }
     }
 }

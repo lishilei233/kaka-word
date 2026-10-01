@@ -48,6 +48,8 @@ struct PaywallView: View {
     @EnvironmentObject private var membership: MembershipStore
     @State private var selectedProductId = MembershipStore.annualProductId
     @State private var canPresentMembershipAlert = false
+    @State private var awaitingOutcome: MembershipActionOutcome?
+    @State private var completed = false
 
     var body: some View {
         NavigationStack {
@@ -59,22 +61,42 @@ struct PaywallView: View {
                         benefits
                         if membership.isMember {
                             membershipStatusCard
-                            manageSubscriptionButton
                         } else {
                             plans
                             purchaseButton
+                            if let awaitingOutcome {
+                                Text(awaitingOutcome == .pending
+                                     ? "购买正在等待批准，批准后会员会自动生效。"
+                                     : "正在确认会员权益，请勿重复购买。可稍后恢复购买或重新读取状态。")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.ink.opacity(0.65))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            if (!membership.hasFreshEntitlement || awaitingOutcome != nil) && !membership.isPurchasing {
+                                Button("重新读取会员状态") {
+                                    Task { await membership.refreshCurrentEntitlements(source: .manual) }
+                                }
+                                .disabled(membership.isRefreshingEntitlements)
+                            }
                         }
                         footer
                     }
                     .padding(.horizontal, 18)
-                    .padding(.top, 30)
+                    .padding(.top, 8)
                     .padding(.bottom, 30)
                 }
-                // .overlay(alignment: .topTrailing) {
-                //     closeButton
-                //         .padding(.top, 16)
-                //         .padding(.trailing, 18)
-                // }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack {
+                    Text("MEMBERSHIP")
+                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .foregroundStyle(Color.ink.opacity(0.5))
+                    Spacer()
+                    closeButton
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 8)
+                .background(Color.paper)
             }
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -106,6 +128,12 @@ struct PaywallView: View {
             Text(membership.message ?? "")
         }
         .onDisappear { canPresentMembershipAlert = false }
+        .onChange(of: membership.products.map(\.id)) { _, ids in
+            selectedProductId = MembershipPlanSelection.resolve(selected: selectedProductId, available: ids)
+        }
+        .onChange(of: membership.hasFreshEntitlement && membership.isMember) { _, confirmed in
+            if confirmed && awaitingOutcome != nil { finishPurchase() }
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, !membership.isPurchasing else { return }
             Task { await membership.prepareProducts(force: true) }
@@ -114,20 +142,10 @@ struct PaywallView: View {
 
     private var hero: some View {
         VStack(spacing: 16) {
-            Image("PaywallHeroCamera")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 120, height: 120)
-                .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 34, style: .continuous)
-                        .stroke(Color.white.opacity(0.72), lineWidth: 1)
-                }
-                .shadow(color: Color.ink.opacity(0.08), radius: 16, y: 8)
-                .accessibilityHidden(true)
+            MembershipCameraArtwork(size: 100)
 
-            Text("把生活变成英语单词册")
-                .font(.system(size: 31, weight: .black, design: .rounded))
+            Text(membership.isMember ? "继续发现生活里的英语" : "把生活变成英语单词册")
+                .font(.system(.title2, design: .rounded, weight: .black))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Color.ink)
                 .lineSpacing(4)
@@ -136,7 +154,7 @@ struct PaywallView: View {
             HStack(spacing: 9) {
                 Image(systemName: "sparkles")
                     .foregroundStyle(Color.sun)
-                Text("开通会员，解锁完整拍照识词体验")
+                Text(membership.isMember ? "会员权益一览" : "更多拍照探索，也能完善你的单词")
                     .font(.system(.subheadline, design: .rounded, weight: .bold))
                     .foregroundStyle(Color.ink.opacity(0.72))
                     .multilineTextAlignment(.center)
@@ -148,17 +166,15 @@ struct PaywallView: View {
     }
 
     private var benefits: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            benefit("camera.fill", quotaBenefitText)
-            benefitDivider
-            benefit("Aa", "AI 智能优化，完善音标、释义与例句", usesTextIcon: true)
-            benefitDivider
-            benefit("archivebox.fill", "识词结果保存在本机，支持回顾、发音、分享与探索")
+        VStack(spacing: 12) {
+            MembershipBenefitCard(symbol: "camera", title: "拍下生活里的好奇", detail: quotaBenefitText, tint: .sun)
+            if !membership.isMember || membership.entitlement?.vocabularyCorrectionEnabled == true {
+                MembershipBenefitCard(symbol: "character.book.closed", title: "完善你的单词卡", detail: "AI 智能优化，完善音标、释义与例句。")
+            }
+            Text("回顾、发音、分享与听音练习，免费版也可使用。")
+                .font(.system(.caption, design: .rounded, weight: .medium))
+                .foregroundStyle(Color.ink.opacity(0.6))
         }
-        .padding(.horizontal, 18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.mint.opacity(0.18), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 24).stroke(Color.mint.opacity(0.42)) }
     }
 
     private var closeButton: some View {
@@ -176,6 +192,9 @@ struct PaywallView: View {
     }
 
     private var quotaBenefitText: String {
+        if let value = membership.entitlement, value.isMember {
+            return value.hasUnlimitedQuota ? "拍照识词不限次数" : "每个订阅月 \(value.limit) 次拍照识别"
+        }
         guard let config = membership.planConfig else { return "每月享有完整拍照识词额度" }
         return config.paywallBenefitText
     }
@@ -228,21 +247,24 @@ struct PaywallView: View {
         PictureWordButton(
             purchaseButtonTitle,
             systemImage: "sparkles",
-            isLoading: membership.isPurchasing
+            isLoading: membership.isPurchasing && !membership.isRestoring
         ) {
             guard let product = selectedProduct else { return }
             Task {
-                if await membership.purchase(product) == .active {
-                    onPurchaseCompleted?()
-                    dismiss()
+                let outcome = await membership.purchase(product)
+                if outcome == .active {
+                    finishPurchase()
+                } else if outcome == .pending || outcome == .awaitingSync {
+                    awaitingOutcome = outcome
                 }
             }
         }
-        .disabled(selectedProduct == nil || !membership.canPurchase)
+        .disabled(selectedProduct == nil || !membership.canPurchase || awaitingOutcome != nil)
     }
 
     private var purchaseButtonTitle: String {
-        if membership.isRestoring { return "正在恢复购买…" }
+        if membership.isRestoring { return selectedIntroductoryOffer?.purchaseTitle ?? "开通咔咔会员" }
+        if awaitingOutcome != nil { return "等待会员权益确认" }
         switch membership.purchasePhase {
         case .preflight:
             return "正在确认会员状态…"
@@ -347,7 +369,7 @@ struct PaywallView: View {
             Text("咔咔会员已开通")
                 .font(.system(.headline, design: .rounded, weight: .heavy))
                 .foregroundStyle(Color.ink)
-            Text("本期识别额度：无限")
+            Text("拍照识词不限次数")
                 .font(.system(.subheadline, design: .rounded, weight: .bold))
                 .foregroundStyle(Color.ink.opacity(0.7))
         }
@@ -382,11 +404,20 @@ struct PaywallView: View {
         .overlay { RoundedRectangle(cornerRadius: 22).stroke(Color.ink.opacity(0.08)) }
     }
 
-    private var manageSubscriptionButton: some View {
-        PictureWordButton("管理订阅", systemImage: "gearshape") {
-            Task { await membership.showManageSubscriptions() }
-        }
-        .disabled(membership.isPurchasing)
+    private func finishPurchase() {
+        guard !completed else { return }
+        completed = true
+        membership.dismissMessage()
+        onPurchaseCompleted?()
+        dismiss()
+    }
+
+    private var quotaRenewalDisclosure: String {
+        // Active subscribers use their actual entitlement; prospective subscribers use the plan configuration.
+        let unlimited = membership.isMember
+            ? membership.entitlement?.hasUnlimitedQuota
+            : membership.planConfig?.unlimited
+        return unlimited == false ? "额度按订阅日逐月重置，不结转。" : ""
     }
 
     private var footer: some View {
@@ -395,8 +426,7 @@ struct PaywallView: View {
                 Button {
                     Task {
                         if await membership.restorePurchases() == .active {
-                            onPurchaseCompleted?()
-                            dismiss()
+                            finishPurchase()
                         }
                     }
                 } label: {
@@ -410,8 +440,13 @@ struct PaywallView: View {
                 }
                 .font(.system(.subheadline, design: .rounded, weight: .heavy))
                 .foregroundStyle(Color.ink)
-                .disabled(membership.isPurchasing)
+                .disabled(membership.isPurchasing || membership.isRefreshingEntitlements)
             }
+
+            Text("订阅由 Apple 管理，可在 App Store 中修改或取消。")
+                .font(.system(.caption, design: .rounded, weight: .medium))
+                .foregroundStyle(Color.ink.opacity(0.65))
+                .multilineTextAlignment(.center)
 
             if !membership.isMember, let product = selectedProduct {
                 Text(selectedIntroductoryOffer?.renewalDisclosure
@@ -422,8 +457,8 @@ struct PaywallView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text("付款将由 Apple 账户确认。新人优惠资格由 App Store 判定，同一订阅组每人只能享受一次介绍性优惠。订阅会自动续期，除非在当前周期结束前至少 24 小时关闭自动续订。额度按订阅日逐月重置，不结转。")
-                .font(.system(size: 11, weight: .medium, design: .rounded))
+            Text("付款将由 Apple 账户确认。新人优惠资格由 App Store 判定，同一订阅组每人只能享受一次介绍性优惠。订阅会自动续期，除非在当前周期结束前至少 24 小时关闭自动续订。" + quotaRenewalDisclosure)
+                .font(.system(.caption2, design: .rounded, weight: .medium))
                 .foregroundStyle(Color.ink.opacity(0.48))
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
@@ -437,35 +472,6 @@ struct PaywallView: View {
         }
     }
 
-    private func benefit(_ symbol: String, _ title: String, usesTextIcon: Bool = false) -> some View {
-        HStack(spacing: 14) {
-            Group {
-                if usesTextIcon {
-                    Text(symbol)
-                        .font(.system(size: 17, weight: .black, design: .serif))
-                } else {
-                    Image(systemName: symbol)
-                        .font(.system(size: 18, weight: .black))
-                }
-            }
-            .foregroundStyle(Color.ink)
-            .frame(width: 42, height: 42)
-            .background(Color.mint.opacity(0.42), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            Text(title)
-                .font(.system(.subheadline, design: .rounded, weight: .bold))
-                .foregroundStyle(Color.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 12)
-    }
-
-    private var benefitDivider: some View {
-        Divider()
-            .overlay(Color.mint.opacity(0.42))
-            .padding(.leading, 56)
-    }
-
     private func planCard(_ product: Product, title: String, badge: String?, detail: String) -> some View {
         let offer = product.id == MembershipStore.annualProductId ? membership.annualIntroductoryOffer : nil
         return MembershipPlanCard(
@@ -473,19 +479,21 @@ struct PaywallView: View {
             badge: badge,
             priceText: offer?.priceText ?? "\(product.displayPrice)/\(product.id == MembershipStore.annualProductId ? "年" : "月")",
             detail: detail,
-            selected: selectedProductId == product.id
+            selected: selectedProduct?.id == product.id
         ) {
             selectedProductId = product.id
             membership.recordMetric("plan_selection", productId: product.id)
         }
+        .disabled(membership.isPurchasing || awaitingOutcome != nil)
     }
 
     private var selectedProduct: Product? {
-        membership.products.first { $0.id == selectedProductId }
+        let id = MembershipPlanSelection.resolve(selected: selectedProductId, available: membership.products.map(\.id))
+        return membership.products.first { $0.id == id }
     }
 
     private var selectedIntroductoryOffer: AnnualIntroductoryOffer? {
-        selectedProductId == MembershipStore.annualProductId ? membership.annualIntroductoryOffer : nil
+        selectedProduct?.id == MembershipStore.annualProductId ? membership.annualIntroductoryOffer : nil
     }
 
     private func annualMonthlyEquivalent(_ product: Product) -> String {
@@ -516,6 +524,7 @@ struct MembershipPlanCard: View {
     let onSelect: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: onSelect) {
@@ -525,9 +534,10 @@ struct MembershipPlanCard: View {
                         .stroke(selected ? Color.coral : Color.paperDeep, lineWidth: 2)
                         .frame(width: 25, height: 25)
                     if selected {
-                        Circle()
-                            .fill(Color.coral)
-                            .frame(width: 13, height: 13)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .black))
+                            .foregroundStyle(Color.coral)
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.7).combined(with: .opacity))
                     }
                 }
                 .accessibilityHidden(true)
@@ -573,5 +583,15 @@ struct MembershipPlanCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title)，\(priceText)，\(detail)")
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .animation(.easeInOut(duration: reduceMotion ? 0.1 : 0.2), value: selected)
+    }
+}
+
+enum MembershipPlanSelection {
+    static func resolve(selected: String, available: [String]) -> String {
+        if available.contains(selected) { return selected }
+        if available.contains(MembershipStore.annualProductId) { return MembershipStore.annualProductId }
+        if available.contains(MembershipStore.monthlyProductId) { return MembershipStore.monthlyProductId }
+        return MembershipStore.annualProductId
     }
 }

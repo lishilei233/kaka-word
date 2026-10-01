@@ -263,7 +263,7 @@ final class MembershipStoreTests: XCTestCase {
 
         XCTAssertEqual(
             MembershipSettingsDisplayState.quotaText(entitlement: entitlement, state: .loaded),
-            "本期识别额度：无限"
+            "拍照识词不限次数"
         )
         XCTAssertEqual(
             MembershipStore.membershipPaywallState(
@@ -748,10 +748,17 @@ final class MembershipStoreTests: XCTestCase {
         XCTAssertEqual(store.annualIntroductoryOffer?.displayPrice, introduction.displayPrice)
 
         _ = try await session.buyProduct(identifier: annual.id)
-        let firstResult = await Transaction.latest(for: annual.id)
-        guard case .verified(let firstTransaction) = firstResult else {
-            return XCTFail("Expected a verified local introductory purchase")
+        // SKTestSession returns before StoreKit 2 necessarily publishes the transaction.
+        // Apply the same bounded cache wait used for the renewal below.
+        var initialTransaction: StoreKit.Transaction?
+        for _ in 0..<50 {
+            if case .verified(let candidate) = await Transaction.latest(for: annual.id) {
+                initialTransaction = candidate
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
         }
+        let firstTransaction = try XCTUnwrap(initialTransaction, "Expected a verified local introductory purchase")
         XCTAssertEqual(firstTransaction.price, 78)
         await firstTransaction.finish()
         await store.prepareProducts(force: true)
@@ -869,7 +876,7 @@ final class MembershipStoreTests: XCTestCase {
     func testMembershipPlanConfigBuildsUnlimitedQuotaCopy() {
         let config = MembershipPlanConfig(limit: 240, unlimited: true)
 
-        XCTAssertEqual(config.paywallBenefitText, "每月无限次完整拍照识词")
+        XCTAssertEqual(config.paywallBenefitText, "拍照识词不限次数")
     }
 
     func testMembershipPlanConfigClientLoadsPublicConfiguration() async throws {
@@ -888,6 +895,71 @@ final class MembershipStoreTests: XCTestCase {
         let config = try await client.fetch()
 
         XCTAssertEqual(config, MembershipPlanConfig(limit: 180, unlimited: false))
+    }
+
+    func testPlanSelectionFallsBackOnlyWhenSelectedProductDisappears() {
+        let annual = MembershipStore.annualProductId
+        let monthly = MembershipStore.monthlyProductId
+        XCTAssertEqual(MembershipPlanSelection.resolve(selected: annual, available: [monthly]), monthly)
+        XCTAssertEqual(MembershipPlanSelection.resolve(selected: monthly, available: [monthly, annual]), monthly)
+        XCTAssertEqual(MembershipPlanSelection.resolve(selected: "removed", available: [monthly, annual]), annual)
+        XCTAssertEqual(MembershipPlanSelection.resolve(selected: monthly, available: []), annual)
+    }
+
+    func testMembershipDatesAcceptServerFractionalSeconds() {
+        let value = makeMemberEntitlement(remaining: 86)
+        XCTAssertNotNil(value.resetDate)
+        XCTAssertNotNil(value.expirationDate)
+        XCTAssertLessThan(value.resetDate!, value.expirationDate!)
+        XCTAssertEqual(value.membershipDisplayName, "咔咔年会员")
+    }
+
+    @MainActor
+    func testMembershipSummaryRendersAllStatesAtSmallLargeAndAccessibleSizes() throws {
+        let free = EntitlementSummary(
+            tier: "free", productId: nil, subscriptionState: "none", limit: 3, used: 1,
+            reserved: 0, remaining: 2, unlimited: false, periodStart: nil, resetAt: nil,
+            expiresAt: nil, autoRenewEnabled: nil, vocabularyCorrectionEnabled: false
+        )
+        let cases: [(String, EntitlementSummary?, MembershipSettingsDisplayState)] = [
+            ("free", free, .loaded),
+            ("free-exhausted", makeMemberEntitlement(remaining: 0, tier: "free"), .loaded),
+            ("monthly", makeMemberEntitlement(remaining: 27, productId: MembershipStore.monthlyProductId), .loaded),
+            ("member", makeMemberEntitlement(remaining: 86), .loaded),
+            ("exhausted", makeMemberEntitlement(remaining: 0), .loaded),
+            ("unlimited", makeMemberEntitlement(remaining: 100, unlimited: true), .loaded),
+            ("refreshing", makeMemberEntitlement(remaining: 86), .refreshing),
+            ("cached-error", makeMemberEntitlement(remaining: 86), .failedWithCachedValue),
+            ("unknown", nil, .failedWithoutCachedValue),
+            ("loading", nil, .initialLoading)
+        ]
+        for (name, value, state) in cases {
+            for (width, size) in [(CGFloat(320), DynamicTypeSize.large), (430, .large), (320, .accessibility3)] {
+                let view = VStack(alignment: .leading, spacing: 14) {
+                    MembershipSummaryCard(entitlement: value, state: state, showSuccess: name == "member")
+                    MembershipTicketDivider()
+                    if value?.isMember == true {
+                        MembershipPassEntry(action: {})
+                    } else if value != nil {
+                        PictureWordButton("查看会员方案", systemImage: "sparkles", action: {})
+                    }
+                }
+                    .padding(20)
+                    .frame(width: width - 32)
+                    .background(Color.paperLight, in: RoundedRectangle(cornerRadius: 28))
+                    .padding(16)
+                    .background(Color.paper)
+                    .environment(\.dynamicTypeSize, size)
+                let renderer = ImageRenderer(content: view)
+                let image = try XCTUnwrap(renderer.uiImage)
+                XCTAssertEqual(image.size.width, width, accuracy: 1)
+                XCTAssertGreaterThan(image.size.height, 80)
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "membership-\(name)-\(Int(width))-\(size)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
     }
 
     private func makeObservation(
@@ -962,13 +1034,16 @@ final class MembershipStoreTests: XCTestCase {
         )
     }
 
-    private func makeMemberEntitlement(remaining: Int, unlimited: Bool = false) -> EntitlementSummary {
+    private func makeMemberEntitlement(
+        remaining: Int, unlimited: Bool = false, tier: String = "member",
+        productId: String = MembershipStore.annualProductId
+    ) -> EntitlementSummary {
         EntitlementSummary(
-            tier: "member",
-            productId: MembershipStore.annualProductId,
+            tier: tier,
+            productId: tier == "member" ? productId : nil,
             subscriptionState: "active",
-            limit: 100,
-            used: 100 - remaining,
+            limit: tier == "member" ? 100 : 3,
+            used: (tier == "member" ? 100 : 3) - remaining,
             reserved: 0,
             remaining: remaining,
             unlimited: unlimited,
@@ -1245,5 +1320,112 @@ private struct MockResponse: Sendable {
         var headers = headers
         headers["Content-Type"] = "application/json"
         return MockResponse(status: status, headers: headers, body: body)
+    }
+}
+
+final class HomeMembershipReminderTests: XCTestCase {
+    private var calendar: Calendar {
+        var value = Calendar(identifier: .gregorian)
+        value.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+        return value
+    }
+
+    private func date(_ value: String) -> Date {
+        ISO8601DateFormatter().date(from: value)!
+    }
+
+    private func entitlement(
+        tier: String = "free", state: String = "none", limit: Int = 3,
+        used: Int = 3, reserved: Int = 0, unlimited: Bool = false
+    ) -> EntitlementSummary {
+        EntitlementSummary(
+            tier: tier, productId: nil, subscriptionState: state,
+            limit: limit, used: used, reserved: reserved,
+            remaining: max(0, limit - used - reserved), unlimited: unlimited,
+            periodStart: nil, resetAt: nil, expiresAt: nil, autoRenewEnabled: nil,
+            vocabularyCorrectionEnabled: false
+        )
+    }
+
+    private func shows(
+        _ value: EntitlementSummary?, state: EntitlementLoadState = .loaded,
+        refreshing: Bool = false, dismissedAt: Date? = nil,
+        now: Date? = nil
+    ) -> Bool {
+        HomeMembershipReminderPolicy.shouldShow(
+            entitlement: value, loadState: state, isRefreshing: refreshing,
+            dismissedAt: dismissedAt, now: now ?? date("2026-12-31T15:59:00Z"), calendar: calendar
+        )
+    }
+
+    func testOnlyActuallyConsumedFreeQuotaTriggersReminder() {
+        XCTAssertTrue(shows(entitlement()))
+        XCTAssertTrue(shows(entitlement(used: 4)))
+        XCTAssertFalse(shows(entitlement(used: 2)))
+        XCTAssertFalse(shows(entitlement(used: 2, reserved: 1)))
+        XCTAssertFalse(shows(entitlement(limit: 0, used: 0)))
+        XCTAssertFalse(shows(entitlement(unlimited: true)))
+    }
+
+    func testActiveAndGraceMembersAreExcludedButExpiredNonmembersQualify() {
+        XCTAssertFalse(shows(entitlement(tier: "member", state: "active")))
+        XCTAssertFalse(shows(entitlement(tier: "member", state: "grace")))
+        XCTAssertTrue(shows(entitlement(state: "expired")))
+    }
+
+    func testUnconfirmedOrRefreshingEntitlementsNeverShowReminder() {
+        XCTAssertFalse(shows(nil))
+        XCTAssertFalse(shows(entitlement(), state: .idle))
+        XCTAssertFalse(shows(entitlement(), state: .loading(hasCachedValue: false)))
+        XCTAssertFalse(shows(entitlement(), state: .loading(hasCachedValue: true)))
+        XCTAssertFalse(shows(entitlement(), state: .failed(message: "Offline", hasCachedValue: true, requestID: nil)))
+        XCTAssertFalse(shows(nil, state: .failed(message: "Offline", hasCachedValue: false, requestID: nil)))
+        XCTAssertFalse(shows(entitlement(), refreshing: true))
+    }
+
+    func testDismissalLastsUntilLocalMidnightAcrossYearBoundary() {
+        let dismissed = date("2026-12-31T15:58:00Z")
+        XCTAssertFalse(shows(entitlement(), dismissedAt: dismissed))
+        XCTAssertTrue(shows(entitlement(), dismissedAt: dismissed, now: date("2026-12-31T16:00:00Z")))
+        XCTAssertFalse(shows(entitlement(tier: "member", state: "active"), dismissedAt: dismissed,
+                             now: date("2026-12-31T16:00:00Z")))
+    }
+
+    func testPersistedDismissalSurvivesDefaultsReloadAndReevaluatesOnReturn() throws {
+        let suite = "HomeMembershipReminderTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let dismissed = date("2026-12-31T15:58:00Z")
+        defaults.set(dismissed.timeIntervalSince1970, forKey: AppSettings.Key.membershipReminderDismissedAt)
+        let reloaded = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let saved = Date(timeIntervalSince1970: reloaded.double(forKey: AppSettings.Key.membershipReminderDismissedAt))
+        XCTAssertFalse(shows(entitlement(), dismissedAt: saved))
+        XCTAssertTrue(shows(entitlement(), dismissedAt: saved, now: date("2027-01-01T02:00:00Z")))
+    }
+
+    func testOnlyCameraPurchaseSourceResumesCamera() {
+        XCTAssertTrue(HomePaywallSource.camera.opensCameraAfterPurchase)
+        XCTAssertFalse(HomePaywallSource.reminder.opensCameraAfterPurchase)
+    }
+
+    @MainActor
+    func testReminderCardRendersAtSmallAndLargeWidthsWithDynamicType() throws {
+        for width in [320.0, 430.0] {
+            for size in [DynamicTypeSize.large, .accessibility3] {
+                let renderer = ImageRenderer(content:
+                    HomeMembershipReminderCard(onOpen: {}, onDismiss: {})
+                        .environment(\.dynamicTypeSize, size)
+                        .padding(20)
+                        .frame(width: width)
+                        .background(Color.paper)
+                )
+                let image = try XCTUnwrap(renderer.uiImage)
+                XCTAssertGreaterThan(image.size.height, 100)
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "membership-reminder-\(Int(width))-\(size)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
     }
 }

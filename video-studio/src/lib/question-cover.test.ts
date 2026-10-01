@@ -12,10 +12,10 @@ test('legacy configuration stays legacy while unconfigured projects use question
     assert.equal(old.cover?.title, '老标题');
     assert.equal(old.version, 4);
 });
-test('audiences restore independent titles and changes preserve all video content', () => {
+test('legacy audience titles remain stored but the shared scene determines the title', () => {
     const original = structuredClone(project);
     const edited = { ...project, cover: { ...defaultCover, audienceTitles: { adult: '杯子英语怎么说？', family: '和孩子认杯子？', student: '这个单词你会吗？' } } };
-    for (const audience of ['adult', 'family', 'student'] as const) assert.equal(coverQuestionTitle({ ...edited, cover: { ...edited.cover, audience } }), edited.cover.audienceTitles[audience]);
+    for (const audience of ['adult', 'family', 'student'] as const) assert.equal(coverQuestionTitle({ ...edited, cover: { ...edited.cover, audience } }), '酒店抽屉，你会几个单词？');
     assert.deepEqual(project, original);
     const { cover: _cover, ...video } = edited;
     assert.deepEqual(video, project);
@@ -49,8 +49,8 @@ test('title fits in two explicit lines or blocks export without silently truncat
         assert.equal(result.fits, true);
         assert.ok(result.lines.length <= 2);
     }
-    for (const title of ['', '很'.repeat(40), '超长标题\n必须完整\n第三行']) {
-        const p = { ...project, cover: { ...defaultCover, audienceTitles: { adult: title } } };
+    for (const publishingScene of ['', '很'.repeat(29), '很'.repeat(30)]) {
+        const p = { ...project, publishingScene };
         assert.equal(coverExportReady(p), false);
         assert.ok(questionCoverLayout(p).conflicts.length > 0);
     }

@@ -1,56 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 import { Player } from '@remotion/player';
-import { ImageDown, Sparkles } from 'lucide-react';
+import { ImageDown } from 'lucide-react';
 import { Cover } from '../video/Cover';
 import { Button } from './ui/button';
-import { api } from '../lib/media';
+import { PublishingSceneField } from './PublishingSceneField';
 import type { CoverConfig, Project } from '../lib/project';
 import {
-    applyCoverCandidates, coverAudiences, coverConflicts, coverCopySource, coverExportReady, coverQuestionTitle,
+    coverConflicts, coverExportReady,
     defaultCover, defaultCoverPhoto, isQuestionCover, moveCoverPhoto, selectedCoverWords,
 } from '../lib/cover-layout';
-import type { CoverCopy } from '../../../server/src/core/image-analysis/cover-copy';
 
 export function CoverEditor({ project, update, disabled, onExport }: {
     project: Project; update: (project: Project) => void; disabled: boolean; onExport: () => void;
 }) {
-    const [generating, setGenerating] = useState(false);
-    const [notice, setNotice] = useState('');
     const latest = useRef(project); latest.current = project;
-    const source = coverCopySource(project);
-    const sourceVersion = useRef({ source, version: 0 });
-    if (sourceVersion.current.source !== source) sourceVersion.current = { source, version: sourceVersion.current.version + 1 };
-    const request = useRef(0);
-    useEffect(() => () => { request.current++; }, []);
     const drag = useRef<{ x: number; y: number; project: Project } | null>(null);
     const cover = project.cover ?? defaultCover;
     const question = isQuestionCover(project);
-    const audience = cover.audience ?? 'adult';
     const photo = cover.photo ?? defaultCoverPhoto;
     const selected = selectedCoverWords(project);
     const conflicts = coverConflicts(project);
-    const stale = !!cover.candidates && cover.candidateSource !== source;
     function patch(patch: Partial<CoverConfig>) {
         const current = latest.current;
         update({ ...current, cover: { ...(current.cover ?? defaultCover), ...patch } });
-    }
-    async function generate() {
-        const currentRequest = ++request.current;
-        const version = sourceVersion.current.version;
-        const snapshot = latest.current;
-        const requestedSource = coverCopySource(snapshot);
-        setGenerating(true); setNotice('');
-        try {
-            const candidates = await api<CoverCopy>('cover-copy', snapshot);
-            if (request.current !== currentRequest) return;
-            if (version !== sourceVersion.current.version || requestedSource !== coverCopySource(latest.current)) {
-                setNotice('照片或内容已改变，本次标题建议未应用，请重新生成。'); return;
-            }
-            update(applyCoverCandidates(latest.current, requestedSource, candidates));
-            setNotice('三类标题已生成。点击候选才会替换当前标题。');
-        } catch (error) {
-            if (request.current === currentRequest) setNotice(error instanceof Error ? error.message : '标题生成失败，请重试');
-        } finally { if (request.current === currentRequest) setGenerating(false); }
     }
     const preview = <Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%', pointerEvents: 'none' }} inputProps={{ project }} />;
     return <div className="cover-editor">
@@ -75,16 +47,9 @@ export function CoverEditor({ project, update, disabled, onExport }: {
             <select id="coverTemplate" className="input" value={cover.template} onChange={event => patch({ template: event.target.value as CoverConfig['template'] })}>
                 <option value="scene-question">场景问题</option><option value="learning-card">经典学习卡</option>
             </select>
+            <PublishingSceneField project={project} update={update} id="coverPublishingScene" />
             {question ? <>
                 <div className="cover-section-label">01 / 标题</div>
-                <div className="cover-audiences" role="group" aria-label="标题受众">{coverAudiences.map(item => <button type="button" key={item.id} aria-pressed={audience === item.id} onClick={() => patch({ audience: item.id })}>{item.label}</button>)}</div>
-                <label className="field-label" htmlFor="questionTitle">封面问题 <span className="hint">最多两行 · 40 字以内</span></label>
-                <textarea id="questionTitle" className="input cover-title-input" rows={2} maxLength={40} value={cover.audienceTitles?.[audience] ?? coverQuestionTitle(project)} onChange={event => patch({ audienceTitles: { ...cover.audienceTitles, [audience]: event.target.value } })} />
-                <Button variant="outline" className="w-full" disabled={generating || !project.image || !project.caption.trim() || !project.words.length} onClick={generate}><Sparkles />{generating ? '正在生成三类标题…' : '生成标题建议'}</Button>
-                <p className="hint">生成三个受众版本，每类三个候选；保留你已编辑的标题。</p>
-                {notice && <p className="cover-notice" role="status">{notice}</p>}
-                {stale && <p className="cover-notice">内容已变化，请重新生成标题建议。</p>}
-                <div className="cover-candidates">{cover.candidates?.[audience].map((title, index) => <button type="button" key={`${index}-${title}`} disabled={stale} onClick={() => patch({ audienceTitles: { ...cover.audienceTitles, [audience]: title } })}><span>0{index + 1}</span>{title}</button>)}</div>
                 <label className="field-label" htmlFor="titlePosition">文字位置</label>
                 <select id="titlePosition" className="input" value={cover.titlePosition ?? 'top'} onChange={event => patch({ titlePosition: event.target.value as 'top' | 'bottom' })}><option value="top">顶部</option><option value="bottom">底部</option></select>
                 <div className="cover-section-label">02 / 精选词 <span>{selected.length} / 3</span></div>
@@ -100,8 +65,6 @@ export function CoverEditor({ project, update, disabled, onExport }: {
                 <Button variant="ghost" size="sm" onClick={() => patch({ photo: { ...defaultCoverPhoto } })}>重置取景</Button>
                 <details className="cover-thumbnail" open><summary>信息流缩略图 · 180×240</summary><div style={{ width: 180, height: 240, margin: '16px auto' }}>{preview}</div></details>
             </> : <>
-                <label className="field-label" htmlFor="coverTitle">封面场景标题</label>
-                <input id="coverTitle" className="input" maxLength={40} value={cover.title ?? ''} placeholder={project.sceneTheme || project.title} onChange={event => patch({ title: event.target.value || undefined })} />
                 <label className="range-field"><span>全部胶囊<strong>{Math.round(cover.scale * 100)}%</strong></span><input aria-label="全部胶囊大小" type="range" min=".72" max="1.15" step=".01" value={cover.scale} onChange={event => patch({ scale: Number(event.target.value) })} /></label>
                 <div className="cover-highlight-picker"><h3>高亮单词</h3><div className="cover-highlight-list">{project.words.map(word => <label key={word.id}><input type="checkbox" checked={cover.words[word.id]?.highlighted ?? false} onChange={event => patch({ words: { ...cover.words, [word.id]: { ...(cover.words[word.id] ?? { scale: 1 }), highlighted: event.target.checked } } })} /><span>{word.english}</span></label>)}</div></div>
                 {project.words.filter(word => (word.kind ?? 'object') === 'object').map(word => <label className="range-field" key={word.id}><span>{word.english}</span><input aria-label={`${word.english} 胶囊大小`} type="range" min=".85" max="1.2" step=".01" value={cover.words[word.id]?.scale ?? 1} onChange={event => patch({ words: { ...cover.words, [word.id]: { ...cover.words[word.id], scale: Number(event.target.value) } } })} /></label>)}
