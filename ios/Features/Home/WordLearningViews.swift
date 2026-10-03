@@ -100,6 +100,7 @@ enum WordImageCropper {
     struct ReviewPhoto {
         let image: UIImage
         let targetBox: CGRect?
+        var recognitionBox: CGRect? = nil
     }
 
     static func image(for entry: WordEntry, historyStore: HistoryStore) -> UIImage? {
@@ -133,9 +134,11 @@ enum WordImageCropper {
         for occurrence in entry.occurrences {
             guard let record = historyStore.record(id: occurrence.recordID),
                   let image = historyStore.image(for: record) else { continue }
+            let object = record.result.objects.first(where: { $0.id == occurrence.object.id }) ?? occurrence.object
             return ReviewPhoto(
                 image: image,
-                targetBox: occurrence.object.kind == .object ? normalizedBox(occurrence.object.box) : nil
+                targetBox: object.kind == .object ? normalizedBox(object.box) : nil,
+                recognitionBox: RecognitionRangeGeometry.resolvedBox(for: object).flatMap(normalizedBox)
             )
         }
         return nil
@@ -204,6 +207,7 @@ private struct ZoomableReviewImage: UIViewRepresentable {
     let image: UIImage
     let resetID: String
     let revealedTargetBox: CGRect?
+    let recognitionFocusBox: CGRect?
     let wrongTapMarker: ReviewTapMarker?
     let isSelectionEnabled: Bool
     let onTap: (ReviewTapContext) -> Void
@@ -226,6 +230,7 @@ private struct ZoomableReviewImage: UIViewRepresentable {
         scrollView.accessibilityLabel = isSelectionEnabled ? "完整照片，请根据声音点选物体" : "完整照片，答案已揭晓"
         scrollView.setImage(image, resetID: resetID)
         scrollView.setRevealedTargetBox(revealedTargetBox)
+        scrollView.setRecognitionFocusBox(recognitionFocusBox)
         if let wrongTapMarker {
             scrollView.showWrongTapMarker(wrongTapMarker)
         }
@@ -313,13 +318,13 @@ private struct ZoomableReviewImage: UIViewRepresentable {
     }
 }
 
-private final class ReviewZoomScrollView: UIScrollView {
+final class ReviewZoomScrollView: UIScrollView {
     let imageView = UIImageView()
 
     private let revealRingLayer = CAShapeLayer()
-    private let checkCircleLayer = CAShapeLayer()
-    private let checkmarkLayer = CAShapeLayer()
+    private let recognitionColorLayer = CAShapeLayer()
     private var revealedTargetBox: CGRect?
+    private var recognitionFocusBox: CGRect?
     private var currentResetID: String?
     private var lastWrongMarkerID: Int?
 
@@ -350,16 +355,12 @@ private final class ReviewZoomScrollView: UIScrollView {
         revealRingLayer.lineCap = .round
         revealRingLayer.lineJoin = .round
         imageView.layer.addSublayer(revealRingLayer)
+        recognitionColorLayer.fillColor = UIColor.clear.cgColor
+        recognitionColorLayer.strokeColor = UIColor(Color.recognitionGreen).cgColor
+        recognitionColorLayer.lineCap = .round
+        recognitionColorLayer.lineJoin = .round
+        imageView.layer.addSublayer(recognitionColorLayer)
 
-        checkCircleLayer.fillColor = UIColor(red: 0.659, green: 0.776, blue: 0.624, alpha: 1).cgColor
-        checkCircleLayer.strokeColor = UIColor(red: 0.141, green: 0.129, blue: 0.118, alpha: 0.2).cgColor
-        imageView.layer.addSublayer(checkCircleLayer)
-
-        checkmarkLayer.fillColor = UIColor.clear.cgColor
-        checkmarkLayer.strokeColor = UIColor(red: 0.141, green: 0.129, blue: 0.118, alpha: 1).cgColor
-        checkmarkLayer.lineCap = .round
-        checkmarkLayer.lineJoin = .round
-        imageView.layer.addSublayer(checkmarkLayer)
         hideRevealOverlay()
     }
 
@@ -386,6 +387,7 @@ private final class ReviewZoomScrollView: UIScrollView {
         setZoomScale(minimumZoomScale, animated: false)
         contentOffset = .zero
         revealedTargetBox = nil
+        recognitionFocusBox = nil
         lastWrongMarkerID = nil
         hideRevealOverlay()
         setNeedsLayout()
@@ -396,7 +398,13 @@ private final class ReviewZoomScrollView: UIScrollView {
         updateInteractionAndRevealOverlay()
     }
 
-    func showWrongTapMarker(_ marker: ReviewTapMarker) {
+    func setRecognitionFocusBox(_ box: CGRect?) {
+        let changed = recognitionFocusBox != box
+        recognitionFocusBox = box
+        updateInteractionAndRevealOverlay(animateFocus: changed && box != nil)
+    }
+
+    fileprivate func showWrongTapMarker(_ marker: ReviewTapMarker) {
         guard lastWrongMarkerID != marker.id, imageView.bounds.width > 0, imageView.bounds.height > 0 else { return }
         lastWrongMarkerID = marker.id
         let scale = max(zoomScale, 1)
@@ -431,64 +439,57 @@ private final class ReviewZoomScrollView: UIScrollView {
         }
     }
 
-    func updateInteractionAndRevealOverlay() {
+    func updateInteractionAndRevealOverlay(animateFocus: Bool = false) {
         panGestureRecognizer.isEnabled = zoomScale > minimumZoomScale + 0.01
         guard let target = revealedTargetBox, imageView.bounds.width > 0, imageView.bounds.height > 0 else {
             hideRevealOverlay()
             return
         }
 
-        let scale = max(zoomScale, 1)
-        let rawRect = CGRect(
-            x: target.minX * imageView.bounds.width,
-            y: target.minY * imageView.bounds.height,
-            width: target.width * imageView.bounds.width,
-            height: target.height * imageView.bounds.height
-        )
-        let minimumSize: CGFloat = 54 / scale
-        let ringSize = CGSize(
-            width: max(rawRect.width + 20 / scale, minimumSize),
-            height: max(rawRect.height + 20 / scale, minimumSize)
-        )
-        let ringRect = CGRect(
-            x: rawRect.midX - ringSize.width / 2,
-            y: rawRect.midY - ringSize.height / 2,
-            width: ringSize.width,
-            height: ringSize.height
-        ).intersection(imageView.bounds.insetBy(dx: 3 / scale, dy: 3 / scale))
-
+        let focus = recognitionFocusBox ?? target
+        let box = ObjectBox(x: focus.minX, y: focus.minY, width: focus.width, height: focus.height)
+        let imageSize = imageView.image?.size ?? imageView.bounds.size
+        let fit = min(imageView.bounds.width / imageSize.width, imageView.bounds.height / imageSize.height)
+        let photoFrame = CGRect(x: (imageView.bounds.width - imageSize.width * fit) / 2,
+                                y: (imageView.bounds.height - imageSize.height * fit) / 2,
+                                width: imageSize.width * fit, height: imageSize.height * fit)
+        let focusRect = RecognitionRangeGeometry.rect(box, in: photoFrame)
+        let logicalScale = RecognitionRangeGeometry.strokeScale(in: focusRect, scale: photoFrame.width / 540)
+        let finalPath = RecognitionRangeGeometry.path(in: focusRect, scale: photoFrame.width / 540).cgPath
+        let geometryChanged = revealRingLayer.path?.boundingBoxOfPath != finalPath.boundingBoxOfPath
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         revealRingLayer.isHidden = false
-        revealRingLayer.path = UIBezierPath(
-            roundedRect: ringRect,
-            cornerRadius: min(22 / scale, min(ringRect.width, ringRect.height) / 3)
-        ).cgPath
-        revealRingLayer.lineWidth = 4 / scale
-        revealRingLayer.lineDashPattern = [NSNumber(value: 9 / Double(scale)), NSNumber(value: 6 / Double(scale))]
-
-        let badgeSize: CGFloat = 28 / scale
-        let badgeRect = CGRect(
-            x: min(max(ringRect.maxX - badgeSize * 0.72, 0), imageView.bounds.width - badgeSize),
-            y: max(ringRect.minY - badgeSize * 0.28, 0),
-            width: badgeSize,
-            height: badgeSize
-        )
-        checkCircleLayer.isHidden = false
-        checkCircleLayer.path = UIBezierPath(ovalIn: badgeRect).cgPath
-        checkCircleLayer.lineWidth = 1 / scale
-
-        let check = UIBezierPath()
-        check.move(to: CGPoint(x: badgeRect.minX + badgeSize * 0.27, y: badgeRect.midY))
-        check.addLine(to: CGPoint(x: badgeRect.minX + badgeSize * 0.43, y: badgeRect.maxY - badgeSize * 0.3))
-        check.addLine(to: CGPoint(x: badgeRect.maxX - badgeSize * 0.23, y: badgeRect.minY + badgeSize * 0.3))
-        checkmarkLayer.isHidden = false
-        checkmarkLayer.path = check.cgPath
-        checkmarkLayer.lineWidth = 2.6 / scale
+        revealRingLayer.path = finalPath
+        revealRingLayer.strokeColor = UIColor(Color.recognitionInk).cgColor
+        revealRingLayer.lineWidth = 4 * logicalScale
+        revealRingLayer.lineDashPattern = nil
+        recognitionColorLayer.isHidden = false
+        recognitionColorLayer.path = finalPath
+        recognitionColorLayer.lineWidth = 2.5 * logicalScale
+        for layer in [revealRingLayer, recognitionColorLayer] {
+            let mask = CAShapeLayer()
+            mask.path = UIBezierPath(rect: photoFrame).cgPath
+            layer.mask = mask
+            if animateFocus || geometryChanged { layer.removeAnimation(forKey: "recognition-focus") }
+            if animateFocus && !UIAccessibility.isReduceMotionEnabled {
+                let expanded = RecognitionRangeGeometry.focused(box, progress: 0)
+                let animation = CABasicAnimation(keyPath: "path")
+                animation.fromValue = RecognitionRangeGeometry.path(in: RecognitionRangeGeometry.rect(expanded, in: photoFrame), scale: photoFrame.width / 540).cgPath
+                animation.toValue = finalPath
+                animation.duration = 0.2
+                animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                layer.add(animation, forKey: "recognition-focus")
+            }
+        }
+        CATransaction.commit()
     }
 
     private func hideRevealOverlay() {
         revealRingLayer.isHidden = true
-        checkCircleLayer.isHidden = true
-        checkmarkLayer.isHidden = true
+        recognitionColorLayer.isHidden = true
+        revealRingLayer.removeAnimation(forKey: "recognition-focus")
+        recognitionColorLayer.removeAnimation(forKey: "recognition-focus")
     }
 }
 
@@ -687,6 +688,7 @@ struct ListeningPracticeView: View {
                         image: listeningPhoto.image,
                         resetID: "\(word.id)-\(questionRevision)",
                         revealedTargetBox: revealed ? listeningPhoto.targetBox : nil,
+                        recognitionFocusBox: revealed ? (listeningPhoto.recognitionBox ?? listeningPhoto.targetBox) : nil,
                         wrongTapMarker: wrongTapMarker,
                         isSelectionEnabled: !revealed,
                         onTap: { tap in handleListeningTap(tap, word: word, photo: listeningPhoto) },

@@ -10,7 +10,7 @@ struct WordDetailSheet: View {
     var onDelete: ((LearningObject) -> String?)?
     var onManualCorrection: ((LearningObject, LearningObject) -> Void)?
     var onEditingChanged: ((Bool) -> Void)?
-    var onReturnToPhoto: (() -> Void)?
+    var onReturnToPhoto: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -50,7 +50,7 @@ struct WordDetailSheet: View {
         onDelete: ((LearningObject) -> String?)? = nil,
         onManualCorrection: ((LearningObject, LearningObject) -> Void)? = nil,
         onEditingChanged: ((Bool) -> Void)? = nil,
-        onReturnToPhoto: (() -> Void)? = nil,
+        onReturnToPhoto: ((String) -> Void)? = nil,
         session: WordDetailSession = WordDetailSession()
     ) {
         _session = StateObject(wrappedValue: session)
@@ -229,7 +229,7 @@ struct WordDetailSheet: View {
         guard openedPhoto == nil else { return }
         if photo.isCurrentPhoto, let onReturnToPhoto {
             speech.stop()
-            onReturnToPhoto()
+            onReturnToPhoto(word)
             return
         }
         do {

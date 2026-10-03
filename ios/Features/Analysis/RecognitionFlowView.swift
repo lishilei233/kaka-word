@@ -17,6 +17,7 @@ struct RecognitionFlowView: View {
     @State private var showCancelConfirmation = false
     @State private var sharedImage: SharedImageFile?
     @State private var shareErrorMessage: String?
+    @State private var recognitionSessionID = UUID()
     @State private var didStart = false
     @State private var didSaveResult = false
     @State private var emptyResultMessage: String?
@@ -47,7 +48,8 @@ struct RecognitionFlowView: View {
                     openFeedback()
                 },
                 onRetry: retry,
-                onResultChange: updateResult
+                onResultChange: updateResult,
+                recognitionSessionID: recognitionSessionID
             )
         }
         .onAppear {
@@ -182,6 +184,7 @@ struct RecognitionFlowView: View {
         }
         sharedImage = nil
         shareErrorMessage = nil
+        recognitionSessionID = UUID()
         model.retry(
             image: image,
             maxObjects: AppSettings.normalizedMaxObjects(maxObjects),

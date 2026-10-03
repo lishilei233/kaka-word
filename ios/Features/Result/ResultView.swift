@@ -33,6 +33,7 @@ struct ResultView: View {
     @State private var sharedImage: SharedImageFile?
     @State private var shareErrorMessage: String?
     @State private var feedbackErrorMessage: String?
+    @State private var recognitionSessionID: UUID?
     @State private var isReanalyzing = false
     @State private var reanalysisErrorMessage: String?
     @State private var paywallPresented = false
@@ -82,7 +83,8 @@ struct ResultView: View {
                 onRetry: recordID == nil ? nil : retry,
                 onResultChange: recordID == nil ? nil : persist,
                 usesNavigationBackButton: usesNavigationBackButton,
-                focusedWord: focusedWord
+                focusedWord: focusedWord,
+                recognitionSessionID: recognitionSessionID
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -165,6 +167,7 @@ struct ResultView: View {
         }
         reanalysisErrorMessage = nil
         isReanalyzing = true
+        recognitionSessionID = UUID()
         analysisModel.retry(
             image: image,
             maxObjects: AppSettings.normalizedMaxObjects(maxObjects),
@@ -270,6 +273,7 @@ struct PhotoWordCardDetailView: View {
     var onResultChange: ((AnalyzeResult) -> String?)?
     var usesNavigationBackButton = false
     var focusedWord: String? = nil
+    var recognitionSessionID: UUID? = nil
 
     @State private var practicePresented = false
     @State private var selectedObject: LearningObject?
@@ -280,6 +284,8 @@ struct PhotoWordCardDetailView: View {
     @State private var showTips = false
     @State private var showAddWord = false
     @State private var showVocabularyPaywall = false
+    @State private var returnedPhotoWord: String?
+    @State private var recognitionEditingObject: LearningObject?
     @State private var editingObjectID: String?
     @State private var suppressPageDismissUntil = Date.distantPast
     @State private var isRevealingCompletion = false
@@ -322,6 +328,26 @@ struct PhotoWordCardDetailView: View {
             legacyHeader
                 .zIndex(10)
         }
+        .safeAreaInset(edge: .bottom) {
+            if let id = editingObjectID, let object = result.objects.first(where: { $0.id == id }),
+               object.kind == .object, status.isComplete, onResultChange != nil {
+                HStack {
+                    if RecognitionRangeGeometry.isValid(object.box) {
+                        PictureWordButton("调整识别框", style: .secondary, size: .compact) {
+                            speech.stop()
+                            finishAnnotationEditing()
+                            recognitionEditingObject = object
+                        }
+                    } else { Text("请先定位物体").font(.scrapbookCaption) }
+                    PictureWordButton("完成", size: .compact) { finishAnnotationEditing() }
+                }
+                .padding(12).frame(maxWidth: .infinity).background(Color.paper)
+            }
+        }
+        .sheet(item: $recognitionEditingObject) { object in
+            RecognitionRangeEditor(image: image, object: object, onSave: updateObject)
+        }
+        .onChange(of: editingObjectID) { _, id in if id != nil { speech.stop() } }
         .onDisappear { speech.stop() }
         .navigationDestination(isPresented: $practicePresented) {
             ListeningPracticeView(sourceRecordID: sourceRecordID)
@@ -336,7 +362,10 @@ struct PhotoWordCardDetailView: View {
                 onUpdate: status.isComplete && onResultChange != nil ? updateObject : nil,
                 onDelete: status.isComplete && onResultChange != nil ? deleteObject : nil,
                 onManualCorrection: status.isComplete && onResultChange != nil ? reportRecognitionFeedback : nil,
-                onReturnToPhoto: { selectedObject = nil }
+                onReturnToPhoto: { word in
+                    selectedObject = nil
+                    returnedPhotoWord = word
+                }
             )
         }
         .sheet(item: $confirmationObject, onDismiss: finishConfirmationPresentation) { object in
@@ -379,6 +408,7 @@ struct PhotoWordCardDetailView: View {
             }
         }
         .onChange(of: result.objects.map(\.id)) { _, objectIDs in
+            if let object = recognitionEditingObject, !objectIDs.contains(object.id) { recognitionEditingObject = nil }
             if let editingObjectID, !objectIDs.contains(editingObjectID) {
                 finishAnnotationEditing()
             }
@@ -589,9 +619,11 @@ struct PhotoWordCardDetailView: View {
             revealsAnnotations: revealsAnnotations,
             isEditable: status.isComplete && onResultChange != nil,
             masteredObjectIDs: masteredObjectIDs,
-            emphasizedObjectIDs: focusedWord == nil ? nil : Set(result.objects.filter {
-                WordLearningStore.normalizedKey(for: $0.english) == WordLearningStore.normalizedKey(for: focusedWord ?? "")
+            emphasizedObjectIDs: (focusedWord ?? returnedPhotoWord) == nil ? nil : Set(result.objects.filter {
+                WordLearningStore.normalizedKey(for: $0.english) == WordLearningStore.normalizedKey(for: focusedWord ?? returnedPhotoWord ?? "")
             }.map(\.id)),
+            recognitionSessionID: recognitionSessionID,
+            recognitionComplete: status.isComplete,
             editingObjectID: annotationEditingBinding,
             showsShadow: false,
             usesOriginalAspectRatio: true
@@ -811,6 +843,7 @@ struct PhotoWordCardDetailView: View {
     }
 
     private func dismissEditingFromPageTap() {
+        returnedPhotoWord = nil
         guard editingObjectID != nil, Date() >= suppressPageDismissUntil else { return }
         finishAnnotationEditing()
     }

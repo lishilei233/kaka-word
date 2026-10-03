@@ -1,3 +1,5 @@
+import { RecognitionEditor } from './RecognitionEditor';
+import type { RecognitionBox } from '../lib/recognition';
 import { useBlocker, useNavigate } from '@tanstack/react-router';
 import { Autosave } from '../lib/autosave';
 import type { ProjectRecord } from '../lib/project-record';
@@ -27,6 +29,8 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
     const mode = 'video' as 'video' | 'cover' | 'publish';
     const ready = true;
     const [busy, setBusy] = useState(''); const [message, setMessage] = useState(''); const [error, setError] = useState('');
+    const [previewPlaying, setPreviewPlaying] = useState(false);
+    const [recognitionEditing, setRecognitionEditing] = useState(false);
     const [selected, setSelected] = useState(''); const [count, setCount] = useState(10);
     const [source, setSource] = useState(initialRecord.editor.source); const [sourceDuration, setSourceDuration] = useState(0);
     const [job, setJob] = useState<string>(); const [progress, setProgress] = useState(0); const [download, setDownload] = useState('');
@@ -86,6 +90,32 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
         }).catch(e => { if (!cancelled) setError(e.message); });
         return () => { cancelled = true; };
     }, [initialRecord.id]);
+    useEffect(() => {
+        const instance = player.current;
+        const stopEditing = () => { setRecognitionEditing(false); setPreviewPlaying(true); };
+        const pausePreview = () => setPreviewPlaying(false);
+        instance?.addEventListener('play', stopEditing);
+        instance?.addEventListener('pause', pausePreview);
+        instance?.addEventListener('ended', pausePreview);
+        return () => { instance?.removeEventListener('play', stopEditing); instance?.removeEventListener('pause', pausePreview); instance?.removeEventListener('ended', pausePreview); };
+    }, []);
+    useEffect(() => { setRecognitionEditing(false); }, [selected, drawer, word?.kind, word?.needsLocation]);
+    function moveRecognitionBox(id: string, box: RecognitionBox) {
+        update({ ...project, words: project.words.map(item => item.id === id ? { ...item, recognitionBoxOverride: box } : item) });
+    }
+    function previewRecognition() {
+        setRecognitionEditing(false);
+        const segment = t.words.find(item => item.word.id === selected);
+        if (!segment) return;
+        seekForEditing(segment.from);
+        player.current?.play();
+    }
+    function toggleRecognitionEditing() {
+        if (recognitionEditing) { setRecognitionEditing(false); return; }
+        const segment = t.words.find(item => item.word.id === selected);
+        if (!segment) return;
+        seekForEditing(segment.from + 3); setRecognitionEditing(true);
+    }
     async function saveCopy() {
         setSavingCopy(true);
         try {
@@ -271,7 +301,7 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
     }
     function selectWord(w: Word) {
         setSelected(w.id); player.current?.pause();
-        player.current?.seekTo(t.words.find(item => item.word.id === w.id)!.from);
+        player.current?.seekTo(t.words.find(item => item.word.id === w.id)!.from + 14);
     }
     function reorder(index: number, direction: number) {
         const words = [...project.words]; [words[index], words[index + direction]] = [words[index + direction], words[index]];
@@ -326,7 +356,7 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
             </section> : mode === 'cover' ? <section className="preview-column">
                 <div className="preview-stage"><Player component={Cover} compositionWidth={1080} compositionHeight={1440} durationInFrames={1} fps={30} controls={false} clickToPlay={false} style={{ width: '100%' }} inputProps={{ project }} /></div>
                 <p className="hint">主标题突出“真实场景学英语”，本期场景作为副标题；物体词自动整齐排列。</p>
-            </section> : <section className="preview-column"><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, onAnnotationMove: moveAnnotation, onInteractionTargetMove: moveInteractionTarget, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
+            </section> : <section className="preview-column"><div className="preview-heading"><span className="eyebrow">THE DAILY FRAME</span><span>9:16 · 1080p · 30 fps</span></div><div className="preview-stage"><div className="preview-tape" /><div className="player-shell">{ready && <Player ref={player} component={Film} inputProps={{ project, recognitionPreviewId: !previewPlaying && !drawer ? selected : undefined, recognitionEditingId: recognitionEditing ? selected : undefined, onRecognitionBoxMove: moveRecognitionBox, onAnnotationMove: moveAnnotation, onInteractionTargetMove: moveInteractionTarget, onAnnotationDragStart: () => player.current?.pause() }} durationInFrames={t.total} compositionWidth={1080} compositionHeight={1920} fps={FPS} controls style={{ width: '100%' }} />}
                 </div></div><div className="preview-caption"><span className="live-dot" />{(t.total/FPS).toFixed(1)} 秒 <span>拖动胶囊、圆点或互动箭头调整位置</span></div><div className={`timeline-strip ${project.videoTemplate === 'direct' ? 'timeline-direct' : ''}`}>{project.videoTemplate === 'camera' ? <><button onClick={() => seekForEditing(0)}><Camera size={15} /><span>取景</span><small>{project.introSeconds}s</small></button><button onClick={() => seekForEditing(t.intro+6)}><Sparkles size={15} /><span>发现单词</span><small>1.5s</small></button></> : <button onClick={() => seekForEditing(0)}><Sparkles size={15} /><span>照片停留</span><small>{project.directIntroSeconds.toFixed(1)}s</small></button>}<button onClick={() => seekForEditing(t.intro+t.reveal)}><Volume2 size={15} /><span>逐词跟读</span><small>{project.words.length} 词</small></button><button onClick={() => seekForEditing(t.captionFrom)}><FilmIcon size={15} /><span>照片句子</span><small>{(t.caption / FPS).toFixed(1)}s</small></button>{project.interaction?.enabled && <button onClick={() => seekForEditing(t.interactionFrom+12)}><FilmIcon size={15} /><span>互动提问</span><small>{project.interaction.arrowEnabled ? '拖动箭头' : '3s'}</small></button>}</div></section>}
             {mode === 'publish' ? <aside className="panel settings publish-settings"><div className="panel-heading"><h2>发布助手</h2><Sparkles size={17} /></div><fieldset className="panel-body" disabled={!!busy || !ready}>
                 <div className="editor-note"><span>一套模板，三个平台。</span><p>场景名、全部英文词和中英文描述自动同步到固定模板。</p></div>
@@ -349,6 +379,7 @@ export function Studio({ initialRecord }: { initialRecord: ProjectRecord }) {
                 <Button className="w-full mt-4" disabled={!project.image || !project.words.length || project.words.some(w => !w.english.trim()) || coverConflicts.length > 0} onClick={() => run('导出封面', async () => { const result = await api<{ file: string }>('render-cover', { project }); const a = document.createElement('a'); a.href = result.file; a.download = 'kakaword-cover.png'; a.click(); setMessage('封面已导出'); })}><ImageDown />导出封面 PNG</Button>
             </fieldset></aside> : <aside className="panel settings"><div className="panel-heading"><span className="section-number">02</span><h2>校对与节奏</h2><Volume2 size={17} /></div><fieldset disabled={!!busy || !!job || !ready} className="panel-body">
                 <div className="editor-note"><span>一张照片，一点新发现。</span><p>画面保持安静，让正在读的单词亮起来。</p></div>
+                <RecognitionEditor word={word} words={project.words} select={selectWord} editing={recognitionEditing} edit={patch => { if (!recognitionEditing) toggleRecognitionEditing(); editWord(patch); }} toggle={toggleRecognitionEditing} preview={previewRecognition} />
                 {word ? <><div className="edit-heading"><span>当前单词</span><Button variant="ghost" size="icon" aria-label="删除当前单词" onClick={() => { update({ ...project, words: project.words.filter(w => w.id !== selected) }); setSelected(''); }}><Trash2 /></Button></div><WordKindEditor word={word} image={project.image} edit={editWord} /><label className="field-label" htmlFor="english">英文</label><input id="english" className="input word-input" maxLength={60} value={word.english} onChange={e => editWord(changeEnglish(word, e.target.value))} /><label className="field-label" htmlFor="chinese">中文释义</label><input id="chinese" className="input" maxLength={60} value={word.chinese} onChange={e => editWord({ chinese: e.target.value })} /><label className="field-label" htmlFor="ipa">音标</label><input id="ipa" className="input" maxLength={80} value={word.ipa} onChange={e => editWord({ ipa: e.target.value })} />{(word.kind ?? 'object') === 'object' && <><label className="field-label">单词胶囊位置</label><div className="position-grid">{(['x','y'] as const).map((key,i) => <label key={key}><span>{['横向','纵向'][i]} <small>{(selectedCenter[key]*100).toFixed(1)}%</small></span><input type="range" min="0" max="100" step="0.1" value={selectedCenter[key]*100} onChange={e => editWord({ labelCenterOverride: { ...selectedCenter, [key]: Number(e.target.value)/100 } })} /></label>)}</div><label className="field-label">引导线终点位置</label><div className="position-grid">{(['x','y'] as const).map((key,i) => <label key={key}><span>{['横向','纵向'][i]} <small>{(selectedTarget[key]*100).toFixed(1)}%</small></span><input type="range" min="0" max="100" step="0.1" value={selectedTarget[key]*100} onChange={e => editWord({ targetCenterOverride: { ...selectedTarget, [key]: Number(e.target.value)/100 } })} /></label>)}</div><Button variant="ghost" size="sm" className="w-full mt-2" disabled={!word.labelCenterOverride && !word.targetCenterOverride} onClick={() => editWord({ labelCenterOverride: undefined, targetCenterOverride: undefined })}>恢复自动位置</Button></>}{word.audio && <audio className="word-audio" src={word.audio} controls />}</> : <div className="select-hint">选择左侧单词，校对文字并调整胶囊和引导线。</div>}
                 <div className="settings-divider" /><h3>视频模板</h3><div className="template-picker"><button type="button" className={project.videoTemplate === 'direct' ? 'selected' : ''} onClick={() => update({ ...project, videoTemplate: 'direct' })}><strong>直接学习</strong><span>照片短暂停留后，单词逐个出现并跟读</span></button><button type="button" className={project.videoTemplate === 'camera' ? 'selected' : ''} onClick={() => update({ ...project, videoTemplate: 'camera' })}><strong>拍照识别</strong><span>保留动态取景、快门和识别过渡</span></button></div><h3>播放节奏</h3><label className="field-label" htmlFor="voiceId">MiniMax 配音音色</label><select id="voiceId" className="input" value={project.voiceId} onChange={e => update({ ...project, voiceId: e.target.value as Project['voiceId'] })}>{voiceOptions.map(voice => <option key={voice.id} value={voice.id}>{voice.label} · {voice.id}</option>)}</select><label className="range-field"><span>配音语速 <strong>{project.speechSpeed.toFixed(2)}×</strong></span><input type="range" min="0.5" max="2" step="0.05" value={project.speechSpeed} onChange={e => update({ ...project, speechSpeed: Number(e.target.value) })} /></label><p className="hint">更换音色或语速后需要重新生成全部配音。</p>{project.videoTemplate === 'camera' ? <label className="range-field"><span>开头取景（视频末尾） <strong>{project.introSeconds.toFixed(1)} 秒</strong><input type="range" min="0.5" max="5" step="0.1" value={project.introSeconds} onChange={e => update({ ...project, introSeconds: Number(e.target.value) })} /></span></label> : <label className="range-field"><span>单词开始前停留 <strong>{project.directIntroSeconds.toFixed(1)} 秒</strong></span><input type="range" min="0" max="5" step="0.1" value={project.directIntroSeconds} onChange={e => update({ ...project, directIntroSeconds: Number(e.target.value) })} /></label>}<label className="range-field"><span>跟读留白 <strong>{project.pauseSeconds.toFixed(1)} 秒</strong></span><input type="range" min="0" max="3" step="0.1" value={project.pauseSeconds} onChange={e => update({ ...project, pauseSeconds: Number(e.target.value) })} /></label>
                 <Button variant="secondary" className="w-full mt-4" disabled={!project.caption.trim() || !project.words.length || project.words.some(w => !w.english.trim())} onClick={speech}><Volume2 />生成全部配音</Button><p className="hint">会生成每个单词、照片描述及已开启互动句的配音。修改描述后需重新生成配音。</p><Button variant="outline" className="w-full mt-2" disabled={!project.image} onClick={() => { player.current?.seekTo(0); player.current?.play(); }}><Play />从头预览</Button>

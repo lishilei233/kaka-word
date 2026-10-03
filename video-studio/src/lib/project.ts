@@ -28,6 +28,7 @@ const currentWordSchema = z.object({
     chinese: z.string().max(60), ipa: z.string().max(80),
     kind: z.enum(['object', 'action', 'state']).optional(),
     needsLocation: z.boolean().optional(),
+    recognitionBoxOverride: z.object({ x: position, y: position, width: z.number().min(.02).max(1), height: z.number().min(.02).max(1) }).refine(box => box.x + box.width <= 1 + 1e-9 && box.y + box.height <= 1 + 1e-9, '识别框不能超出照片').optional(),
     box: boxSchema.optional(), labelCenterOverride: pointSchema.optional(), targetCenterOverride: pointSchema.optional(),
     audio: z.string().regex(/^\/studio-api\/assets\/[a-f0-9-]+\.wav$/).optional(),
     audioSeconds: z.number().positive().max(30).optional(),

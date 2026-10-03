@@ -7,6 +7,9 @@ extension Color {
     static let paper = Color(red: 0.965, green: 0.941, blue: 0.894)
     static let paperLight = Color(red: 1.0, green: 0.992, blue: 0.973)
     static let paperDeep = Color(red: 0.914, green: 0.871, blue: 0.792)
+    static let recognitionYellow = Color(red: 1, green: 220 / 255, blue: 98 / 255)
+    static let recognitionInk = Color.ink
+    static let recognitionGreen = Color.mint
     static let sun = Color(red: 0.957, green: 0.788, blue: 0.365)
     static let coral = Color(red: 0.949, green: 0.427, blue: 0.380)
     static let mint = Color(red: 0.659, green: 0.776, blue: 0.624)

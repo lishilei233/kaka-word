@@ -29,7 +29,7 @@ export function WordKindEditor({ word, image, edit }: { word: Word; image?: stri
     return <>
         <label className="field-label" htmlFor="wordKind">词汇类型</label><select id="wordKind" className="input" value={word.kind ?? 'object'} onChange={e => {
             const kind = e.target.value as Word['kind'];
-            edit({ kind, box: undefined, needsLocation: kind === 'object', labelCenterOverride: undefined, targetCenterOverride: undefined });
+            edit({ kind, recognitionBoxOverride: undefined, box: undefined, needsLocation: kind === 'object', labelCenterOverride: undefined, targetCenterOverride: undefined });
         }}><option value="object">物体 · 照片内标注</option><option value="action">动作 · 下方词卡</option><option value="state">状态 · 下方词卡</option></select>
         {(word.kind ?? 'object') === 'object' && (!word.box || word.needsLocation) && <div className="location-picker"><p>点击照片中对应物体，再确认定位。确认前不显示引导线。</p>
             <button type="button" aria-label="点击照片选择物体位置" style={{ display: 'block', width: '100%', position: 'relative' }} onClick={e => {

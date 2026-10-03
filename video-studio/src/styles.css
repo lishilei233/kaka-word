@@ -134,3 +134,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible { 
 @media(max-width:640px) { .library-intro { align-items:flex-start;flex-direction:column;padding:30px 0; }.library-intro h1 { font-size:32px; }.project-grid { grid-template-columns:1fr; }.header-actions { justify-content:flex-start; }.project-title-row input { min-width:0; } }
 .publish-copy-actions { display:flex;flex-wrap:wrap;gap:8px;margin-top:16px; }
 .publishing-scene-field { margin:16px 0; }
+
+.recognition-settings { margin-bottom:20px; padding:14px; border:1px solid #e4d4af; border-radius:12px; background:#faf5e8; }
+.recognition-settings h3 { margin-bottom:12px; }
+.recognition-settings .publish-copy-actions { margin-top:12px; }

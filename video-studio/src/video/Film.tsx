@@ -1,3 +1,5 @@
+import { recognitionAnimation, recognitionBox, recognitionFocusBox, RECOGNITION_FRAMES, type RecognitionBox } from '../lib/recognition';
+import { RecognitionFrame } from './RecognitionFrame';
 import { annotationHighlight, leaderStyle, objectCapsuleStyle } from './annotation-style';
 import { AbsoluteFill, Audio, Freeze, Img, OffthreadVideo, Sequence, interpolate, interpolateColors, staticFile, useCurrentFrame } from 'remotion';
 import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, FPS, openingMedia, timeline, objectWords, readingWords, type Project } from '../lib/project';
@@ -28,7 +30,7 @@ function mixRect(from: Rect, to: Rect, progress: number): Rect {
 
 type AnnotationMove = (id: string, kind: 'label' | 'target', point: { x: number; y: number }) => void;
 
-export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteractionTargetMove, onAnnotationDragStart }: { project: Project; renderScale?: number; onAnnotationMove?: AnnotationMove; onInteractionTargetMove?: (point: { x: number; y: number }) => void; onAnnotationDragStart?: () => void }) {
+export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteractionTargetMove, onAnnotationDragStart, recognitionEditingId, recognitionPreviewId, onRecognitionBoxMove }: { project: Project; renderScale?: number; onAnnotationMove?: AnnotationMove; onInteractionTargetMove?: (point: { x: number; y: number }) => void; onAnnotationDragStart?: () => void; recognitionEditingId?: string; recognitionPreviewId?: string; onRecognitionBoxMove?: (id: string, box: RecognitionBox) => void }) {
     const frame = useCurrentFrame();
     const t = timeline(p), current = activeWord(p, frame), direct = p.videoTemplate === 'direct';
     const captionSegment = t.captions.find(s => frame >= s.from && frame < s.from + s.duration) ?? t.captions[0];
@@ -127,10 +129,10 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
                     <svg viewBox={`0 0 ${photo.width} ${photo.height}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>{annotations.routes.map(route => {
                         const segment=t.words.find(item=>item.word.id===route.id), visible=!!segment && frame >= segment.from;
                         const line = leaderStyle(current?.id === route.id);
-                        const lineProgress = lineEntrance(frame, segment?.from ?? 0);
+                        const lineProgress = lineEntrance(frame, (segment?.from ?? 0) + RECOGNITION_FRAMES);
                         const lineDash = lineProgress < 1 ? `${Math.max(.01, lineProgress * 100)} 100` : line.dash ?? 'none';
                         const d=`M ${route.start.x-photo.x} ${route.start.y-photo.y} Q ${route.control.x-photo.x} ${route.control.y-photo.y} ${route.target.x-photo.x} ${route.target.y-photo.y}`;
-                        return <g key={route.id} opacity={visible?1:0} style={{ filter: line.filter }}>
+                        return <g key={route.id} opacity={visible?lineProgress:0} style={{ filter: line.filter }}>
                             <path d={d} fill="none" pathLength={100} stroke={line.ink} strokeWidth={line.outer} strokeDasharray={lineDash} strokeLinecap="round" strokeLinejoin="round" />
                             <path d={d} fill="none" pathLength={100} stroke={line.fill} strokeWidth={line.inner} strokeDasharray={lineDash} strokeLinecap="round" strokeLinejoin="round" />
                             <circle cx={route.target.x-photo.x} cy={route.target.y-photo.y} r="11" fill="transparent" style={{ cursor: onAnnotationMove ? 'grab' : undefined, pointerEvents: onAnnotationMove ? 'all' : 'none' }} onClick={event => { event.preventDefault(); event.stopPropagation(); }} onPointerDown={event => beginDrag(event, route.id, 'target')} onPointerMove={event => dragPoint(event, route.id, 'target')} onPointerUp={finishDrag} onPointerCancel={finishDrag} />
@@ -138,7 +140,17 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
                             <circle cx={route.target.x-photo.x} cy={route.target.y-photo.y} r={line.dotInner} fill={line.fill} style={{ pointerEvents: 'none' }} />
                         </g>;
                     })}</svg>
-                    {annotations.placements.map(placement => { const segment=t.words.find(item=>item.word.id===placement.id); const isCurrent=current?.id===placement.id; const entrance = labelEntrance(frame, segment?.from ?? 0); const scale = isCurrent ? highlightScale(frame, segment?.from ?? frame) : 1; return <div key={placement.id} onClick={event => { event.preventDefault(); event.stopPropagation(); }} onPointerDown={event => beginDrag(event, placement.id, 'label')} onPointerMove={event => dragPoint(event, placement.id, 'label')} onPointerUp={finishDrag} onPointerCancel={finishDrag} title={onAnnotationMove ? '拖动调整胶囊位置' : undefined} style={{ ...objectCapsuleStyle, position: 'absolute', left: placement.labelCenter.x-photo.x, top: placement.labelCenter.y-photo.y, width: placement.labelWidth, height: placement.labelHeight, transform: `translate(-50%, calc(-50% + ${entrance.translateY}px)) scale(${scale})`, padding: '0 12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: isCurrent ? annotationHighlight.fill : objectCapsuleStyle.background, border: isCurrent ? `${annotationHighlight.border}px solid ${annotationHighlight.ink}` : objectCapsuleStyle.border, fontSize: 16, fontWeight: isCurrent ? 800 : 700, boxShadow: isCurrent?`0 0 0 ${annotationHighlight.ringSize}px ${annotationHighlight.ring}, ${annotationHighlight.shadow}`:'none', opacity: entrance.opacity, cursor: onAnnotationMove ? 'grab' : undefined, touchAction: 'none' }}>{placement.object.english}</div>})}
+                    {annotations.placements.map(placement => { const segment=t.words.find(item=>item.word.id===placement.id); const isCurrent=current?.id===placement.id; const from = segment?.from ?? 0; const box = recognitionBox(placement.object); const motion = recognitionAnimation(frame, from); const entrance = box ? { opacity: motion.progress, translateY: 0 } : labelEntrance(frame, from); const scale = isCurrent ? highlightScale(frame, from + (box ? RECOGNITION_FRAMES : 0)) : 1; const originX = box ? image.x + (box.x + box.width / 2) * image.width : placement.labelCenter.x; const originY = box ? image.y + (box.y + box.height / 2) * image.height : placement.labelCenter.y; const x = originX + (placement.labelCenter.x - originX) * motion.progress; const y = originY + (placement.labelCenter.y - originY) * motion.progress; return <div key={placement.id} onClick={event => { event.preventDefault(); event.stopPropagation(); }} onPointerDown={event => beginDrag(event, placement.id, 'label')} onPointerMove={event => dragPoint(event, placement.id, 'label')} onPointerUp={finishDrag} onPointerCancel={finishDrag} title={onAnnotationMove ? '拖动调整胶囊位置' : undefined} style={{ ...objectCapsuleStyle, position: 'absolute', left: (box ? x : placement.labelCenter.x)-photo.x, top: (box ? y : placement.labelCenter.y)-photo.y, width: placement.labelWidth, height: placement.labelHeight, transform: `translate(-50%, calc(-50% + ${entrance.translateY}px)) scale(${scale * (box ? .15 + .85 * motion.progress : 1)})`, padding: '0 12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: isCurrent ? annotationHighlight.fill : objectCapsuleStyle.background, border: isCurrent ? `${annotationHighlight.border}px solid ${annotationHighlight.ink}` : objectCapsuleStyle.border, fontSize: 16, fontWeight: isCurrent ? 800 : 700, boxShadow: isCurrent?`0 0 0 ${annotationHighlight.ringSize}px ${annotationHighlight.ring}, ${annotationHighlight.shadow}`:'none', opacity: entrance.opacity, cursor: onAnnotationMove ? 'grab' : undefined, touchAction: 'none' }}>{placement.object.english}</div>})}
+                    {annotations.placements.map(placement => {
+                        const box = recognitionBox(placement.object), segment = t.words.find(item => item.word.id === placement.id);
+                        if (!box || !segment) return null;
+                        const motion = recognitionAnimation(frame, segment.from);
+                        const editing = recognitionEditingId === placement.id && !!onRecognitionBoxMove;
+                        const previewing = recognitionPreviewId === placement.id;
+                        const highlighted = current?.id === placement.id;
+                        if (!editing && !previewing && !highlighted) return null;
+                        return <RecognitionFrame key={placement.id} box={editing || previewing ? box : recognitionFocusBox(box, motion.focusProgress)} image={{ ...image, x: image.x - photo.x, y: image.y - photo.y }} opacity={editing || previewing ? 1 : motion.cornerOpacity} editing={editing} onChange={editing ? next => onRecognitionBoxMove?.(placement.id, next) : undefined} />;
+                    })}
                     <div style={{ position: 'absolute', inset: 0, borderRadius: 18, boxShadow: 'inset 0 0 0 4px #fffdf8', pointerEvents: 'none' }} />
                 </>}
             </div>

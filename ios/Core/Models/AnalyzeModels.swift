@@ -97,6 +97,7 @@ struct LearningObject: Codable, Identifiable, Hashable {
     let labelCenterOverride: ObjectAnchor?
     let targetOverride: ObjectAnchor?
     let kind: VocabularyKind
+    var recognitionBoxOverride: ObjectBox?
 
     init(
         id: String,
@@ -114,7 +115,8 @@ struct LearningObject: Codable, Identifiable, Hashable {
         targetOverride: ObjectAnchor?,
         kind: VocabularyKind = .object,
         anchorSource: ObjectAnchorSource? = nil,
-        anchorNeedsReview: Bool? = nil
+        anchorNeedsReview: Bool? = nil,
+        recognitionBoxOverride: ObjectBox? = nil
     ) {
         self.id = id
         self.english = english
@@ -132,6 +134,7 @@ struct LearningObject: Codable, Identifiable, Hashable {
         self.labelCenterOverride = labelCenterOverride
         self.targetOverride = targetOverride
         self.kind = kind
+        self.recognitionBoxOverride = recognitionBoxOverride
     }
 
     init(from decoder: Decoder) throws {
@@ -152,6 +155,7 @@ struct LearningObject: Codable, Identifiable, Hashable {
         labelCenterOverride = try container.decodeIfPresent(ObjectAnchor.self, forKey: .labelCenterOverride)
         targetOverride = try container.decodeIfPresent(ObjectAnchor.self, forKey: .targetOverride)
         kind = try container.decodeIfPresent(VocabularyKind.self, forKey: .kind) ?? .object
+        recognitionBoxOverride = try container.decodeIfPresent(ObjectBox.self, forKey: .recognitionBoxOverride)
     }
 
     func replacingVocabulary(with details: VocabularyDetails) -> LearningObject {
@@ -171,7 +175,8 @@ struct LearningObject: Codable, Identifiable, Hashable {
             targetOverride: targetOverride,
             kind: kind,
             anchorSource: anchorSource,
-            anchorNeedsReview: anchorNeedsReview
+            anchorNeedsReview: anchorNeedsReview,
+            recognitionBoxOverride: recognitionBoxOverride
         )
     }
 
@@ -192,7 +197,8 @@ struct LearningObject: Codable, Identifiable, Hashable {
             targetOverride: target ?? targetOverride,
             kind: kind,
             anchorSource: target == nil ? anchorSource : .manual,
-            anchorNeedsReview: target == nil ? anchorNeedsReview : false
+            anchorNeedsReview: target == nil ? anchorNeedsReview : false,
+            recognitionBoxOverride: recognitionBoxOverride
         )
     }
 
@@ -213,7 +219,8 @@ struct LearningObject: Codable, Identifiable, Hashable {
             targetOverride: nil,
             kind: kind,
             anchorSource: .centerFallback,
-            anchorNeedsReview: true
+            anchorNeedsReview: true,
+            recognitionBoxOverride: recognitionBoxOverride
         )
     }
 
@@ -257,7 +264,8 @@ struct LearningObject: Codable, Identifiable, Hashable {
             targetOverride: targetOverride,
             kind: kind,
             anchorSource: anchorSource,
-            anchorNeedsReview: anchorNeedsReview
+            anchorNeedsReview: anchorNeedsReview,
+            recognitionBoxOverride: recognitionBoxOverride
         )
     }
 

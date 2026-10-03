@@ -112,7 +112,14 @@ final class LegacyJSONMigration {
 
     private func importHistory(_ records: [HistoryRecord], into context: ModelContext) throws {
         let existingIDs = Set(try context.fetch(FetchDescriptor<HistoryEntity>()).map(\.id))
-        for record in records where !existingIDs.contains(record.id) { context.insert(HistoryEntity(record: record)) }
+        for record in records where !existingIDs.contains(record.id) {
+            context.insert(HistoryEntity(record: record))
+            for object in record.result.objects {
+                if let box = object.recognitionBoxOverride, RecognitionRangeGeometry.isValid(box) {
+                    context.insert(RecognitionRangeEntity(recordID: record.id, wordID: object.id, box: box))
+                }
+            }
+        }
     }
 
     private func importWords(_ snapshot: LegacyWordLearningSnapshot?, into context: ModelContext) throws {

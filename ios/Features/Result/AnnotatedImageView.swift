@@ -36,6 +36,9 @@ struct AnnotatedImageView: View {
     var isEditable = false
     var masteredObjectIDs: Set<String> = []
     var emphasizedObjectIDs: Set<String>? = nil
+    var recognitionSessionID: UUID? = nil
+    var recognitionComplete = false
+    var animatesFocus = true
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
     var onUpdates: (([LearningObject]) -> Void)?
@@ -95,13 +98,22 @@ struct AnnotatedImageView: View {
                 .opacity(revealsAnnotations ? 1 : 0)
                 .animation(.easeOut(duration: 0.28), value: revealsAnnotations)
 
+                if let recognitionSessionID, revealsAnnotations {
+                    RecognitionArrivalOverlay(objects: objects, imageFrame: imageFrame,
+                                              excludedID: activeEditingObjectID, complete: recognitionComplete)
+                        .id(recognitionSessionID)
+                }
                 if let emphasizedObjectIDs {
-                    ForEach(objects.filter { emphasizedObjectIDs.contains($0.id) }) { object in
-                        objectRangeOutline(for: object, in: imageFrame).allowsHitTesting(false)
+                    ForEach(objects.filter { emphasizedObjectIDs.contains($0.id) && $0.id != activeEditingObjectID }) { object in
+                        if revealsAnnotations, object.kind == .object, RecognitionRangeGeometry.isValid(object.box) {
+                            RecognitionCornerOverlay(box: RecognitionRangeGeometry.isValid(object.recognitionBoxOverride ?? object.box) ? (object.recognitionBoxOverride ?? object.box) : object.box, imageFrame: imageFrame, animated: animatesFocus)
+                        }
                     }
                 }
                 if let editingPlacement = editingPlacement(in: layout) {
-                    objectRangeOutline(for: editingPlacement.object, in: imageFrame)
+                    if let box = RecognitionRangeGeometry.resolvedBox(for: editingPlacement.object) {
+                        RecognitionCornerOverlay(box: box, imageFrame: imageFrame, animated: false)
+                    }
                 }
 
                 ForEach(Array(layout.placements.enumerated()), id: \.element.id) { index, placement in
@@ -188,23 +200,6 @@ struct AnnotatedImageView: View {
     private func editingPlacement(in layout: AnnotationLayout) -> AnnotationPlacement? {
         guard isEditable, let activeEditingObjectID else { return nil }
         return layout.placements.first { $0.id == activeEditingObjectID }
-    }
-
-    private func objectRangeOutline(
-        for object: LearningObject,
-        in imageFrame: CGRect
-    ) -> some View {
-        let frame = objectFrame(for: object.box, in: imageFrame)
-        return RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(Color.sun.opacity(0.10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .stroke(Color.sun, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-            }
-            .frame(width: frame.width, height: frame.height)
-            .position(x: frame.midX, y: frame.midY)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 
     private func objectRangeControl(
@@ -595,6 +590,8 @@ struct AnnotatedPhotoCard: View {
     var isEditable = false
     var masteredObjectIDs: Set<String> = []
     var emphasizedObjectIDs: Set<String>? = nil
+    var recognitionSessionID: UUID? = nil
+    var recognitionComplete = false
     var editingObjectID: Binding<String?> = .constant(nil)
     var showsShadow = true
     var usesOriginalAspectRatio = false
@@ -614,6 +611,8 @@ struct AnnotatedPhotoCard: View {
                 isEditable: isEditable,
                 masteredObjectIDs: masteredObjectIDs,
                 emphasizedObjectIDs: emphasizedObjectIDs,
+                recognitionSessionID: recognitionSessionID,
+                recognitionComplete: recognitionComplete,
                 editingObjectIDValue: editingObjectID.wrappedValue,
                 onSelect: onSelect,
                 onUpdate: onUpdate,
@@ -664,6 +663,8 @@ private struct StableAnnotatedImage: View, Equatable {
     let isEditable: Bool
     let masteredObjectIDs: Set<String>
     let emphasizedObjectIDs: Set<String>?
+    let recognitionSessionID: UUID?
+    let recognitionComplete: Bool
     let editingObjectIDValue: String?
     let onSelect: (LearningObject) -> Void
     let onUpdate: ((LearningObject) -> Void)?
@@ -677,6 +678,8 @@ private struct StableAnnotatedImage: View, Equatable {
             && lhs.isEditable == rhs.isEditable
             && lhs.masteredObjectIDs == rhs.masteredObjectIDs
             && lhs.emphasizedObjectIDs == rhs.emphasizedObjectIDs
+            && lhs.recognitionSessionID == rhs.recognitionSessionID
+            && lhs.recognitionComplete == rhs.recognitionComplete
             && lhs.editingObjectIDValue == rhs.editingObjectIDValue
     }
 
@@ -688,6 +691,8 @@ private struct StableAnnotatedImage: View, Equatable {
             isEditable: isEditable,
             masteredObjectIDs: masteredObjectIDs,
             emphasizedObjectIDs: emphasizedObjectIDs,
+            recognitionSessionID: recognitionSessionID,
+            recognitionComplete: recognitionComplete,
             onSelect: onSelect,
             onUpdate: onUpdate,
             onUpdates: onUpdates,
@@ -819,5 +824,258 @@ private final class AnnotationZoomViewController: UIViewController, UIScrollView
             width: size.width,
             height: size.height
         ), animated: true)
+    }
+}
+
+/// Photo-space geometry shared by the display and the independent range editor.
+enum RecognitionRangeGeometry {
+    static func resolvedBox(for object: LearningObject) -> ObjectBox? {
+        guard object.kind == .object, isValid(object.box) else { return nil }
+        return object.recognitionBoxOverride.flatMap { isValid($0) ? $0 : nil } ?? object.box
+    }
+    static func isValid(_ box: ObjectBox) -> Bool {
+        [box.x, box.y, box.width, box.height].allSatisfy { $0.isFinite }
+            && box.width > 0 && box.height > 0 && box.x >= 0 && box.y >= 0
+            && box.x + box.width <= 1.000001 && box.y + box.height <= 1.000001
+    }
+
+    static func constrained(_ box: ObjectBox) -> ObjectBox {
+        let width = min(max(box.width, 0.02), 1), height = min(max(box.height, 0.02), 1)
+        return ObjectBox(x: min(max(box.x, 0), 1 - width), y: min(max(box.y, 0), 1 - height), width: width, height: height)
+    }
+
+    static func resized(_ box: ObjectBox, corner: String, dx: Double, dy: Double) -> ObjectBox {
+        var left = box.x, top = box.y, right = box.x + box.width, bottom = box.y + box.height
+        if corner.contains("w") { left = min(max(left + dx, 0), right - 0.02) }
+        else { right = max(min(right + dx, 1), left + 0.02) }
+        if corner.contains("n") { top = min(max(top + dy, 0), bottom - 0.02) }
+        else { bottom = max(min(bottom + dy, 1), top + 0.02) }
+        return constrained(ObjectBox(x: left, y: top, width: right - left, height: bottom - top))
+    }
+
+    static func rect(_ box: ObjectBox, in image: CGRect) -> CGRect {
+        CGRect(x: image.minX + box.x * image.width, y: image.minY + box.y * image.height,
+               width: box.width * image.width, height: box.height * image.height)
+    }
+
+    static func focused(_ box: ObjectBox, progress: Double) -> ObjectBox {
+        let remaining = 1 - min(max(progress, 0), 1)
+        if remaining == 0 { return box }
+        let dx = min(0.025, box.width * 0.18) * remaining
+        let dy = min(0.025, box.height * 0.18) * remaining
+        let x = max(0, box.x - dx), y = max(0, box.y - dy)
+        return ObjectBox(x: x, y: y, width: min(1, box.x + box.width + dx) - x,
+                         height: min(1, box.y + box.height + dy) - y)
+    }
+
+    static func strokeScale(in rect: CGRect, scale: CGFloat) -> CGFloat {
+        min(scale, min(rect.width, rect.height) / 16)
+    }
+
+    static func path(in bounds: CGRect, scale: CGFloat) -> Path {
+        let scale = strokeScale(in: bounds, scale: scale)
+        let rect = bounds.insetBy(dx: 2 * scale, dy: 2 * scale)
+        let length = min(18 * scale, min(rect.width, rect.height) * 0.25)
+        let radius = min(3 * scale, length / 2)
+        var path = Path()
+        for (point, horizontal, vertical) in [
+            (CGPoint(x: rect.minX, y: rect.minY), CGFloat(1), CGFloat(1)),
+            (CGPoint(x: rect.maxX, y: rect.minY), CGFloat(-1), CGFloat(1)),
+            (CGPoint(x: rect.minX, y: rect.maxY), CGFloat(1), CGFloat(-1)),
+            (CGPoint(x: rect.maxX, y: rect.maxY), CGFloat(-1), CGFloat(-1))
+        ] {
+            path.move(to: CGPoint(x: point.x + horizontal * length, y: point.y))
+            path.addLine(to: CGPoint(x: point.x + horizontal * radius, y: point.y))
+            path.addQuadCurve(to: CGPoint(x: point.x, y: point.y + vertical * radius), control: point)
+            path.addLine(to: CGPoint(x: point.x, y: point.y + vertical * length))
+        }
+        return path
+    }
+}
+
+struct RecognitionCornerShape: Shape {
+    let box: ObjectBox
+    let imageFrame: CGRect
+    var progress: Double
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+    func path(in rect: CGRect) -> Path {
+        RecognitionRangeGeometry.path(in: RecognitionRangeGeometry.rect(
+            RecognitionRangeGeometry.focused(box, progress: progress), in: imageFrame), scale: imageFrame.width / 540)
+    }
+}
+
+struct RecognitionCornerOverlay: View {
+    let box: ObjectBox
+    let imageFrame: CGRect
+    var animated = true
+    var photoCornerRadius: CGFloat = 26
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var progress = 0.0
+
+    var body: some View {
+        let scale = RecognitionRangeGeometry.strokeScale(in: RecognitionRangeGeometry.rect(box, in: imageFrame), scale: imageFrame.width / 540)
+        let shape = RecognitionCornerShape(box: box, imageFrame: imageFrame, progress: animated && !reduceMotion ? progress : 1)
+        ZStack {
+            shape.stroke(Color.recognitionInk, style: StrokeStyle(lineWidth: 4 * scale, lineCap: .round, lineJoin: .round))
+            shape.stroke(Color.recognitionYellow, style: StrokeStyle(lineWidth: 2.5 * scale, lineCap: .round, lineJoin: .round))
+        }
+        .mask {
+            RoundedRectangle(cornerRadius: photoCornerRadius, style: .continuous)
+                .frame(width: imageFrame.width, height: imageFrame.height)
+                .position(x: imageFrame.midX, y: imageFrame.midY)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear {
+            withAnimation(animated && !reduceMotion ? .easeOut(duration: 0.2) : nil) { progress = 1 }
+        }
+    }
+}
+
+struct RecognitionRangeEditor: View {
+    let image: UIImage
+    let object: LearningObject
+    let onSave: (LearningObject) -> String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: ObjectBox
+    @State private var usesAutomatic: Bool
+    @State private var dragStart: ObjectBox?
+    @State private var errorMessage: String?
+
+    init(image: UIImage, object: LearningObject, onSave: @escaping (LearningObject) -> String?) {
+        self.image = image; self.object = object; self.onSave = onSave
+        _draft = State(initialValue: RecognitionRangeGeometry.constrained(object.recognitionBoxOverride.flatMap { RecognitionRangeGeometry.isValid($0) ? $0 : nil } ?? object.box))
+        _usesAutomatic = State(initialValue: object.recognitionBoxOverride == nil)
+    }
+
+    var body: some View {
+        PictureWordSheet {
+            PictureWordSheetHeader(eyebrow: "OBJECT FOCUS", title: "调整识别框") {
+                Button("取消") { dismiss() }.foregroundStyle(Color.ink)
+            }
+            Text(object.english).font(.scrapbookTitle)
+            GeometryReader { proxy in
+                let size = proxy.size
+                let imageFrame = CGRect(origin: .zero, size: size)
+                let rect = RecognitionRangeGeometry.rect(draft, in: imageFrame)
+                ZStack(alignment: .topLeading) {
+                    Image(uiImage: image).resizable().frame(width: size.width, height: size.height)
+                        .allowsHitTesting(false)
+                    Rectangle().fill(Color.clear).contentShape(Rectangle())
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .gesture(drag(corner: nil, size: size))
+                        .accessibilityHidden(true)
+                    RecognitionCornerOverlay(box: draft, imageFrame: imageFrame, animated: false, photoCornerRadius: 0)
+                    ForEach(["nw", "ne", "sw", "se"], id: \.self) { corner in
+                        Circle().fill(Color.paperLight).frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(Color.recognitionInk, lineWidth: 1))
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                            .position(x: corner.contains("w") ? rect.minX : rect.maxX,
+                                      y: corner.contains("n") ? rect.minY : rect.maxY)
+                            .gesture(drag(corner: corner, size: size))
+                            .accessibilityHidden(true)
+                    }
+                }
+                .coordinateSpace(name: "recognition-editor")
+            }
+            .aspectRatio(image.size.width / max(image.size.height, 1), contentMode: .fit)
+            .padding(22)
+            Text("拖动框移动，拖动四角调整大小，也可以使用下方滑块。")
+                .font(.scrapbookCaption).foregroundStyle(Color.ink.opacity(0.65))
+            rangeSlider("横向", keyPath: \.x)
+            rangeSlider("纵向", keyPath: \.y)
+            rangeSlider("宽度", keyPath: \.width)
+            rangeSlider("高度", keyPath: \.height)
+            PictureWordButton("恢复自动范围", style: .secondary) {
+                draft = RecognitionRangeGeometry.constrained(object.box); usesAutomatic = true
+            }
+            PictureWordButton("完成") {
+                var updated = object
+                updated.recognitionBoxOverride = usesAutomatic ? nil : draft
+                if let error = onSave(updated) { errorMessage = error } else { dismiss() }
+            }
+        }
+        .alert("无法保存修改", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("知道了", role: .cancel) {}
+        } message: { Text(errorMessage ?? "") }
+        .pictureWordSheetPresentation()
+        .presentationDetents([.large])
+    }
+
+    private func drag(corner: String?, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("recognition-editor"))
+            .onChanged { value in
+                let start = dragStart ?? draft
+                dragStart = start
+                let dx = Double(value.translation.width / max(size.width, 1))
+                let dy = Double(value.translation.height / max(size.height, 1))
+                if let corner { draft = RecognitionRangeGeometry.resized(start, corner: corner, dx: dx, dy: dy) }
+                else { draft = RecognitionRangeGeometry.constrained(ObjectBox(x: start.x + dx, y: start.y + dy, width: start.width, height: start.height)) }
+                usesAutomatic = false
+            }
+            .onEnded { _ in dragStart = nil }
+    }
+
+    private func rangeSlider(_ title: String, keyPath: KeyPath<ObjectBox, Double>) -> some View {
+        VStack(alignment: .leading) {
+            Text("\(title) \(Int(draft[keyPath: keyPath] * 100))%")
+            Slider(value: Binding(get: { draft[keyPath: keyPath] }, set: { value in
+                draft = RecognitionRangeGeometry.constrained(ObjectBox(
+                    x: keyPath == \.x ? value : draft.x, y: keyPath == \.y ? value : draft.y,
+                    width: keyPath == \.width ? value : draft.width, height: keyPath == \.height ? value : draft.height))
+                usesAutomatic = false
+            }), in: keyPath == \.width || keyPath == \.height ? 0.02...1 : 0...1)
+            .tint(Color.sun)
+            .accessibilityLabel("识别框\(title)")
+            .accessibilityValue("\(Int(draft[keyPath: keyPath] * 100))%")
+        }
+        .font(.scrapbookCaption)
+    }
+}
+
+/// Each streamed object gets one brief recognition pulse per AI request.
+struct RecognitionArrivalState {
+    private(set) var seenIDs: Set<String> = []
+    private var completed = false
+    mutating func newObjects(_ objects: [LearningObject], complete: Bool = false) -> Set<String> {
+        guard !completed else { return [] }
+        completed = complete
+        let validIDs = Set(objects.filter { RecognitionRangeGeometry.resolvedBox(for: $0) != nil }.map(\.id))
+        let added = validIDs.subtracting(seenIDs)
+        seenIDs.formUnion(validIDs)
+        return added
+    }
+}
+
+private struct RecognitionArrivalOverlay: View {
+    let objects: [LearningObject]
+    let imageFrame: CGRect
+    let excludedID: String?
+    let complete: Bool
+    private struct Request: Hashable { let objects: [LearningObject]; let complete: Bool }
+    @State private var arrivals = RecognitionArrivalState()
+    @State private var activeIDs: Set<String> = []
+
+    var body: some View {
+        ZStack {
+            ForEach(objects.filter { activeIDs.contains($0.id) && $0.id != excludedID }) { object in
+                if let box = RecognitionRangeGeometry.resolvedBox(for: object) {
+                    RecognitionCornerOverlay(box: box, imageFrame: imageFrame)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .task(id: Request(objects: objects, complete: complete)) {
+            let added = arrivals.newObjects(objects, complete: complete)
+            activeIDs.formUnion(added)
+            guard !activeIDs.isEmpty else { return }
+            do { try await Task.sleep(for: .milliseconds(800)) }
+            catch { return }
+            activeIDs.removeAll()
+        }
     }
 }

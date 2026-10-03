@@ -25,6 +25,9 @@ const projectRuntime = globalThis as typeof globalThis & { studioProjectStores?:
 const stores = projectRuntime.studioProjectStores ??= new Map();
 if (!stores.has(root)) stores.set(root, new ProjectStore(root));
 const projects = stores.get(root)!;
+// Keep queues and migration state across hot reloads while using the current
+// schema-aware methods for newly added project fields.
+if (Object.getPrototypeOf(projects) !== ProjectStore.prototype) Object.setPrototypeOf(projects, ProjectStore.prototype);
 const projectJobs = projectRuntime.studioProjectJobs ??= new Map();
 const assets = join(root, 'assets');
 const exportsDir = join(root, 'exports');

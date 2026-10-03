@@ -156,3 +156,82 @@ final class PersistenceTests: XCTestCase {
         )
     }
 }
+
+extension PersistenceTests {
+    func testRecognitionRangeSurvivesHistoryEditsAndReset() throws {
+        let container = try PersistenceController.makeContainer(inMemory: true)
+        let history = HistoryStore(container: container)
+        let initial = makeRecord(index: 1).result
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100))
+        let image = renderer.image { context in UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 100)) }
+        let saved = try history.save(image: image, result: initial)
+        var object = try XCTUnwrap(initial.objects.first)
+        let range = ObjectBox(x: 0.1, y: 0.2, width: 0.25, height: 0.3)
+        object.recognitionBoxOverride = range
+        let originalBox = object.box
+        try history.updateResult(id: saved.id, result: initial.replacingObject(object))
+        let reopened = HistoryStore(container: container)
+        let restored = try XCTUnwrap(reopened.record(id: saved.id)?.result.objects.first)
+        XCTAssertEqual(restored.recognitionBoxOverride, range)
+        XCTAssertEqual(restored.box, originalBox)
+        XCTAssertEqual(restored.withOverrides(labelCenter: ObjectAnchor(x: 0.8, y: 0.8)).recognitionBoxOverride, range)
+        XCTAssertEqual(try JSONDecoder().decode(LearningObject.self, from: JSONEncoder().encode(restored)), restored)
+        let legacyData = try JSONEncoder().encode(initial.objects[0])
+        XCTAssertNil(try JSONDecoder().decode(LearningObject.self, from: legacyData).recognitionBoxOverride)
+        XCTAssertEqual(restored.replacingVocabulary(with: VocabularyDetails(english: "mug", chinese: "杯子", ipa: "", example: "A mug.", exampleChinese: nil)).recognitionBoxOverride, range)
+
+        object.recognitionBoxOverride = nil
+        try reopened.updateResult(id: saved.id, result: initial.replacingObject(object))
+        XCTAssertTrue(try ModelContext(container).fetch(FetchDescriptor<RecognitionRangeEntity>()).isEmpty)
+        XCTAssertNil(HistoryStore(container: container).record(id: saved.id)?.result.objects.first?.recognitionBoxOverride)
+        object.recognitionBoxOverride = range
+        try reopened.updateResult(id: saved.id, result: initial.replacingObject(object))
+        try reopened.updateResult(id: saved.id, result: initial.removingObject(id: object.id))
+        XCTAssertTrue(try ModelContext(container).fetch(FetchDescriptor<RecognitionRangeEntity>()).isEmpty)
+        try reopened.updateResult(id: saved.id, result: initial.replacingObject(object))
+        reopened.delete(try XCTUnwrap(reopened.record(id: saved.id)))
+        XCTAssertTrue(try ModelContext(container).fetch(FetchDescriptor<RecognitionRangeEntity>()).isEmpty)
+
+    }
+
+    func testRecognitionRangeGeometryRespectsEdgesAndSmallCorners() {
+        let box = ObjectBox(x: 0.2, y: 0.3, width: 0.4, height: 0.3)
+        for corner in ["nw", "ne", "sw", "se"] {
+            for delta in [-2.0, 2.0] {
+                let resized = RecognitionRangeGeometry.resized(box, corner: corner, dx: delta, dy: delta)
+                XCTAssertTrue(RecognitionRangeGeometry.isValid(resized))
+                XCTAssertGreaterThanOrEqual(resized.width, 0.019999)
+                XCTAssertGreaterThanOrEqual(resized.height, 0.019999)
+            }
+        }
+        XCTAssertEqual(RecognitionRangeGeometry.focused(box, progress: 1), box)
+        let small = RecognitionRangeGeometry.path(in: CGRect(x: 0, y: 0, width: 8, height: 12), scale: 1)
+        var moves = 0
+        small.forEach { element in if case .move = element { moves += 1 } }
+        XCTAssertEqual(moves, 4)
+        let constrained = RecognitionRangeGeometry.constrained(ObjectBox(x: 2, y: -1, width: 0, height: 2))
+        XCTAssertTrue(RecognitionRangeGeometry.isValid(constrained))
+        XCTAssertEqual(constrained.width, 0.02)
+    }
+
+    func testV2MigratesToIndependentRecognitionRangeSchema() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configuration = ModelConfiguration(url: directory.appendingPathComponent("range.store"))
+        let record = makeRecord(index: 1)
+        try autoreleasepool {
+            let old = try ModelContainer(for: Schema(versionedSchema: PictureWordSchemaV2.self), configurations: configuration)
+            let context = ModelContext(old)
+            context.insert(HistoryEntity(record: record))
+            context.insert(ListeningSessionEntity(payload: Data([1, 2, 3])))
+            try context.save()
+        }
+        let updated = try ModelContainer(for: Schema(versionedSchema: PictureWordSchemaV3.self),
+                                         migrationPlan: PictureWordMigrationPlan.self, configurations: configuration)
+        let context = ModelContext(updated)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<HistoryEntity>()).map(\.id), [record.id])
+        XCTAssertEqual(try context.fetch(FetchDescriptor<ListeningSessionEntity>()).first?.payload, Data([1, 2, 3]))
+        XCTAssertTrue(try context.fetch(FetchDescriptor<RecognitionRangeEntity>()).isEmpty)
+    }
+}

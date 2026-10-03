@@ -469,3 +469,209 @@ final class AnnotationLayoutEngineTests: XCTestCase {
         )
     }
 }
+
+extension AnnotationLayoutEngineTests {
+    @MainActor
+    func testRecognitionCornersRenderAcrossPhotoSizesAndEditor() throws {
+        let fixture = Bundle.main.url(forResource: "recognition-qa", withExtension: "jpg").flatMap { UIImage(contentsOfFile: $0.path) }
+        let photo = fixture ?? UIGraphicsImageRenderer(size: CGSize(width: 1348, height: 1800)).image { context in
+            UIColor(white: 0.75, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1348, height: 1800))
+        }
+        let objects = [
+            makeObject(id: "poster", word: "poster", box: ObjectBox(x: 0.694, y: 0.298, width: 0.097, height: 0.099)),
+            makeObject(id: "shelf", word: "shelf unit", box: ObjectBox(x: 0.213, y: 0.287, width: 0.445, height: 0.289)),
+            makeObject(id: "speaker", word: "speaker", box: ObjectBox(x: 0.689, y: 0.504, width: 0.092, height: 0.104))
+        ]
+        for width in [CGFloat(320), 430] {
+            let frame = CGRect(x: 0, y: 0, width: width, height: width * photo.size.height / photo.size.width)
+            for object in objects {
+                let view = AnnotatedImageView(image: photo, objects: objects, isEditable: true,
+                                              emphasizedObjectIDs: [object.id], animatesFocus: false, onSelect: { _ in })
+                    .frame(width: frame.width, height: frame.height)
+                let image = try XCTUnwrap(ImageRenderer(content: view).uiImage)
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "focus-\(object.id)-\(Int(width))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                XCTAssertEqual(image.size.width, width)
+            }
+        }
+        let editor = RecognitionRangeEditor(image: photo, object: objects[2], onSave: { _ in nil })
+            .frame(width: 390, height: 1300)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 1300)
+        let host = UIHostingController(rootView: editor)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        host.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let editorImage = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+            host.view.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        window.isHidden = true
+        previousKeyWindow?.makeKeyAndVisible()
+        let editorAttachment = XCTAttachment(image: editorImage)
+        editorAttachment.name = "focus-editor"
+        editorAttachment.lifetime = .keepAlways
+        add(editorAttachment)
+        // Export a deterministic preview of the same animatable shape at 30fps.
+        if fixture != nil {
+            let frame = CGRect(x: 0, y: 0, width: 390, height: 390 * photo.size.height / photo.size.width)
+            if Bundle.main.url(forResource: "recognition-recording", withExtension: "txt") != nil {
+                let animationHost = UIHostingController(rootView: AnyView(EmptyView()))
+                window.rootViewController = animationHost
+                window.makeKeyAndVisible()
+                fputs("FOCUS_NATIVE_RECORD_START\n", stderr); fflush(stderr)
+                RunLoop.main.run(until: Date().addingTimeInterval(2))
+                for object in objects {
+                    animationHost.rootView = AnyView(VStack(spacing: 12) {
+                        Text("四角对焦 · \(object.english)").font(.headline).padding(.top, 50)
+                        ZStack(alignment: .topLeading) {
+                            Image(uiImage: photo).resizable().frame(width: frame.width, height: frame.height)
+                            RecognitionCornerOverlay(box: object.box, imageFrame: frame)
+                        }.frame(width: frame.width, height: frame.height).id(object.id)
+                        Spacer()
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.paper))
+                    RunLoop.main.run(until: Date().addingTimeInterval(2))
+                }
+                fputs("FOCUS_NATIVE_RECORD_END\n", stderr); fflush(stderr)
+                window.isHidden = true
+                previousKeyWindow?.makeKeyAndVisible()
+            }
+            for (index, object) in objects.enumerated() {
+                for offset in 0..<30 {
+                    let progress = 1 - pow(1 - min(Double(offset) / 6, 1), 3)
+                    let shape = RecognitionCornerShape(box: object.box, imageFrame: frame, progress: progress)
+                    let preview = ZStack(alignment: .topLeading) {
+                        Image(uiImage: photo).resizable().frame(width: frame.width, height: frame.height)
+                        shape.stroke(Color.recognitionInk, style: StrokeStyle(lineWidth: 4 * frame.width / 540, lineCap: .round))
+                        shape.stroke(Color.recognitionYellow, style: StrokeStyle(lineWidth: 2.5 * frame.width / 540, lineCap: .round))
+                        Text(object.english).font(.headline).padding(10).background(Color.paperLight, in: Capsule()).padding(12)
+                    }.frame(width: frame.width, height: frame.height)
+                    let rendered = try XCTUnwrap(ImageRenderer(content: preview).uiImage)
+                    let attachment = XCTAttachment(image: rendered)
+                    attachment.name = String(format: "focus-frame-%03d", index * 30 + offset)
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+        }
+    }
+}
+
+extension AnnotationLayoutEngineTests {
+    func testRecognitionArrivalTriggersOncePerAIObjectAndStopsAfterCompletion() {
+        let first = makeObject(id: "first", word: "cup", box: ObjectBox(x: 0.1, y: 0.1, width: 0.2, height: 0.2))
+        let second = makeObject(id: "second", word: "shelf", box: ObjectBox(x: 0.4, y: 0.4, width: 0.3, height: 0.3))
+        var state = RecognitionArrivalState()
+        XCTAssertEqual(state.newObjects([first]), ["first"])
+        XCTAssertTrue(state.newObjects([first]).isEmpty)
+        XCTAssertEqual(state.newObjects([first, second], complete: true), ["second"])
+        XCTAssertTrue(state.newObjects([second, first]).isEmpty)
+        let manual = makeObject(id: "manual", word: "speaker", box: first.box)
+        XCTAssertTrue(state.newObjects([first, second, manual]).isEmpty)
+        var retry = RecognitionArrivalState()
+        XCTAssertEqual(retry.newObjects([first, second], complete: true), ["first", "second"])
+    }
+
+    func testRoundedCornerStrokeStaysInsidePhotoThroughoutFocus() {
+        for size in [CGSize(width: 320, height: 420), CGSize(width: 540, height: 100), CGSize(width: 100, height: 540)] {
+            let image = CGRect(origin: CGPoint(x: 13, y: 27), size: size)
+            for box in [ObjectBox(x: 0, y: 0, width: 1, height: 1), ObjectBox(x: 0, y: 0, width: 0.02, height: 0.02), ObjectBox(x: 0.98, y: 0.98, width: 0.02, height: 0.02)] {
+                for progress in [0.0, 0.5, 1.0] {
+                    let rect = RecognitionRangeGeometry.rect(RecognitionRangeGeometry.focused(box, progress: progress), in: image)
+                    let scale = RecognitionRangeGeometry.strokeScale(in: rect, scale: image.width / 540)
+                    let path = RecognitionRangeGeometry.path(in: rect, scale: image.width / 540)
+                    let stroke = path.strokedPath(StrokeStyle(lineWidth: 4 * scale, lineCap: .round, lineJoin: .round))
+                    XCTAssertTrue(image.insetBy(dx: -0.001, dy: -0.001).contains(stroke.boundingRect))
+                    var curves = 0
+                    path.forEach { if case .quadCurve = $0 { curves += 1 } }
+                    XCTAssertEqual(curves, 4)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testListeningRevealAndCorrectAnswerShareGreenCornersWithoutBadge() throws {
+        let view = ReviewZoomScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 420))
+        let photo = UIGraphicsImageRenderer(size: view.bounds.size).image { context in
+            UIColor.darkGray.setFill(); context.fill(view.bounds)
+        }
+        view.setImage(photo, resetID: "first")
+        view.layoutIfNeeded()
+        let target = CGRect(x: 0.2, y: 0.3, width: 0.1, height: 0.1)
+        view.setRevealedTargetBox(target)
+        let layers = try XCTUnwrap(view.imageView.layer.sublayers?.compactMap { $0 as? CAShapeLayer })
+        XCTAssertFalse(layers[0].isHidden)
+        XCTAssertFalse(layers[1].isHidden)
+        view.setRecognitionFocusBox(target)
+        XCTAssertFalse(layers[1].isHidden)
+        XCTAssertEqual(layers.count, 2)
+        XCTAssertEqual(layers[1].strokeColor, UIColor(Color.recognitionGreen).cgColor)
+        let path = try XCTUnwrap(layers[0].path)
+        var moves = 0
+        path.applyWithBlock { if $0.pointee.type == .moveToPoint { moves += 1 } }
+        XCTAssertEqual(moves, 4)
+        XCTAssertNil(layers[0].lineDashPattern)
+        XCTAssertEqual(layers[0].lineWidth, 4 * 320 / 540, accuracy: 0.001)
+        view.setRecognitionFocusBox(target)
+        if !UIAccessibility.isReduceMotionEnabled { XCTAssertNotNil(layers[0].animation(forKey: "recognition-focus")) }
+        view.setImage(photo, resetID: "next")
+        XCTAssertTrue(layers.allSatisfy(\.isHidden))
+    }
+}
+
+extension AnnotationLayoutEngineTests {
+    @MainActor
+    func testRecognitionFramesAppearAtAIEditingAndCorrectAnswerEntrypoints() async throws {
+        let fixture = Bundle.main.url(forResource: "recognition-qa", withExtension: "jpg").flatMap { UIImage(contentsOfFile: $0.path) }
+        let size = CGSize(width: 320, height: 320 * 1800 / 1348)
+        let photo = fixture ?? UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.gray.setFill(); context.fill(CGRect(origin: .zero, size: size))
+        }
+        let object = makeObject(id: "speaker", word: "speaker", box: ObjectBox(x: 0.689, y: 0.504, width: 0.092, height: 0.104))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(origin: .zero, size: size)
+        let sessionID = UUID()
+        let host = UIHostingController(rootView: AnnotatedImageView(image: photo, objects: [], recognitionSessionID: sessionID, onSelect: { _ in }))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousKeyWindow?.makeKeyAndVisible() }
+        try await Task.sleep(for: .milliseconds(30))
+        host.rootView = AnnotatedImageView(image: photo, objects: [object], recognitionSessionID: sessionID, recognitionComplete: true, onSelect: { _ in })
+        try await Task.sleep(for: .milliseconds(100))
+        func capture(_ name: String) {
+            host.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(size: size).image { _ in
+                host.view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
+        capture("entry-ai-arrival")
+        try await Task.sleep(for: .milliseconds(1000))
+        capture("entry-ai-settled")
+        host.rootView = AnnotatedImageView(image: photo, objects: [object], isEditable: true,
+                                          onSelect: { _ in }, editingObjectID: .constant(object.id))
+        try await Task.sleep(for: .milliseconds(100))
+        capture("entry-longpress-edit")
+        let review = ReviewZoomScrollView(frame: CGRect(origin: .zero, size: size))
+        review.setImage(photo, resetID: "correct-answer")
+        review.layoutIfNeeded()
+        let box = CGRect(x: object.box.x, y: object.box.y, width: object.box.width, height: object.box.height)
+        review.setRevealedTargetBox(box)
+        review.setRecognitionFocusBox(box)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            review.layer.render(in: context.cgContext)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "entry-listening-correct"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+}

@@ -57,7 +57,7 @@ final class HistoryStore: ObservableObject {
         descriptor.fetchOffset = records.count
         descriptor.fetchLimit = Self.pageSize
         guard let entities = try? context.fetch(descriptor) else { return }
-        records.append(contentsOf: entities.map(PersistenceMapper.historyRecord))
+        records.append(contentsOf: entities.map(restoredRecord))
         hasMoreRecords = records.count < totalRecordCount
     }
 
@@ -77,6 +77,7 @@ final class HistoryStore: ObservableObject {
             try imageData.write(to: imageURL, options: [.atomic, .completeFileProtection])
             try thumbnailData.write(to: thumbnailURL, options: [.atomic, .completeFileProtection])
             context.insert(HistoryEntity(record: record))
+            try replaceRanges(id: id, result: result)
             try context.save()
             excludeFromBackup(imageURL)
             excludeFromBackup(thumbnailURL)
@@ -101,7 +102,7 @@ final class HistoryStore: ObservableObject {
         let targetID = id
         var descriptor = FetchDescriptor<HistoryEntity>(predicate: #Predicate { $0.id == targetID })
         descriptor.fetchLimit = 1
-        return (try? context.fetch(descriptor).first).map(PersistenceMapper.historyRecord)
+        return (try? context.fetch(descriptor).first).map(restoredRecord)
     }
 
     @discardableResult
@@ -113,8 +114,9 @@ final class HistoryStore: ObservableObject {
         (entity.objects ?? []).forEach(context.delete)
         entity.apply(result)
         do {
+            try replaceRanges(id: id, result: result)
             try context.save()
-            let updated = PersistenceMapper.historyRecord(from: entity)
+            let updated = restoredRecord(entity)
             if let index = records.firstIndex(where: { $0.id == id }) { records[index] = updated }
             onHistoryChanged?()
             return updated
@@ -131,7 +133,7 @@ final class HistoryStore: ObservableObject {
         descriptor.fetchLimit = 1
         guard let entity = try? context.fetch(descriptor).first else { return }
         context.delete(entity)
-        do { try context.save() } catch { context.rollback(); return }
+        do { try replaceRanges(id: record.id, result: nil); try context.save() } catch { context.rollback(); return }
         removeFiles(for: record)
         records.removeAll { $0.id == record.id }
         refreshCount()
@@ -141,13 +143,41 @@ final class HistoryStore: ObservableObject {
 
     func deleteAll() {
         let entities = (try? context.fetch(FetchDescriptor<HistoryEntity>())) ?? []
-        let allRecords = entities.map(PersistenceMapper.historyRecord)
+        let allRecords = entities.map(restoredRecord)
         entities.forEach(context.delete)
-        do { try context.save() } catch { context.rollback(); return }
+        do {
+            try context.fetch(FetchDescriptor<RecognitionRangeEntity>()).forEach(context.delete)
+            try context.save()
+        } catch { context.rollback(); return }
         allRecords.forEach(removeFiles)
         records = []
         refreshCount()
         onHistoryChanged?()
+    }
+
+    private func restoredRecord(_ entity: HistoryEntity) -> HistoryRecord {
+        let record = PersistenceMapper.historyRecord(from: entity)
+        let id = record.id
+        let ranges = (try? context.fetch(FetchDescriptor<RecognitionRangeEntity>(predicate: #Predicate { $0.recordID == id }))) ?? []
+        var result = record.result
+        for range in ranges {
+            guard var object = result.objects.first(where: { $0.id == range.wordID }),
+                  RecognitionRangeGeometry.isValid(range.box) else { continue }
+            object.recognitionBoxOverride = range.box
+            result = result.replacingObject(object)
+        }
+        return HistoryRecord(id: record.id, createdAt: record.createdAt, imageFilename: record.imageFilename,
+                             thumbnailFilename: record.thumbnailFilename, result: result, mode: record.mode,
+                             missionID: record.missionID, earnedStickerID: record.earnedStickerID)
+    }
+
+    private func replaceRanges(id: UUID, result: AnalyzeResult?) throws {
+        try context.fetch(FetchDescriptor<RecognitionRangeEntity>(predicate: #Predicate { $0.recordID == id })).forEach(context.delete)
+        for object in result?.objects ?? [] {
+            if let box = object.recognitionBoxOverride, RecognitionRangeGeometry.isValid(box) {
+                context.insert(RecognitionRangeEntity(recordID: id, wordID: object.id, box: box))
+            }
+        }
     }
 
     private func refreshCount() {

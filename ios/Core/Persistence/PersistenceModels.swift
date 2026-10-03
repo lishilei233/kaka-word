@@ -25,10 +25,34 @@ enum PictureWordSchemaV2: VersionedSchema {
     }
 }
 
+enum PictureWordSchemaV3: VersionedSchema {
+    static let versionIdentifier = Schema.Version(3, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        PictureWordSchemaV2.models + [RecognitionRangeEntity.self]
+    }
+}
+
+@Model
+final class RecognitionRangeEntity {
+    var recordID: UUID = UUID()
+    var wordID: String = ""
+    var x: Double = 0
+    var y: Double = 0
+    var width: Double = 0
+    var height: Double = 0
+
+    init(recordID: UUID, wordID: String, box: ObjectBox) {
+        self.recordID = recordID; self.wordID = wordID
+        x = box.x; y = box.y; width = box.width; height = box.height
+    }
+    var box: ObjectBox { ObjectBox(x: x, y: y, width: width, height: height) }
+}
+
 enum PictureWordMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] { [PictureWordSchemaV1.self, PictureWordSchemaV2.self] }
+    static var schemas: [any VersionedSchema.Type] { [PictureWordSchemaV1.self, PictureWordSchemaV2.self, PictureWordSchemaV3.self] }
     static var stages: [MigrationStage] {
-        [.lightweight(fromVersion: PictureWordSchemaV1.self, toVersion: PictureWordSchemaV2.self)]
+        [.lightweight(fromVersion: PictureWordSchemaV1.self, toVersion: PictureWordSchemaV2.self),
+         .lightweight(fromVersion: PictureWordSchemaV2.self, toVersion: PictureWordSchemaV3.self)]
     }
 }
 
