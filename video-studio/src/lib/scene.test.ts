@@ -3,24 +3,24 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SceneCards, sceneCardFontSize, sceneCardWidth } from '../video/SceneCards';
-import { emptyProject, projectSchema, objectWords, sceneWords, timeline, exportBlockers, type Project } from './project';
+import { emptyProject, projectSchema, annotatedWords, bottomVerbs, timeline, exportBlockers, type Project } from './project';
 import { filmLayout } from './film-layout';
 import { coverLayout, coverExportReady } from './cover-layout';
 import { learningPost } from './learning-post';
 import { interactionArrowGeometry } from '../video/InteractionArrow';
 
 const audio = '/studio-api/assets/abcd.wav';
-const project: Project = { ...emptyProject, sceneTheme: '碎鸡蛋', image: '/studio-api/assets/abcd.jpg', caption: 'The shell is broken.', captionChinese: '蛋壳破了。', captionReviewRequired: false, captionAudio: audio, captionAudioSeconds: 2,
+const project: Project = { ...emptyProject, sceneTheme: '碎鸡蛋', image: '/studio-api/assets/abcd.jpg', caption: 'A child wanders near a broken egg.', captionChinese: '蛋壳破了。', captionReviewRequired: false, captionAudio: audio, captionAudioSeconds: 2,
     words: [
-        { id: 'state', kind: 'state', english: 'broken', chinese: '破碎的', ipa: '/ˈbroʊkən/', audio, audioSeconds: 1 },
-        { id: 'egg', kind: 'object', english: 'egg', chinese: '鸡蛋', ipa: '/eɡ/', box: { x: .2, y: .2, width: .2, height: .2 }, audio, audioSeconds: 1 },
-        { id: 'action', kind: 'action', english: 'break', chinese: '打破', ipa: '/breɪk/', audio, audioSeconds: 1 },
+        { id: 'adjective', kind: 'adjective', relatedObjectID: 'egg', english: 'broken', chinese: '破碎的', ipa: '/ˈbroʊkən/', audio, audioSeconds: 1 },
+        { id: 'egg', kind: 'noun', english: 'egg', chinese: '鸡蛋', ipa: '/eɡ/', box: { x: .2, y: .2, width: .2, height: .2 }, audio, audioSeconds: 1 },
+        { id: 'verb', kind: 'verb', captionForm: 'wanders', captionEvidence: 'A child wanders near a broken egg.', english: 'wander', chinese: '打破', ipa: '/breɪk/', audio, audioSeconds: 1 },
     ], interaction: { enabled: false, english: 'Who made this mess?', chinese: '谁把这里弄乱了？' } };
 
 test('scene draft round trip preserves speech, optional coordinates and disabled interaction', () => {
     const restored = projectSchema.parse(JSON.parse(JSON.stringify(project)));
-    assert.equal(objectWords(restored.words).length, 1);
-    assert.equal(sceneWords(restored.words).length, 2);
+    assert.equal(annotatedWords(restored.words).length, 2);
+    assert.equal(bottomVerbs(restored.words, restored.caption).length, 1);
     assert.equal(restored.words[0].box, undefined);
     assert.equal(restored.captionAudio, audio);
     assert.deepEqual(restored.interaction, project.interaction);
@@ -32,7 +32,7 @@ test('scene draft round trip preserves speech, optional coordinates and disabled
 test('timeline reads objects before manually ordered scene words and protects interaction audio', () => {
     const enabled = { ...project, interaction: { ...project.interaction!, enabled: true, audio, audioSeconds: 4 } };
     const t = timeline(enabled);
-    assert.deepEqual(t.words.map(w => w.word.id), ['egg', 'state', 'action']);
+    assert.deepEqual(t.words.map(w => w.word.id), ['egg', 'adjective', 'verb']);
     assert.equal(t.interactionFrom, t.captionFrom + t.caption);
     assert.ok(t.total >= t.interactionFrom + 6 + 120 + 9);
     assert.equal(timeline(project).interaction, 0);
@@ -41,8 +41,8 @@ test('timeline reads objects before manually ordered scene words and protects in
 
 test('scene-card highlight keeps width, grows upward and enlarges text', () => {
     const base = renderToStaticMarkup(createElement(SceneCards, { project }));
-    const highlighted = renderToStaticMarkup(createElement(SceneCards, { project, currentId: 'state' }));
-    assert.equal(sceneCardWidth('broken'), 104);
+    const highlighted = renderToStaticMarkup(createElement(SceneCards, { project, currentId: 'verb' }));
+    assert.equal(sceneCardWidth('wander'), 104);
     assert.equal(sceneCardWidth('supercalifragilisticexpialidocious'), 235);
     assert.ok(sceneCardFontSize('supercalifragilisticexpialidocious', true) < 20);
     assert.ok(base.includes('width:104px;min-width:0;height:44px'));
@@ -57,11 +57,11 @@ test('scene-card highlight keeps width, grows upward and enlarges text', () => {
     assert.ok(!highlighted.includes('text-overflow:ellipsis'));
     assert.ok(!base.includes('<path'));
     assert.ok(base.includes('display:flex;flex-wrap:nowrap'));
-    assert.ok(base.includes('broken') && !base.includes('破碎的') && !base.includes('状态'));
+    assert.ok(base.includes('wander') && !base.includes('破碎的') && !base.includes('状态'));
 });
 
 test('scene cards stay hidden until their word segment begins', () => {
-    const sceneOnly = { ...project, videoTemplate: 'direct' as const, words: [project.words[0]] };
+    const sceneOnly = { ...project, videoTemplate: 'direct' as const, words: [project.words[2]] };
     const segment = timeline(sceneOnly).words[0];
     const before = renderToStaticMarkup(createElement(SceneCards, { project: sceneOnly, frame: segment.from - 1 }));
     const visible = renderToStaticMarkup(createElement(SceneCards, { project: sceneOnly, frame: segment.from + 8 }));
@@ -79,10 +79,11 @@ test('interaction arrow position survives drafts and creates deterministic geome
     assert.equal(first.head.split(' ').length, 3);
 });
 
-test('up to ten scene cards float inside an unchanged portrait, landscape or panorama photo', () => {
+test('at most three verb cards float inside an unchanged portrait, landscape or panorama photo', () => {
     for (const count of [0, 3, 6, 10]) for (const aspect of [9/16, 4/3, 4]) {
         const p = { ...project, safeTop: 280, safeBottom: 480, safeRight: 160, imageWidth: aspect * 100, imageHeight: 100,
-            words: Array.from({ length: count }, (_, i) => ({ ...project.words[0], id: String(i) })) };
+            caption: Array.from({ length: count }, (_, i) => `walk${i}`).join(' '),
+            words: Array.from({ length: count }, (_, i) => ({ ...project.words[2], id: String(i), english: `walk${i}`, captionForm: `walk${i}`, captionEvidence: Array.from({ length: count }, (_, n) => `walk${n}`).join(' ') })) };
         const layout = filmLayout(p);
         assert.ok(Math.abs(layout.photo.width / layout.photo.height - aspect) < 1e-10);
         assert.equal(layout.photo.width, 520);
@@ -97,25 +98,25 @@ test('up to ten scene cards float inside an unchanged portrait, landscape or pan
         }
         const cover = coverLayout(p);
         assert.equal(cover.objects.length, 0);
-        assert.equal(cover.scenes.length, count);
+        assert.equal(cover.scenes.length, Math.min(3, count));
         assert.ok(cover.photo.x <= 0 && cover.photo.y <= 0);
         assert.ok(cover.photo.width >= 1080 && cover.photo.height >= 1440);
     }
 });
 
 test('cover shows object and scene words without requiring photo markers', () => {
-    assert.deepEqual(coverLayout(project).objects.map(word => word.id), ['egg']);
+    assert.deepEqual(coverLayout(project).objects.map(word => word.id), ['egg', 'adjective']);
     assert.equal(coverExportReady(project), true);
-    const pending = { ...project, words: [{ ...project.words[0], kind: 'object' as const, needsLocation: true }] };
+    const pending = { ...project, words: [{ ...project.words[0], kind: 'noun' as const, needsLocation: true }] };
     assert.equal(projectSchema.safeParse(pending).success, true);
     assert.equal(coverExportReady(pending), true);
-    assert.ok(exportBlockers(pending).includes('物体词需要完成定位'));
+    assert.ok(exportBlockers(pending).includes('名词需要完成定位'));
 });
 
 test('learning post includes English vocabulary and paired descriptions without IPA or meanings', () => {
     const body = learningPost(project);
-    assert.ok(body.includes('egg / broken / break'));
-    assert.ok(body.includes('The shell is broken.\n蛋壳破了。'));
+    assert.ok(body.includes('egg / broken / wander'));
+    assert.ok(body.includes('A child wanders near a broken egg.\n蛋壳破了。'));
     assert.ok(!body.includes('/eɡ/'));
     assert.ok(!body.includes('Who made this mess?'));
 });

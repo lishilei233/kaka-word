@@ -15,6 +15,7 @@ try {
     "004_recognition_feedback.sql",
     "005_installation_stats.sql",
     "006_installation_environment.sql",
+    "007_recognition_attempts.sql",
   ]) {
     const migrationURL = new URL(`../migrations/${name}`, import.meta.url);
     const sql = await readFile(migrationURL, "utf8");

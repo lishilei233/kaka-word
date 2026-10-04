@@ -1,3 +1,4 @@
+import { vocabularyKindSchema } from '../core/image-analysis/vocabulary-kind.js';
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { isIP } from "node:net";
 import { z } from "zod";
@@ -22,7 +23,7 @@ type VocabularyRouteDependencies = {
 
 const requestSchema = z.object({
   term: z.string().trim().min(1).max(60),
-  kind: z.enum(["object", "action", "state"]).optional().default("object"),
+  kind: vocabularyKindSchema.optional().default("noun"),
 });
 
 export function registerVocabularyRoute(app: Hono<AppEnv>, dependencies: VocabularyRouteDependencies): void {
@@ -64,7 +65,7 @@ export function registerVocabularyRoute(app: Hono<AppEnv>, dependencies: Vocabul
     const payload = await c.req.json().catch(() => undefined);
     const parsed = requestSchema.safeParse(payload);
     if (!parsed.success) {
-      return c.json({ error: "INVALID_TERM", message: "请输入 1 到 60 个字符的中文或英文物体名称" }, 400);
+      return c.json({ error: "INVALID_TERM", message: "请输入 1 到 60 个字符的中文或英文单词" }, 400);
     }
 
     let dailyDecision: UsageLimitDecision;

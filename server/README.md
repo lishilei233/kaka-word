@@ -49,9 +49,13 @@ Apple Root CA 证书和 DeviceCheck 私钥必须作为部署密钥挂载，不�
 
 配置 `ADMIN_DASHBOARD_KEY` 并重启服务后，可访问 `GET /admin/stats`。浏览器会弹出 HTTP Basic Auth 登录框：用户名固定为 `admin`，密码为配置的管理密钥。未配置密钥时，管理路由返回 404；统计页面和 API 均禁止缓存。
 
-看板默认显示最近 30 天，并以 Production 作为订阅环境；支持自定义起止日期，以及今天、7、30、90 天快捷范围。设备表按匿名安装编号展示区间内的识别尝试、成功和候选确认统计，并显示当前会员类型与免费额度。`GET /admin/api/stats` 接收 `startDate`、`endDate` 和 `environment`，也保留 `days=1|7|30|90` 快捷参数。订阅、交易数据按环境过滤，但付费墙、购买和原有聚合事件没有环境字段，因此这些数据仍按全部客户端事件统计。
+主表默认按注册时间显示最近 30 天安装，支持自定义日期、快捷范围及不限时间。设备编号展示安装记录 UUID 的末 6 位；环境和会员类型支持列筛选，底部按筛选后的设备统计会员数量。设备识别与额度信息通过“查看详情”进入右侧抽屉。`GET /admin/api/stats` 保留 `startDate`、`endDate`、`environment`、`days=1|7|30|90` 和 `allTime=true` 查询兼容；页面请求全部环境，主表环境筛选仅影响设备列表。
 
-设备识别统计以安装记录为外键按日累计，不保存图片、单次请求明细或展示安装标识原文；上线前的事件无法拆分回单台设备。管理密钥必须独立于访问令牌、IP 哈希和第三方 API 密钥，并应继续配合 HTTPS 与反向代理访问控制使用。
+设备详情 API 为 `GET /admin/api/stats/devices/:installationId`，使用完整安装 UUID 定位并沿用管理员认证。识别时间独立于主表注册时间，默认最近 90 个北京时间自然日；支持 `startDate`、`endDate`、`outcome`、`appVersion`（版本／构建号关键词）和不透明 `cursor`，每页 50 条。汇总按日期统计，不受结果、版本和分页筛选影响。会员类型与免费额度为当前快照；逐次额度为当时快照，扣次状态取自实际额度操作。
+
+应用 `007_recognition_attempts.sql` 后开始保存逐次识别的时间、结果、原因代码、环境、App 版本／构建号和额度快照，不保存 IP、图片或模型输出。iOS 请求携带 `X-App-Version`、`X-App-Build`，旧客户端缺失时显示未知。明细只保留最近 90 个北京时间自然日，服务启动及每天分批清理；超过 10 分钟仍无结束记录的请求显示未正常结束，每日汇总长期保留。历史数据不补造明细。发布顺序为数据库迁移、服务端、iOS 更新。
+
+管理密钥必须独立于访问令牌、IP 哈希和第三方 API 密钥，并应继续配合 HTTPS 与反向代理访问控制使用。
 
 ## 全站用量保护
 
@@ -131,3 +135,9 @@ The server keeps uploaded images in memory only. It does not write image files o
 千问识别请求使用 `response_format: { type: "json_object" }` 和 `enable_thinking: false`，流式内容按完整 JSON 文档解析。若兼容服务返回 `application/json`，按普通 Chat Completions 响应读取。`QwenResponseError` 区分空内容、上游错误、截断、拒绝及无效 JSON，并记录可用的上游请求 ID、结束原因、字符数和 token 数；不会记录模型正文或照片。出现 `finishReason: "length"` 应检查模型输出预算；上游错误按 `code` 和请求 ID 排查。仅凭旧版“Vision provider returned no JSON object”日志无法确定具体原因。
 
 若初次识别返回空内容、非对象 JSON、无效 JSON 或不符合识别结构的 JSON，且尚未发出任何物体事件，自动使用同一图片按原调用模式重试一次（流式调用的重试仍为流式），并强化顶层对象结构要求。沿用原请求的取消信号及超时预算，不递归重试；鉴权、额度、内容过滤、明确的输出长度限制及已发出部分物体的情况不重试。重试会额外产生一次模型调用。`jsonType` 诊断字段仅记录顶层 JSON 类型，不记录正文。
+
+### 词性格式兼容
+
+内部词性统一为 `noun`（名词）、`adjective`（形容词）、`verb`（动词）。新客户端发送 `X-Vocabulary-Format: pos-v1`，普通 JSON、SSE 词条和完整结果返回规范值；未携带该标记时继续返回 `object/state/action`，供旧客户端使用。请求及 AI 输出解析同时兼容新旧值，`objects`、`relatedObjectID` 和 SSE 事件名保持不变。
+
+上线顺序为服务端兼容层、App、视频工作室。工作室项目保存为版本 5，读取版本 1–4 时转换词性并保留词条、关联、标注和音频；历史照片无需重新识别，既有导出文件不受影响。

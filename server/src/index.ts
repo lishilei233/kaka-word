@@ -16,6 +16,16 @@ const accessService = await createAccessService(config.access, logger);
 const adminStatsRepository = config.adminDashboard?.key && config.adminDashboard.databaseURL
   ? new PostgresAdminStatsRepository(config.adminDashboard.databaseURL)
   : undefined;
+let maintainingAttempts = false;
+async function maintainAttempts() {
+  if (maintainingAttempts) return;
+  maintainingAttempts = true;
+  try { await accessService.maintainRecognitionAttempts(); }
+  catch (error) { logger.error('recognition_attempts.cleanup_failed', { message: error instanceof Error ? error.message : String(error) }); }
+  finally { maintainingAttempts = false; }
+}
+void maintainAttempts();
+setInterval(() => { void maintainAttempts(); }, 24 * 60 * 60 * 1000).unref();
 const app = createApp({ config, provider, usageLimiter, accessService, logger, adminStatsRepository });
 
 // Bind IPv4 explicitly so a real device on the local network can reach the

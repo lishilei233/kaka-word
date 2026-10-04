@@ -38,12 +38,12 @@ struct WordLearningRow: View {
                             .font(.system(.title3, design: .serif, weight: .bold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.72)
-                        if entry.object.kind != .object {
-                            Text("\(entry.object.kind.title)词")
+                        if entry.object.kind != .noun {
+                            Text("\(entry.object.kind.title)")
                                 .font(.system(size: 9, weight: .black, design: .rounded))
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
-                                .background((entry.object.kind == .action ? Color.sun : Color.sky).opacity(0.3), in: Capsule())
+                                .background((entry.object.kind == .verb ? Color.sun : Color.sky).opacity(0.3), in: Capsule())
                         }
                     }
 
@@ -106,26 +106,10 @@ enum WordImageCropper {
     static func image(for entry: WordEntry, historyStore: HistoryStore) -> UIImage? {
         for occurrence in entry.occurrences {
             guard let record = historyStore.record(id: occurrence.recordID),
-                  let image = historyStore.image(for: record),
-                  let cgImage = image.cgImage else { continue }
-
-            if occurrence.object.kind != .object { return image }
-
-            let box = occurrence.object.box
-            let padding = 0.08
-            let left = max(0, box.x - box.width * padding)
-            let top = max(0, box.y - box.height * padding)
-            let right = min(1, box.x + box.width * (1 + padding))
-            let bottom = min(1, box.y + box.height * (1 + padding))
-            let crop = CGRect(
-                x: CGFloat(left) * CGFloat(cgImage.width),
-                y: CGFloat(top) * CGFloat(cgImage.height),
-                width: CGFloat(right - left) * CGFloat(cgImage.width),
-                height: CGFloat(bottom - top) * CGFloat(cgImage.height)
-            ).integral
-            guard crop.width >= 2, crop.height >= 2,
-                  let cropped = cgImage.cropping(to: crop) else { continue }
-            return UIImage(cgImage: cropped, scale: image.scale, orientation: .up)
+                  let image = historyStore.image(for: record) else { continue }
+            let object = record.result.allWords.first(where: { $0.id == occurrence.object.id }) ?? occurrence.object
+            if object.kind != .noun { return image }
+            return ImageProcessor.objectCrop(from: image, object: object)
         }
         return nil
     }
@@ -137,7 +121,7 @@ enum WordImageCropper {
             let object = record.result.objects.first(where: { $0.id == occurrence.object.id }) ?? occurrence.object
             return ReviewPhoto(
                 image: image,
-                targetBox: object.kind == .object ? normalizedBox(object.box) : nil,
+                targetBox: object.kind == .noun ? normalizedBox(object.box) : nil,
                 recognitionBox: RecognitionRangeGeometry.resolvedBox(for: object).flatMap(normalizedBox)
             )
         }
@@ -816,7 +800,7 @@ struct ListeningPracticeView: View {
                     StickerSeal(symbol: "photo", color: .sky)
                     Text("换一张照片，再去发现")
                         .font(.scrapbookTitle)
-                    Text("这里暂时没有可以点选的物体词。照片或单词可能已经发生变化。")
+                    Text("这里暂时没有可以点选的名词。照片或单词可能已经发生变化。")
                         .font(.scrapbookBody)
                         .foregroundStyle(Color.ink.opacity(0.6))
                         .multilineTextAlignment(.center)
@@ -972,7 +956,7 @@ struct ListeningRoundCompletionView: View {
                         .foregroundStyle(Color.ink.opacity(0.65))
                         .multilineTextAlignment(.center)
                     if session.isMilestone {
-                        Text("这一组 \(session.pool.count) 个物体词，你都听过、找过了。")
+                        Text("这一组 \(session.pool.count) 个名词，你都听过、找过了。")
                             .font(.scrapbookCaption)
                             .foregroundStyle(Color.ink.opacity(0.6))
                             .multilineTextAlignment(.center)

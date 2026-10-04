@@ -1,3 +1,6 @@
+import { vocabularyKindSchema, vocabularyResponse, vocabularyFormatHeader } from '../../../server/src/core/image-analysis/vocabulary-kind';
+import { analyzeResultSchema, normalizeCaption } from '../../../server/src/core/image-analysis/types';
+import { finalizeSceneWords } from '../../../server/src/core/image-analysis/word-presentation';
 import { ProjectStore, ProjectError } from './projects.server';
 import { projectContentSchema } from '../lib/project-record';
 import { captionSentenceSchema, descriptionSentences, type CaptionSentence } from '../lib/project';
@@ -11,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { bundle } from '@remotion/bundler';
+import { bundleStudioVideo } from './render-bundle';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { getImageDimensions } from './image-dimensions.ts';
 import { normalizedPhoto } from './normalize-photo.ts';
@@ -119,7 +122,7 @@ async function synthesizeSpeech(text: string, voiceId: string, speed: number, ma
 async function render(id: string, p: Project, origin: string) {
     try {
         // Rebuild for each export so preview edits can never reuse an older film bundle.
-        const serveUrl = await bundle({ entryPoint: resolve('src/video/Root.tsx') });
+        const serveUrl = await bundleStudioVideo();
         // Export at 2× the editing canvas for sharper text and annotation edges.
         // Film scales its logical 540×960 layout to match this metadata.
         const inputProps = { project: absoluteProject(p, origin), renderScale: 2 };
@@ -242,7 +245,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             const input = z.object({ image: z.string(), maxObjects: z.number().int().min(3).max(10), context: z.string().max(500).default('') }).parse(await json(req));
             const bytes = await normalizedPhoto(assetFile(input.image));
             if (!input.image.endsWith('.jpg') || !getImageDimensions(bytes)) throw new Error('请先选择有效照片');
-            return send(await analyzeScene(bytes, input.maxObjects, input.context, req.signal));
+            return send(vocabularyResponse(await analyzeScene(bytes, input.maxObjects, input.context, req.signal), req.headers.get(vocabularyFormatHeader) ?? undefined));
         }
         if (req.method === 'POST' && path === '/studio-api/analyze') {
             const { image, maxObjects } = z.object({ image: z.string(), maxObjects: z.number().int().min(3).max(10) }).parse(await json(req));
@@ -251,20 +254,23 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             if (!getImageDimensions(bytes)) throw new Error('无效图片');
             const recognitionResponse = await recognizeImage(bytes, maxObjects, req.signal);
             if (!recognitionResponse.ok) return recognitionResponse;
-            const recognition = await recognitionResponse.json() as { caption: string; captionChinese: string; objects: { english: string; chinese: string }[] };
+            const recognition = analyzeResultSchema.parse(await recognitionResponse.json());
             const reviewedCaption = await reviewCaption(bytes, {
                 caption: recognition.caption,
                 captionChinese: recognition.captionChinese,
-                words: recognition.objects.map(({ english, chinese }) => ({ english, chinese })),
+                words: [...recognition.objects.map(({ english, chinese }) => ({ english, chinese, kind: 'noun' as const })),
+                    ...recognition.sceneWords.map(({ english, chinese, kind }) => ({ english, chinese, kind }))],
             }, req.signal);
-            return send({ ...recognition, ...reviewedCaption });
+            const finalCaption = normalizeCaption(reviewedCaption);
+            const sceneWords = finalizeSceneWords(recognition.sceneWords, recognition.objects, finalCaption.caption, finalCaption.verbMatches, 5);
+            return send(vocabularyResponse({ ...recognition, ...finalCaption, captionSentences: finalCaption.captionSentences, sceneWords }, req.headers.get(vocabularyFormatHeader) ?? undefined));
         }
         if (req.method === 'POST' && path === '/studio-api/caption') {
             const input = z.object({
                 image: z.string(), context: z.string().max(500).default(''),
                 words: z.array(z.object({
                     english: z.string().trim().min(1).max(60), chinese: z.string().max(60),
-                    kind: z.enum(['object', 'action', 'state']).optional(),
+                    kind: vocabularyKindSchema.optional(),
                 })).min(1).max(20),
             }).parse(await json(req));
             const bytes = await readFile(assetFile(input.image));
@@ -280,7 +286,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
                 words: z.array(z.object({
                     english: z.string().trim().min(1).max(60),
                     chinese: z.string().max(60),
-                    kind: z.enum(['object', 'action', 'state']).optional(),
+                    kind: vocabularyKindSchema.optional(),
                 })).max(20),
             }).parse(await json(req));
             const bytes = await readFile(assetFile(input.image));
@@ -348,7 +354,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             const { project } = z.object({ project: projectSchema }).parse(await json(req));
             if (!coverExportReady(project)) throw new Error(coverConflicts(project)[0] ? `请调整封面：${coverConflicts(project).join('；')}` : '请添加照片和有效单词后再导出');
             await stat(assetFile(project.image!));
-            const serveUrl = await bundle({ entryPoint: resolve('src/video/Root.tsx') });
+            const serveUrl = await bundleStudioVideo();
             const inputProps = { project: absoluteProject(project, url.origin) };
             const composition = await selectComposition({ serveUrl, id: 'KakawordCover', inputProps, browserExecutable });
             const id = randomUUID();
@@ -361,7 +367,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             if (!p.image) throw new Error('请先添加照片');
             const boundedFrame = Math.min(frame, timeline(p).total - 1);
             await stat(assetFile(p.image));
-            const serveUrl = await bundle({ entryPoint: resolve('src/video/Root.tsx') });
+            const serveUrl = await bundleStudioVideo();
             const inputProps = { project: absoluteProject(p, url.origin) };
             const composition = await selectComposition({ serveUrl, id: 'Kakaword', inputProps, browserExecutable });
             const id = randomUUID(); const output = join(exportsDir, `${id}.png`);

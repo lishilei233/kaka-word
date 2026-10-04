@@ -117,7 +117,12 @@ final class HistoryStore: ObservableObject {
             try replaceRanges(id: id, result: result)
             try context.save()
             let updated = restoredRecord(entity)
-            if let index = records.firstIndex(where: { $0.id == id }) { records[index] = updated }
+            if let index = records.firstIndex(where: { $0.id == id }) {
+                records[index] = updated
+            } else {
+                // A gallery can show a record beyond the currently loaded history page.
+                objectWillChange.send()
+            }
             onHistoryChanged?()
             return updated
         } catch {
@@ -147,6 +152,7 @@ final class HistoryStore: ObservableObject {
         entities.forEach(context.delete)
         do {
             try context.fetch(FetchDescriptor<RecognitionRangeEntity>()).forEach(context.delete)
+            try context.fetch(FetchDescriptor<SceneWordsEntity>()).forEach(context.delete)
             try context.save()
         } catch { context.rollback(); return }
         allRecords.forEach(removeFiles)
@@ -160,6 +166,12 @@ final class HistoryStore: ObservableObject {
         let id = record.id
         let ranges = (try? context.fetch(FetchDescriptor<RecognitionRangeEntity>(predicate: #Predicate { $0.recordID == id }))) ?? []
         var result = record.result
+        if let saved = try? context.fetch(FetchDescriptor<SceneWordsEntity>(predicate: #Predicate { $0.recordID == id })).first,
+           let sceneWords = try? JSONDecoder().decode([SceneWord].self, from: saved.payload) {
+            result = AnalyzeResult(imageWidth: result.imageWidth, imageHeight: result.imageHeight,
+                objects: result.objects, sceneWords: sceneWords, caption: result.caption,
+                captionChinese: result.captionChinese, captionStyle: result.captionStyle, captionSentences: result.captionSentences)
+        }
         for range in ranges {
             guard var object = result.objects.first(where: { $0.id == range.wordID }),
                   RecognitionRangeGeometry.isValid(range.box) else { continue }
@@ -172,6 +184,10 @@ final class HistoryStore: ObservableObject {
     }
 
     private func replaceRanges(id: UUID, result: AnalyzeResult?) throws {
+        try context.fetch(FetchDescriptor<SceneWordsEntity>(predicate: #Predicate { $0.recordID == id })).forEach(context.delete)
+        if let result {
+            context.insert(SceneWordsEntity(recordID: id, payload: try JSONEncoder().encode(result.sceneWords)))
+        }
         try context.fetch(FetchDescriptor<RecognitionRangeEntity>(predicate: #Predicate { $0.recordID == id })).forEach(context.delete)
         for object in result?.objects ?? [] {
             if let box = object.recognitionBoxOverride, RecognitionRangeGeometry.isValid(box) {

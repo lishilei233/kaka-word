@@ -32,7 +32,7 @@ test('cover title and ordered word rows are independent from video annotation po
     assert.deepEqual(saved.cover, cover);
     assert.deepEqual(project, original);
     const result = coverLayout({ ...saved, sceneTheme: '安静的舞蹈教室' });
-    assert.equal(result.title, '安静的舞蹈教室，你会几个单词？');
+    assert.equal(result.title, '安静的舞蹈教室，这10个英语你会吗？');
     assert.deepEqual(result.objects.map(word => word.id), project.words.map(word => word.id));
     assert.equal(projectSchema.parse(project).cover, undefined);
 });
@@ -43,27 +43,27 @@ test('cover title override is isolated from the recognized scene theme', () => {
         sceneTheme: '客厅里的休闲时光',
         cover: { template: 'learning-card', title: '周末客厅英语', scale: .9, words: {} },
     });
-    assert.equal(coverLayout(saved).title, '客厅里的休闲时光，你会几个单词？');
+    assert.equal(coverLayout(saved).title, '客厅里的休闲时光，这10个英语你会吗？');
     assert.equal(saved.cover?.title, '周末客厅英语');
     assert.equal(saved.sceneTheme, '客厅里的休闲时光');
-    assert.equal(coverLayout({ ...saved, cover: { ...saved.cover!, title: '' } }).title, '客厅里的休闲时光，你会几个单词？');
+    assert.equal(coverLayout({ ...saved, cover: { ...saved.cover!, title: '' } }).title, '客厅里的休闲时光，这10个英语你会吗？');
 });
 
 test('cover separates up to ten object words from a single row of scene words', () => {
     const objects = Array.from({ length: 8 }, (_, index) => ({
         id: `object-${index}`, english: index === 7 ? 'air conditioner' : `object ${index + 1}`,
-        chinese: '', ipa: '', kind: 'object' as const, needsLocation: true,
+        chinese: '', ipa: '', kind: 'noun' as const, needsLocation: true,
     }));
     const scenes = [
-        { id: 'action', english: 'practice', chinese: '', ipa: '', kind: 'action' as const },
-        { id: 'state-1', english: 'empty', chinese: '', ipa: '', kind: 'state' as const },
-        { id: 'state-2', english: 'shiny', chinese: '', ipa: '', kind: 'state' as const },
-        { id: 'state-3', english: 'closed', chinese: '', ipa: '', kind: 'state' as const },
+        { id: 'verb', english: 'practice', chinese: '', ipa: '', kind: 'verb' as const },
+        { id: 'state-1', english: 'empty', chinese: '', ipa: '', kind: 'adjective' as const },
+        { id: 'state-2', english: 'shiny', chinese: '', ipa: '', kind: 'adjective' as const },
+        { id: 'state-3', english: 'closed', chinese: '', ipa: '', kind: 'adjective' as const },
     ];
     const layout = coverLayout({ ...project, sceneTheme: '安静的舞蹈教室', words: [...objects, ...scenes] });
     assert.equal(layout.objects.length, 8);
-    assert.equal(layout.scenes.length, 4);
-    assert.equal(layout.title, '安静的舞蹈教室，你会几个单词？');
+    assert.equal(layout.scenes.length, 0);
+    assert.equal(layout.title, '安静的舞蹈教室，这8个英语你会吗？');
     assert.equal(layout.objects.at(-1)?.english, 'air conditioner');
 
     const noScene = coverLayout({ ...project, sceneTheme: undefined, words: project.words.slice(0, 1) });

@@ -107,6 +107,11 @@ struct ResultView: View {
         } message: {
             Text(feedbackErrorMessage ?? "请在系统中配置邮件账户后重试。")
         }
+        .onReceive(historyStore.$records) { records in
+            guard !isReanalyzing, let recordID,
+                  let updated = records.first(where: { $0.id == recordID }) else { return }
+            result = updated.result
+        }
         .onChange(of: analysisModel.phase) { _, phase in
             handleReanalysisPhase(phase)
         }
@@ -285,7 +290,6 @@ struct PhotoWordCardDetailView: View {
     @State private var showAddWord = false
     @State private var showVocabularyPaywall = false
     @State private var returnedPhotoWord: String?
-    @State private var recognitionEditingObject: LearningObject?
     @State private var editingObjectID: String?
     @State private var suppressPageDismissUntil = Date.distantPast
     @State private var isRevealingCompletion = false
@@ -323,29 +327,32 @@ struct PhotoWordCardDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded(dismissEditingFromPageTap))
+        .preference(key: AnnotationEditingPreferenceKey.self, value: editingObjectID != nil)
         .safeAreaInset(edge: .top, spacing: 0) {
             legacyHeader
                 .zIndex(10)
         }
         .safeAreaInset(edge: .bottom) {
-            if let id = editingObjectID, let object = result.objects.first(where: { $0.id == id }),
-               object.kind == .object, status.isComplete, onResultChange != nil {
-                HStack {
-                    if RecognitionRangeGeometry.isValid(object.box) {
-                        PictureWordButton("调整识别框", style: .secondary, size: .compact) {
-                            speech.stop()
-                            finishAnnotationEditing()
-                            recognitionEditingObject = object
+            if let id = editingObjectID, let object = result.annotatedWords.first(where: { $0.id == id }),
+               object.kind == .noun, status.isComplete, onResultChange != nil {
+                VStack(spacing: 8) {
+                    Text(RecognitionRangeGeometry.isValid(object.box)
+                         ? "拖动框移动 · 拖动四角缩放 · 松手保存"
+                         : "请先定位物体")
+                        .font(.scrapbookCaption)
+                        .foregroundStyle(Color.ink.opacity(0.65))
+                    HStack {
+                        if RecognitionRangeGeometry.isValid(object.box) {
+                            PictureWordButton("恢复自动范围", style: .secondary, size: .compact) {
+                                _ = updateRecognitionRange(objectID: object.id, box: nil)
+                            }
+                            .disabled(object.recognitionBoxOverride == nil)
                         }
-                    } else { Text("请先定位物体").font(.scrapbookCaption) }
-                    PictureWordButton("完成", size: .compact) { finishAnnotationEditing() }
+                        PictureWordButton("完成", size: .compact) { finishAnnotationEditing() }
+                    }
                 }
                 .padding(12).frame(maxWidth: .infinity).background(Color.paper)
             }
-        }
-        .sheet(item: $recognitionEditingObject) { object in
-            RecognitionRangeEditor(image: image, object: object, onSave: updateObject)
         }
         .onChange(of: editingObjectID) { _, id in if id != nil { speech.stop() } }
         .onDisappear { speech.stop() }
@@ -370,7 +377,7 @@ struct PhotoWordCardDetailView: View {
         }
         .sheet(item: $confirmationObject, onDismiss: finishConfirmationPresentation) { object in
             ObjectConfirmationSheet(
-                image: image.cropped(to: object.box) ?? image,
+                image: ImageProcessor.objectCrop(from: image, object: object),
                 object: object,
                 onChoose: confirmObject
             )
@@ -407,8 +414,7 @@ struct PhotoWordCardDetailView: View {
                 presentNextConfirmation()
             }
         }
-        .onChange(of: result.objects.map(\.id)) { _, objectIDs in
-            if let object = recognitionEditingObject, !objectIDs.contains(object.id) { recognitionEditingObject = nil }
+        .onChange(of: result.annotatedWords.map(\.id)) { _, objectIDs in
             if let editingObjectID, !objectIDs.contains(editingObjectID) {
                 finishAnnotationEditing()
             }
@@ -525,8 +531,8 @@ struct PhotoWordCardDetailView: View {
                     .padding(.bottom, 5)
             }
 
-            if !result.sceneWords.isEmpty {
-                SceneWordCards(words: result.sceneWords) { word in
+            if !result.bottomVerbs.isEmpty {
+                SceneWordCards(words: result.bottomVerbs) { word in
                     selectedObject = word.learningObject
                 }
                 .padding(.bottom, 18)
@@ -615,11 +621,11 @@ struct PhotoWordCardDetailView: View {
 
         return AnnotatedPhotoCard(
             image: image,
-            objects: result.objects,
+            objects: result.annotatedWords,
             revealsAnnotations: revealsAnnotations,
             isEditable: status.isComplete && onResultChange != nil,
             masteredObjectIDs: masteredObjectIDs,
-            emphasizedObjectIDs: (focusedWord ?? returnedPhotoWord) == nil ? nil : Set(result.objects.filter {
+            emphasizedObjectIDs: (focusedWord ?? returnedPhotoWord) == nil ? nil : Set(result.annotatedWords.filter {
                 WordLearningStore.normalizedKey(for: $0.english) == WordLearningStore.normalizedKey(for: focusedWord ?? returnedPhotoWord ?? "")
             }.map(\.id)),
             recognitionSessionID: recognitionSessionID,
@@ -639,6 +645,8 @@ struct PhotoWordCardDetailView: View {
             updateObject(object).map { editErrorMessage = $0 }
         } onUpdates: { objects in
             updateObjects(objects).map { editErrorMessage = $0 }
+        } onRecognitionRangeChange: { objectID, box in
+            updateRecognitionRange(objectID: objectID, box: box)
         }
         .aspectRatio(cardRatio, contentMode: .fit)
         .frame(maxWidth: .infinity)
@@ -707,6 +715,16 @@ struct PhotoWordCardDetailView: View {
         }
     }
 
+    private func updateRecognitionRange(objectID: String, box: ObjectBox?) -> String? {
+        guard status.isComplete, let onResultChange,
+              var object = result.objects.first(where: { $0.id == objectID }),
+              RecognitionRangeGeometry.resolvedBox(for: object) != nil else { return "当前物体无法调整识别框。" }
+        object.recognitionBoxOverride = box
+        let error = onResultChange(result.replacingObject(object))
+        if let error { editErrorMessage = error }
+        return error
+    }
+
     private func updateObject(_ object: LearningObject) -> String? {
         let updated = result.replacingObject(object)
         if let error = onResultChange?(updated) {
@@ -737,7 +755,7 @@ struct PhotoWordCardDetailView: View {
     }
 
     private func confirmObject(_ object: LearningObject) -> String? {
-        let original = result.objects.first { $0.id == object.id }
+        let original = result.annotatedWords.first { $0.id == object.id }
         if let error = updateObject(object) {
             return error
         }
@@ -862,7 +880,7 @@ private struct SceneWordCards: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("SCENE WORDS")
+            Text("VERBS")
                 .font(.system(size: 10, weight: .black, design: .monospaced))
                 .tracking(1.5)
                 .foregroundStyle(Color.coral)
@@ -871,7 +889,7 @@ private struct SceneWordCards: View {
                 ForEach(words) { word in
                     Button { onSelect(word) } label: {
                         HStack(spacing: 9) {
-                            Image(systemName: word.kind == .action ? "figure.run" : "circle.lefthalf.filled")
+                            Image(systemName: word.kind == .verb ? "figure.run" : "circle.lefthalf.filled")
                                 .font(.system(size: 13, weight: .bold))
                                 .frame(width: 28, height: 28)
                                 .background(tint(for: word.kind).opacity(0.5), in: Circle())
@@ -898,7 +916,7 @@ private struct SceneWordCards: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(word.kind.title)词，\(word.english)，\(word.chinese)")
+                    .accessibilityLabel("\(word.kind.title)，\(word.english)，\(word.chinese)")
                     .accessibilityHint("打开单词详情")
                 }
             }
@@ -906,7 +924,7 @@ private struct SceneWordCards: View {
     }
 
     private func tint(for kind: VocabularyKind) -> Color {
-        kind == .action ? .sun : .sky
+        kind == .verb ? .sun : .sky
     }
 }
 
@@ -1623,7 +1641,7 @@ private struct AnnotationTipsSheet: View {
                     tipRow(
                         number: "02",
                         title: "长按标签",
-                        detail: "标签开始轻微抖动后，可以拖动单词胶囊。"
+                        detail: "进入编辑后，可以直接拖动识别框移动、拖动四角缩放，也可以拖动单词胶囊。松手自动保存，物体截图同步更新。"
                     )
                     tipRow(
                         number: "03",
@@ -1633,7 +1651,7 @@ private struct AnnotationTipsSheet: View {
                     tipRow(
                         number: "04",
                         title: "放大细节",
-                        detail: "双指缩放图片，放大后单指平移；双击可以放大当前位置或复位。"
+                        detail: "双指缩放图片；编辑时用双指平移，点击完成退出。浏览时放大后单指平移，双击放大或复位。"
                     )
                 }
 

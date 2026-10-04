@@ -392,6 +392,95 @@ final class WordLearningStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("word-learning.json.migrated-v1").path))
     }
 
+    func testManualCropUsesExactRangeAndNormalizesImageOrientation() throws {
+        var object = makeRecord(word: "book", chinese: "书", date: Date()).result.objects[0]
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 100), format: format).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 100, y: 0, width: 100, height: 100))
+        }
+        object.recognitionBoxOverride = ObjectBox(x: 0.5, y: 0, width: 0.5, height: 1)
+        let crop = WordDetailPhoto.thumbnail(from: image, object: object)
+        XCTAssertEqual(crop.size, CGSize(width: 100, height: 100))
+        let uprightPixel = try centerPixel(crop)
+        XCTAssertGreaterThan(uprightPixel[2], 240)
+        XCTAssertLessThan(uprightPixel[0], 15)
+        let rotated = UIImage(cgImage: try XCTUnwrap(image.cgImage), scale: 1, orientation: .down)
+        let rotatedCrop = ImageProcessor.objectCrop(from: rotated, object: object)
+        XCTAssertEqual(rotatedCrop.size, CGSize(width: 100, height: 100))
+        XCTAssertEqual(rotatedCrop.imageOrientation, .up)
+        let rotatedPixel = try centerPixel(rotatedCrop)
+        XCTAssertGreaterThan(rotatedPixel[0], 240)
+        XCTAssertLessThan(rotatedPixel[2], 15)
+    }
+
+    func testAutomaticCropPaddingAndInvalidManualRangeFallback() throws {
+        var object = makeRecord(word: "book", chinese: "书", date: Date()).result.objects[0]
+        object = object.replacingBox(ObjectBox(x: 0.25, y: 0.25, width: 0.5, height: 0.5))
+        let automatic = try XCTUnwrap(ImageProcessor.objectCropRect(for: object))
+        XCTAssertEqual(automatic.minX, 0.21, accuracy: 0.000001)
+        XCTAssertEqual(automatic.width, 0.58, accuracy: 0.000001)
+        object.recognitionBoxOverride = ObjectBox(x: .nan, y: 0, width: 0.5, height: 1)
+        XCTAssertEqual(ImageProcessor.objectCropRect(for: object), automatic)
+        object.recognitionBoxOverride = object.box
+        XCTAssertEqual(ImageProcessor.objectCropRect(for: object), CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5))
+        object.recognitionBoxOverride = nil
+        XCTAssertEqual(ImageProcessor.objectCropRect(for: object), automatic)
+        let verb = LearningObject(id: "run", english: "run", chinese: "跑", ipa: "", confidence: 1,
+                                  box: object.box, anchor: nil, example: "Run.", exampleChinese: nil,
+                                  labelCenterOverride: nil, targetOverride: nil, kind: .verb)
+        XCTAssertNil(ImageProcessor.objectCropRect(for: verb))
+    }
+
+    func testSnapshotCropsResolveLatestRangeByRecordAndObjectIdentity() throws {
+        let container = try PersistenceController.makeContainer(inMemory: true)
+        let history = HistoryStore(container: container)
+        let result = makeRecord(word: "book", chinese: "书", date: Date()).result
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 100)).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
+        }
+        let first = try history.save(image: image, result: result)
+        let second = try history.save(image: image, result: result)
+        defer { history.delete(first); history.delete(second) }
+        let snapshot = WordDetailPhoto(recordID: first.id, date: first.createdAt,
+                                       objects: result.objects, snapshot: result, load: { image })
+        var edited = result.objects[0]
+        edited.recognitionBoxOverride = ObjectBox(x: 0.5, y: 0, width: 0.5, height: 1)
+        try history.updateResult(id: first.id, result: result.replacingObject(edited))
+        let resolved = snapshot.resolved(in: history)
+        XCTAssertEqual(resolved.objects[0].recognitionBoxOverride, edited.recognitionBoxOverride)
+        XCTAssertNotEqual(resolved.objects, snapshot.objects, "The thumbnail task identity must change")
+        XCTAssertEqual(resolved.thumbnail(from: image).size, CGSize(width: 100, height: 100))
+        XCTAssertNil(history.record(id: second.id)?.result.objects[0].recognitionBoxOverride)
+        let entry = WordEntry(id: "book", object: result.objects[0], occurrences: [
+            WordOccurrence(recordID: first.id, encounteredAt: first.createdAt, object: result.objects[0])
+        ])
+        let listImage = try XCTUnwrap(WordImageCropper.image(for: entry, historyStore: history))
+        XCTAssertEqual(listImage.size.width / listImage.size.height, 1, accuracy: 0.01)
+        let reopened = HistoryStore(container: container)
+        XCTAssertEqual(snapshot.resolved(in: reopened).objects[0].recognitionBoxOverride, edited.recognitionBoxOverride)
+        edited.recognitionBoxOverride = nil
+        try history.updateResult(id: first.id, result: result.replacingObject(edited))
+        XCTAssertEqual(snapshot.resolved(in: history).thumbnail(from: image).size, CGSize(width: 200, height: 100))
+    }
+
+    private func centerPixel(_ image: UIImage) throws -> [UInt8] {
+        let source = try XCTUnwrap(image.cgImage)
+        let pixel = try XCTUnwrap(source.cropping(to: CGRect(x: source.width / 2, y: source.height / 2, width: 1, height: 1)))
+        var bytes = [UInt8](repeating: 0, count: 4)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: 1, height: 1,
+                bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(pixel, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        return bytes
+    }
+
     func testRelatedPhotosExcludeSourceGroupDuplicatesAndSortNewestFirst() {
         let older = makeRecord(word: "cup", chinese: "杯子", date: Date(timeIntervalSince1970: 10))
         let newer = makeRecord(word: "cup", chinese: "杯子", date: Date(timeIntervalSince1970: 20))

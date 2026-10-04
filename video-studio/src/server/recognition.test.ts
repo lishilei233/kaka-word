@@ -8,6 +8,7 @@ test('forwards multipart image and existing access headers, decodes chunked SSE 
         assert.equal(input, 'http://127.0.0.1:8787/v1/analyze');
         const headers = new Headers(init?.headers);
         assert.equal(headers.get('authorization'), 'Bearer test-access');
+        assert.equal(headers.get('x-vocabulary-format'), 'pos-v1');
         assert.equal(headers.get('x-devicecheck-token'), 'test-device');
         assert.match(headers.get('x-operation-id')!, /^[a-f0-9-]{36}$/);
         assert.equal(headers.has('content-type'), false);
@@ -90,7 +91,7 @@ test('regenerates captions from the current reviewed vocabulary without re-recog
     const expected = { caption: 'A mug is beside a book.', captionChinese: '杯子放在书旁边。' };
     try {
         const result = await regenerateCaption(new Uint8Array([1, 2, 3]), {
-            words: [{ english: 'mug', chinese: '杯子', kind: 'object' }, { english: 'book', chinese: '书', kind: 'object' }],
+            words: [{ english: 'mug', chinese: '杯子', kind: 'noun' }, { english: 'book', chinese: '书', kind: 'noun' }],
             context: '桌面',
         }, undefined, async (input, init) => {
             assert.equal(input, 'http://127.0.0.1:8787/v1/studio/caption-regenerate');

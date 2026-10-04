@@ -16,7 +16,7 @@ export function publishingSceneIssues(p: Project) {
 
 export function fixedCoverTitle(p: Project) {
     const scene = publishingScene(p);
-    return scene ? `${scene}，你会几个单词？` : '';
+    return scene ? `${scene}，这${readingWords(p.words, p.caption).length}个英语你会吗？` : '';
 }
 
 export function publishingIssues(p: Project) {
@@ -31,7 +31,7 @@ export function publishingIssues(p: Project) {
 export function learningPost(p: Project) {
     return [
         '把每天看到的东西，变成英语。📷',
-        `今天看看「${publishingScene(p)}」里有哪些英文单词：\n${readingWords(p.words).map(word => word.english.trim()).join(' / ')}`,
+        `今天看看「${publishingScene(p)}」里有哪些英文单词：\n${readingWords(p.words, p.caption).map(word => word.english.trim()).join(' / ')}`,
         `再学一句：\n${descriptionSentences(p).map(sentence => `${sentence.english.trim()}\n${sentence.chinese.trim()}`).join('\n')}`,
         ...(p.interaction?.enabled ? [`${p.interaction.english.trim()}\n${p.interaction.chinese.trim()}`] : []),
         '照片里还有什么，你会用英语说吗？👀',

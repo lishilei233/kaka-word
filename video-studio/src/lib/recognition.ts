@@ -8,7 +8,7 @@ export function constrainRecognitionBox(box: RecognitionBox): RecognitionBox {
     return { x: clamp(box.x, 0, 1 - width), y: clamp(box.y, 0, 1 - height), width, height };
 }
 export function recognitionBox(word: Word) {
-    if ((word.kind ?? 'object') !== 'object' || !word.box || word.needsLocation) return undefined;
+    if ((word.kind ?? 'noun') !== 'noun' || !word.box || word.needsLocation) return undefined;
     return constrainRecognitionBox(word.recognitionBoxOverride ?? word.box);
 }
 export function resizeRecognitionBox(box: RecognitionBox, corner: string, dx: number, dy: number) {

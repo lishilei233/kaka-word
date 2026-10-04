@@ -192,18 +192,34 @@ extension View {
         }
     }
 
-    /// 自定义导航栏会让系统返回手势不可用；仅响应屏幕左缘的明确横向滑动，避免干扰页面滚动。
+    /// Immersive photo screens retain their edge dismissal, except while editing annotations.
     func pictureWordBackSwipe(action: @escaping () -> Void) -> some View {
-        simultaneousGesture(
-            DragGesture(minimumDistance: 18, coordinateSpace: .global)
-                .onEnded { value in
-                    let horizontal = value.translation.width
-                    let vertical = abs(value.translation.height)
-                    guard value.startLocation.x <= 28,
-                          horizontal >= 72,
-                          horizontal > vertical * 1.35 else { return }
-                    action()
-                }
-        )
+        modifier(PictureWordBackSwipeModifier(action: action))
+    }
+}
+
+struct AnnotationEditingPreferenceKey: PreferenceKey {
+    static var defaultValue: Bool { false }
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+private struct PictureWordBackSwipeModifier: ViewModifier {
+    let action: () -> Void
+    @State private var isEditingAnnotations = false
+
+    func body(content: Content) -> some View {
+        content
+            .onPreferenceChange(AnnotationEditingPreferenceKey.self) { isEditingAnnotations = $0 }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 18, coordinateSpace: .global)
+                    .onEnded { value in
+                        let horizontal = value.translation.width
+                        let vertical = abs(value.translation.height)
+                        guard !isEditingAnnotations, value.startLocation.x <= 28,
+                              horizontal >= 72,
+                              horizontal > vertical * 1.35 else { return }
+                        action()
+                    }
+            )
     }
 }

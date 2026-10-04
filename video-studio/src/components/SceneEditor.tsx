@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Project, Word } from '../lib/project';
+import { vocabularyKinds, vocabularyTitle, type Project, type Word } from '../lib/project';
 import { Button } from './ui/button';
 
 export function SceneEditor({ project: p, update, onEditArrow, onRegenerateInteraction }: { project: Project; update: (p: Project) => void; onEditArrow?: () => void; onRegenerateInteraction?: () => void }) {
@@ -7,9 +7,9 @@ export function SceneEditor({ project: p, update, onEditArrow, onRegenerateInter
     return <section className="scene-editor">
         <label className="field-label" htmlFor="analysisMode">选词方式</label>
         <select id="analysisMode" className="input" value={p.analysisMode ?? 'objects'} onChange={e => update({ ...p, analysisMode: e.target.value as Project['analysisMode'] })}>
-            <option value="scene">场景学词 · 物体、动作、状态</option><option value="objects">物体识别 · 照片标签</option>
+            <option value="scene">场景学词 · 名词、形容词、动词</option><option value="objects">物体识别 · 照片标签</option>
         </select>
-        {p.analysisMode === 'scene' && <p className="hint scene-mode-hint">AI 会从照片中识别物体、动作和状态，并将动作、状态词展示在照片底部。</p>}
+        {p.analysisMode === 'scene' && <p className="hint scene-mode-hint">AI 会从照片中选择名词、形容词和动词，形容词用引导线指向对应物体，底部只展示描述句中的 0–3 个动词。</p>}
         {p.sceneTheme && <p className="scene-theme">本期场景 · {p.sceneTheme}</p>}
         <details className="interaction-editor"><summary>结尾互动句 {interaction.enabled ? '· 已开启' : '· 未开启'}</summary>
             <Button type="button" variant="secondary" size="sm" disabled={!p.image} onClick={onRegenerateInteraction}>单独重新生成互动句</Button>
@@ -23,15 +23,23 @@ export function SceneEditor({ project: p, update, onEditArrow, onRegenerateInter
     </section>;
 }
 
-export function WordKindEditor({ word, image, edit }: { word: Word; image?: string; edit: (patch: Partial<Word>) => void }) {
+export function WordKindEditor({ word, words, image, edit }: { word: Word; words: Word[]; image?: string; edit: (patch: Partial<Word>) => void }) {
     const [point, setPoint] = useState<{ id: string; x: number; y: number }>();
     const selected = point?.id === word.id ? point : undefined;
     return <>
-        <label className="field-label" htmlFor="wordKind">词汇类型</label><select id="wordKind" className="input" value={word.kind ?? 'object'} onChange={e => {
+        <label className="field-label" htmlFor="wordKind">词性</label><select id="wordKind" className="input" value={word.kind ?? 'noun'} onChange={e => {
             const kind = e.target.value as Word['kind'];
-            edit({ kind, recognitionBoxOverride: undefined, box: undefined, needsLocation: kind === 'object', labelCenterOverride: undefined, targetCenterOverride: undefined });
-        }}><option value="object">物体 · 照片内标注</option><option value="action">动作 · 下方词卡</option><option value="state">状态 · 下方词卡</option></select>
-        {(word.kind ?? 'object') === 'object' && (!word.box || word.needsLocation) && <div className="location-picker"><p>点击照片中对应物体，再确认定位。确认前不显示引导线。</p>
+            edit({ kind, relatedObjectID: undefined, captionForm: undefined, captionEvidence: undefined, recognitionBoxOverride: undefined, box: undefined, needsLocation: kind === 'noun', labelCenterOverride: undefined, targetCenterOverride: undefined });
+        }}>{vocabularyKinds.map(kind => <option key={kind} value={kind}>{vocabularyTitle(kind)} · {kind === 'verb' ? '底部词卡' : '照片内标注'}</option>)}</select>
+        {word.kind === 'adjective' && <>
+            <label className="field-label" htmlFor="relatedObject">描述的物体</label>
+            <select id="relatedObject" className="input" value={word.relatedObjectID ?? ''} onChange={e => edit({ relatedObjectID: e.target.value || undefined, labelCenterOverride: undefined, targetCenterOverride: undefined, box: undefined, anchor: undefined })}>
+                <option value="">未关联 · 不展示</option>
+                {words.filter(w => (w.kind ?? 'noun') === 'noun').map(w => <option key={w.id} value={w.id}>{w.english} · {w.chinese}</option>)}
+            </select>
+            <p className="hint">仅关联照片中确实具有此特征的物体；未关联的形容词不会展示或朗读。</p>
+        </>}
+        {(word.kind ?? 'noun') === 'noun' && (!word.box || word.needsLocation) && <div className="location-picker"><p>点击照片中对应物体，再确认定位。确认前不显示引导线。</p>
             <button type="button" aria-label="点击照片选择物体位置" style={{ display: 'block', width: '100%', position: 'relative' }} onClick={e => {
                 const bounds = e.currentTarget.getBoundingClientRect();
                 setPoint({ id: word.id, x: Math.max(.05, Math.min(.95, (e.clientX - bounds.left) / bounds.width)), y: Math.max(.05, Math.min(.95, (e.clientY - bounds.top) / bounds.height)) });

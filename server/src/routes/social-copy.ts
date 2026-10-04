@@ -1,3 +1,4 @@
+import { vocabularyKindSchema } from '../core/image-analysis/vocabulary-kind.js';
 import { z } from "zod";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.js";
@@ -10,7 +11,7 @@ const requestSchema = z.object({
   interaction: z.object({ english: z.string().max(220), chinese: z.string().max(220) }).optional(),
   caption: z.string().trim().min(1).max(441),
   captionChinese: z.string().trim().max(440),
-  words: z.array(z.object({ english: z.string().trim().min(1).max(60), chinese: z.string().max(60), ipa: z.string().max(80).optional(), kind: z.enum(['object', 'action', 'state']).optional() })).min(1).max(20),
+  words: z.array(z.object({ english: z.string().trim().min(1).max(60), chinese: z.string().max(60), ipa: z.string().max(80).optional(), kind: vocabularyKindSchema.optional() })).min(1).max(20),
   highlightedWords: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
 });
 

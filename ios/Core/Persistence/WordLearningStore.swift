@@ -112,7 +112,7 @@ final class WordLearningStore: ObservableObject {
 
     private static func canListen(to object: LearningObject) -> Bool {
         let box = object.box
-        return object.kind == .object && !normalizedKey(for: object.english).isEmpty
+        return object.kind == .noun && !normalizedKey(for: object.english).isEmpty
             && [box.x, box.y, box.width, box.height].allSatisfy { $0.isFinite }
             && box.width > 0 && box.height > 0 && box.x < 1 && box.y < 1
             && box.x + box.width > 0 && box.y + box.height > 0

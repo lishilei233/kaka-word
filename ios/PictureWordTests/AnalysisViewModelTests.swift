@@ -5,6 +5,18 @@ import XCTest
 
 @MainActor
 final class AnalysisViewModelTests: XCTestCase {
+    func testCanonicalPartOfSpeechReadsLegacyAndWritesCanonicalValues() throws {
+        for (canonical, legacy) in [("noun", "object"), ("adjective", "state"), ("verb", "action")] {
+            for input in [canonical, legacy] {
+                let kind = try JSONDecoder().decode(VocabularyKind.self, from: Data("\"\(input)\"".utf8))
+                XCTAssertEqual(kind.rawValue, canonical)
+                XCTAssertEqual(String(data: try JSONEncoder().encode(kind), encoding: .utf8), "\"\(canonical)\"")
+                XCTAssertEqual(VocabularyKind(compatibleRawValue: input), kind)
+            }
+        }
+        XCTAssertThrowsError(try JSONDecoder().decode(VocabularyKind.self, from: Data(#""adverb""#.utf8)))
+    }
+
     func testPairedCaptionsRoundTripAndSurviveObjectEdits() throws {
         let data = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[],"caption":"stale","captionChinese":"旧文字","captionSentences":[{"english":"A cup sits on the table.","chinese":"桌上放着一个杯子。"},{"english":"A plant stands beside it.","chinese":"旁边摆着一盆植物。"}]}"#.utf8)
         let result = try JSONDecoder().decode(AnalyzeResult.self, from: data)
@@ -70,13 +82,63 @@ final class AnalysisViewModelTests: XCTestCase {
         XCTAssertFalse(updated.needsConfirmation)
     }
 
+    func testAdjectivesRequireAnObjectAndVerbsRequireFinalCaptionEvidence() throws {
+        let data = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[{"id":"cup","english":"cup","chinese":"杯子","ipa":"","confidence":1,"box":{"x":0.1,"y":0.2,"width":0.3,"height":0.4},"example":"A cup."}],"sceneWords":[{"id":"empty","kind":"state","relatedObjectID":"cup","english":"empty","chinese":"空的","ipa":"","example":"An empty cup."},{"id":"unknown","kind":"state","english":"cold","chinese":"冷的","ipa":"","example":"Cold."},{"id":"run","kind":"action","english":"run","chinese":"跑","ipa":"","example":"She ran.","captionForm":"ran","captionEvidence":"She ran past a cup."},{"id":"be","kind":"action","english":"be","chinese":"是","ipa":"","example":"Be.","captionForm":"She","captionEvidence":"She ran past a cup."}],"caption":"She ran past a cup.","captionChinese":"她跑过一个杯子。"}"#.utf8)
+        let result = try JSONDecoder().decode(AnalyzeResult.self, from: data)
+        XCTAssertEqual(result.annotatedWords.map(\.english), ["cup", "empty"])
+        XCTAssertEqual(result.annotatedWords[1].box, result.objects[0].box)
+        XCTAssertEqual(result.bottomVerbs.map(\.english), ["run"])
+        XCTAssertEqual(result.removingObject(id: "cup").annotatedWords, [])
+        XCTAssertEqual(result.storedWords.count, 5)
+        let edited = result.replacingObject(result.annotatedWords[1].withOverrides(labelCenter: ObjectAnchor(x: 0.8, y: 0.8), target: ObjectAnchor(x: 0.2, y: 0.3)))
+        let restored = try JSONDecoder().decode(AnalyzeResult.self, from: JSONEncoder().encode(edited))
+        XCTAssertEqual(restored.annotatedWords[1].targetOverride, ObjectAnchor(x: 0.2, y: 0.3))
+        XCTAssertEqual(restored.annotatedWords[1].labelCenterOverride, ObjectAnchor(x: 0.8, y: 0.8))
+        let changed = AnalyzeResult(imageWidth: 100, imageHeight: 80, objects: result.objects, sceneWords: result.sceneWords,
+            caption: "A running shoe is near a cup.", captionChinese: nil, captionStyle: nil)
+        XCTAssertTrue(changed.bottomVerbs.isEmpty)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400)).image { context in
+            UIColor.systemBackground.setFill(); context.fill(CGRect(x: 0, y: 0, width: 300, height: 400))
+        }
+        for width: CGFloat in [320, 430] {
+            let frame = CGRect(x: 0, y: 0, width: width, height: width * 4 / 3)
+            let layout = AnnotationLayoutEngine(objects: result.annotatedWords).layout(in: frame)
+            XCTAssertEqual(layout.placements.count, 2)
+            XCTAssertEqual(Set(layout.routes.map(\.id)), Set(["cup", "empty"]))
+            for size in [DynamicTypeSize.large, .accessibility3] {
+                let preview = ImageRenderer(content: AnnotatedImageView(image: image, objects: result.annotatedWords, onSelect: { _ in })
+                    .frame(width: width, height: frame.height)
+                    .environment(\.dynamicTypeSize, size).transaction { $0.disablesAnimations = true })
+                let rendered = try XCTUnwrap(preview.uiImage)
+                let attachment = XCTAttachment(image: rendered)
+                attachment.name = "Adjective labels \(width) \(size)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
+        let share = try DecoratedPhotoRenderer.render(image: image, result: result)
+        XCTAssertGreaterThan(share.size.height, 0)
+    }
+
+    func testBottomVerbsUseWholeFormsDeduplicateAndCapAtThreeInSentenceOrder() throws {
+        let caption = "She ran, picked up a cup, drank and smiled."
+        let pairs = [("smile", "smiled"), ("run", "ran"), ("drink", "drank"), ("pick up", "picked up"), ("RUN", "ran"), ("run", "runner")]
+        let words: [[String: Any]] = pairs.enumerated().map { index, pair in
+            ["id": String(index), "kind": "action", "english": pair.0, "chinese": "动作", "ipa": "", "example": caption, "captionForm": pair.1, "captionEvidence": caption]
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["imageWidth": 100, "imageHeight": 80, "objects": [], "sceneWords": words, "caption": caption])
+        let result = try JSONDecoder().decode(AnalyzeResult.self, from: data)
+        XCTAssertEqual(result.bottomVerbs.map(\.english), ["run", "pick up", "drink"])
+    }
+
     func testDecodesSceneWordsWithoutCoordinatesAndKeepsLegacyResultsCompatible() throws {
         let sceneData = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[],"sceneWords":[{"id":"running","kind":"action","english":"run","chinese":"跑","ipa":"/rʌn/","example":"The child runs.","exampleChinese":"孩子在跑。"}],"caption":"The child runs.","captionChinese":"孩子在跑。","captionStyle":"serious"}"#.utf8)
         let result = try JSONDecoder().decode(AnalyzeResult.self, from: sceneData)
 
         XCTAssertEqual(result.sceneWords.count, 1)
-        XCTAssertEqual(result.sceneWords.first?.kind, .action)
-        XCTAssertEqual(result.allWords.first?.kind, .action)
+        XCTAssertEqual(result.sceneWords.first?.kind, .verb)
+        XCTAssertTrue(result.allWords.isEmpty)
+        XCTAssertEqual(result.storedWords.first?.kind, .verb)
 
         let legacyData = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[],"caption":"A room.","captionChinese":"一个房间。","captionStyle":"serious"}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(AnalyzeResult.self, from: legacyData).sceneWords, [])

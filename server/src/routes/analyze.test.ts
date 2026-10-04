@@ -125,8 +125,9 @@ test("streams at most five grounded scene words after objects and uses the revie
       theme: "早餐",
       words: Array.from({ length: 7 }, (_, index) => ({
         id: `scene-${index}`,
-        kind: index % 2 === 0 ? "action" : "state",
-        english: `word-${index}`,
+        kind: "adjective",
+        relatedObjectID: "obj_01",
+        english: `visible-${index}`,
         chinese: `词-${index}`,
         ipa: "",
         example: `This is word ${index}.`,
@@ -242,6 +243,7 @@ test("returns the current entitlement when recognition quota is exhausted", asyn
   assert.equal(provider.calls, 0);
   assert.equal(access.reserveCalls, 1);
   assert.deepEqual(access.installationMetrics, ["recognition_attempt"]);
+  assert.equal(access.attemptResults.at(-1)?.outcome, "quota_exhausted");
   assert.deepEqual(await response.json(), {
     error: "QUOTA_EXHAUSTED",
     message: "免费识别次数已用完，开通会员后可继续识别",
@@ -274,6 +276,8 @@ test("commits only a non-empty completed recognition and releases an empty resul
   assert.equal(emptyAccess.commitCalls, 0);
   assert.equal(emptyAccess.releaseCalls, 1);
   assert.deepEqual(emptyAccess.installationMetrics, ["recognition_attempt"]);
+  assert.equal(emptyAccess.attemptResults.at(-1)?.outcome, "empty");
+  assert.equal(successAccess.attemptResults.at(-1)?.outcome, "success");
 });
 
 test("resolves Chinese or English vocabulary without an image", async () => {
@@ -613,6 +617,16 @@ class FakeAccessService implements AccessService {
   async recordInstallationMetric(_installationId: string, metric: "recognition_attempt" | "recognition_success"): Promise<void> {
     this.installationMetrics.push(metric);
   }
+  async beginRecognitionAttempt(input: import('../core/access/types.js').RecognitionAttemptInput): Promise<boolean> {
+    this.installationMetrics.push('recognition_attempt'); this.attemptInputs.push(input); return true;
+  }
+  readonly attemptInputs: import('../core/access/types.js').RecognitionAttemptInput[] = [];
+  readonly attemptResults: import('../core/access/types.js').RecognitionAttemptResult[] = [];
+  async finishRecognitionAttempt(result: import('../core/access/types.js').RecognitionAttemptResult): Promise<void> {
+    this.attemptResults.push(result);
+    if (result.outcome === 'success') this.installationMetrics.push('recognition_success');
+  }
+  async maintainRecognitionAttempts(): Promise<void> {}
   async reserveAnalyze(): Promise<QuotaReservation> {
     this.reserveCalls += 1;
     return this.reservation;
@@ -685,4 +699,73 @@ test("scene caption pairs replace object caption pairs in the complete App event
   assert.deepEqual(result.captionSentences, captionSentences);
   assert.equal(result.caption, captionSentences.map(s => s.english).join(" "));
   assert.equal(result.captionChinese, captionSentences.map(s => s.chinese).join(""));
+});
+
+test('records valid version headers and distinct daily-limit and provider failure outcomes without leaking errors', async t => {
+  const limited = new FakeAccessService(freeEntitlement(0));
+  const dailyLimiter = new FakeUsageLimiter({ allowed: true, remaining: 10 }, { allowed: false, retryAfterSeconds: 60 });
+  const request = analyzeRequest(); request.headers = { ...(request.headers as Record<string, string>), 'X-App-Version': '1.2.0', 'X-App-Build': '35' };
+  const response = await makeApp(dailyLimiter, new CountingProvider(), limited).request('/v1/analyze', request);
+  assert.equal(response.status, 429);
+  assert.equal(limited.attemptResults[0].outcome, 'rate_limited');
+  assert.equal(limited.attemptInputs[0].appVersion, '1.2.0');
+  assert.equal(limited.attemptInputs[0].appBuild, '35');
+  const failed = new FakeAccessService(freeEntitlement(0));
+  const provider = new CountingProvider(); t.mock.method(provider, 'analyze', async () => { throw new Error('private provider error'); });
+  await (await makeApp(new FakeUsageLimiter(), provider, failed).request('/v1/analyze', analyzeRequest())).text();
+  assert.equal(failed.attemptResults.at(-1)?.outcome, 'failure');
+  assert.equal(failed.attemptResults.at(-1)?.reasonCode, 'ANALYZE_FAILED');
+  assert.equal(failed.attemptInputs[0].appVersion, null);
+  assert.doesNotMatch(JSON.stringify(failed.attemptResults), /private provider error/);
+  const missing = new FakeAccessService(freeEntitlement(0));
+  t.mock.method(missing, 'beginRecognitionAttempt', async () => { throw new Error('diagnostic store unavailable'); });
+  const emptyResponse = await makeApp(new FakeUsageLimiter(), new CountingProvider(), missing).request('/v1/analyze', analyzeRequest());
+  assert.match(await emptyResponse.text(), /event: complete/);
+  assert.equal(missing.releaseCalls, 1);
+});
+
+test('records cancellation separately and releases its reservation', async () => {
+  const access = new FakeAccessService(freeEntitlement(0));
+  let signalAbort: (() => void) | undefined;
+  const aborted = new Promise<void>(resolve => { signalAbort = resolve; });
+  const app = makeApp(new FakeUsageLimiter(), new AbortAwareProvider(() => signalAbort?.()), access);
+  const response = await app.request('/v1/analyze', analyzeRequest());
+  const reader = response.body!.getReader(); await reader.read(); await reader.cancel(); await aborted;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(access.attemptResults.at(-1)?.outcome, 'cancelled');
+  assert.equal(access.releaseCalls, 1);
+});
+
+test("final scene events match completed words and only retain three reviewed sentence verbs", async () => {
+  const provider = new MockVisionProvider();
+  const caption = "She ran, picked up a mug, drank and smiled.";
+  Object.assign(provider, {
+    analyzeStudioScene: async () => ({ theme: "杯子", caption: "A draft.", captionChinese: "草稿。", interaction: { english: "What is here?", chinese: "这里有什么？" },
+      words: [...["smile", "drink", "run", "pick up"].map((english, index) => ({ id: `verb-${index}`, kind: "verb", english, chinese: "动作", ipa: "", example: "A draft." })),
+        { id: "empty", kind: "adjective", english: "empty", chinese: "空的", ipa: "", example: "A mug.", relatedObjectID: "obj_01" },
+      ],
+    }),
+    reviewCaption: async () => ({ caption, captionChinese: "她跑过来，拿起杯子喝了水，笑了。", verbMatches: [
+      { english: "smile", captionForm: "smiled" }, { english: "drink", captionForm: "drank" },
+      { english: "run", captionForm: "ran" }, { english: "pick up", captionForm: "picked up" },
+    ] }),
+  });
+  for (const format of [undefined, "pos-v1"]) {
+    const request = analyzeRequest();
+    request.headers = { ...request.headers, ...(format ? { "X-Vocabulary-Format": format } : {}) };
+    const response = await makeApp(new FakeUsageLimiter(), provider).request("/v1/analyze", request);
+    const body = await response.text();
+    const events = body.split("\n\n").flatMap(block => {
+      const event = block.match(/^event: (.+)$/m)?.[1], data = block.match(/^data: (.+)$/m)?.[1];
+      return event && data ? [{ event, data: JSON.parse(data) }] : [];
+    });
+    const completed = events.find(e => e.event === "complete")!.data;
+    assert.deepEqual(events.filter(e => e.event === "sceneWord").map(e => e.data), completed.sceneWords);
+    assert.deepEqual(completed.sceneWords.map((w: { english: string }) => w.english), ["run", "pick up", "drink", "empty"]);
+    assert.equal(completed.sceneWords[0].captionEvidence, caption);
+    assert.equal(completed.sceneWords[3].relatedObjectID, "obj_01");
+    assert.deepEqual(completed.sceneWords[3].box, completed.objects[0].box);
+    assert.deepEqual(completed.sceneWords.map((word: { kind: string }) => word.kind), format ? ["verb", "verb", "verb", "adjective"] : ["action", "action", "action", "state"]);
+    assert.ok(events.some(e => e.event === "object"));
+  }
 });

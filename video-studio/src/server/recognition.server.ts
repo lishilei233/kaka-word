@@ -1,3 +1,4 @@
+import { vocabularyFormatHeader, vocabularyFormat } from '../../../server/src/core/image-analysis/vocabulary-kind';
 import { coverCopySchema } from '../../../server/src/core/image-analysis/cover-copy';
 import { randomUUID } from 'node:crypto';
 import { studioSceneSchema } from '../../../server/src/core/image-analysis/studio-scene.ts';
@@ -7,7 +8,7 @@ export async function analyzeScene(bytes: Uint8Array, maxObjects: number, contex
     form.set('image', new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }), 'photo.jpg');
     form.set('maxObjects', String(maxObjects)); form.set('context', context);
     const response = await transport(`${(process.env.SERVER_API_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '')}/v1/studio/scene`, {
-        method: 'POST', body: form, redirect: 'error', headers: { Authorization: `Bearer ${process.env.SERVER_ACCESS_TOKEN ?? ''}` },
+        method: 'POST', body: form, redirect: 'error', headers: { [vocabularyFormatHeader]: vocabularyFormat, Authorization: `Bearer ${process.env.SERVER_ACCESS_TOKEN ?? ''}` },
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
     });
     const result = await response.json();
@@ -33,7 +34,7 @@ export async function forwardRecognition(
     form.set('maxObjects', String(maxObjects));
     form.set('captionStyle', 'serious');
     form.set('language', 'zh-CN');
-    const headers = new Headers({ 'X-Operation-ID': randomUUID(), Accept: 'text/event-stream' });
+    const headers = new Headers({ [vocabularyFormatHeader]: vocabularyFormat, 'X-Operation-ID': randomUUID(), Accept: 'text/event-stream' });
     if (connection.accessToken) headers.set('Authorization', `Bearer ${connection.accessToken}`);
     if (connection.deviceToken) headers.set('X-DeviceCheck-Token', connection.deviceToken);
     const timeout = AbortSignal.timeout(120000);
@@ -77,7 +78,7 @@ export function recognizeImage(bytes: Uint8Array, maxObjects: number, signal?: A
 
 export async function generateSocialCopy(input: SocialCopyInput, signal?: AbortSignal, transport: typeof fetch = fetch) {
     const baseURL = (process.env.SERVER_API_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
-    const headers = new Headers({ 'Content-Type': 'application/json', 'X-Operation-ID': randomUUID() });
+    const headers = new Headers({ [vocabularyFormatHeader]: vocabularyFormat, 'Content-Type': 'application/json', 'X-Operation-ID': randomUUID() });
     if (process.env.SERVER_ACCESS_TOKEN) headers.set('Authorization', `Bearer ${process.env.SERVER_ACCESS_TOKEN}`);
     let response: Response;
     try {
@@ -92,7 +93,7 @@ export async function generateSocialCopy(input: SocialCopyInput, signal?: AbortS
 
 export async function reviewCaption(bytes: Uint8Array, input: Omit<CaptionReviewInput, 'image' | 'mimeType' | 'signal'>, signal?: AbortSignal, transport: typeof fetch = fetch) {
     const baseURL = (process.env.SERVER_API_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
-    const headers = new Headers({ 'X-Operation-ID': randomUUID() });
+    const headers = new Headers({ [vocabularyFormatHeader]: vocabularyFormat, 'X-Operation-ID': randomUUID() });
     if (process.env.SERVER_ACCESS_TOKEN) headers.set('Authorization', `Bearer ${process.env.SERVER_ACCESS_TOKEN}`);
     const form = new FormData();
     form.set('image', new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }), 'photo.jpg');
@@ -111,7 +112,7 @@ export async function reviewCaption(bytes: Uint8Array, input: Omit<CaptionReview
 
 export async function regenerateCaption(bytes: Uint8Array, input: Pick<CaptionReviewInput, 'words' | 'context'>, signal?: AbortSignal, transport: typeof fetch = fetch) {
     const baseURL = (process.env.SERVER_API_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
-    const headers = new Headers({ 'X-Operation-ID': randomUUID() });
+    const headers = new Headers({ [vocabularyFormatHeader]: vocabularyFormat, 'X-Operation-ID': randomUUID() });
     if (process.env.SERVER_ACCESS_TOKEN) headers.set('Authorization', `Bearer ${process.env.SERVER_ACCESS_TOKEN}`);
     const form = new FormData();
     form.set('image', new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }), 'photo.jpg');
@@ -133,7 +134,7 @@ export async function generateCoverCopy(input: import('../../../server/src/core/
     try {
         response = await transport(`${baseURL}/v1/studio/cover-copy`, {
             method: 'POST', redirect: 'error',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SERVER_ACCESS_TOKEN ?? ''}`, 'X-Operation-ID': randomUUID() },
+            headers: { [vocabularyFormatHeader]: vocabularyFormat, 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SERVER_ACCESS_TOKEN ?? ''}`, 'X-Operation-ID': randomUUID() },
             body: JSON.stringify(input), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
         });
     } catch { throw new Error('封面标题请求中断或超时，请重试'); }

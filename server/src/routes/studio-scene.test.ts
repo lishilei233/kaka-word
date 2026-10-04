@@ -9,7 +9,7 @@ import { captionReviewPrompt, learningObjectPrompt } from '../core/image-analysi
 
 const variant = { caption: 'The shell is broken.', captionChinese: '蛋壳破了。' };
 const fixture = { theme: '碎鸡蛋', words: [
-    { id: 'broken', kind: 'state', english: 'broken', chinese: '破碎的', ipa: '/ˈbroʊkən/' },
+    { id: 'broken', kind: 'adjective', relatedObjectID: 'egg', english: 'broken', chinese: '破碎的', ipa: '/ˈbroʊkən/' },
 ], ...variant, interaction: { english: 'Who made this mess?', chinese: '谁把这里弄乱了？' } };
 const recognized = { imageWidth: 30, imageHeight: 20, objects: [
     { id: 'egg', english: 'egg', chinese: '鸡蛋', ipa: '/eɡ/', confidence: .98, box: { x: .1, y: .1, width: .2, height: .2 }, anchor: { x: .2, y: .2 }, example: 'This is an egg.', exampleChinese: '这是一个鸡蛋。', confirmationStatus: 'confirmed' as const },
@@ -25,16 +25,16 @@ function reviewForm() {
     data.set('caption', 'The colorful drinks are ready, so customers wait for their paper bags.');
     data.set('captionChinese', '五颜六色的饮料准备好了，所以顾客们在等待他们的纸袋。');
     data.set('words', JSON.stringify([
-        { english: 'drinks', chinese: '饮料', kind: 'object' },
-        { english: 'paper bags', chinese: '纸袋', kind: 'object' },
+        { english: 'drinks', chinese: '饮料', kind: 'noun' },
+        { english: 'paper bags', chinese: '纸袋', kind: 'noun' },
     ]));
     return data;
 }
 function regenerateForm() {
     const data = form();
     data.set('words', JSON.stringify([
-        { english: 'drink', chinese: '饮料', kind: 'object' },
-        { english: 'paper bag', chinese: '纸袋', kind: 'object' },
+        { english: 'drink', chinese: '饮料', kind: 'noun' },
+        { english: 'paper bag', chinese: '纸袋', kind: 'noun' },
     ]));
     return data;
 }
@@ -52,35 +52,40 @@ test('studio scene endpoint is dedicated, authenticated and forwards image and b
     assert.equal(response.status, 200);
     const input = received as StudioSceneInput | undefined;
     assert.equal(input?.context, '鸡蛋刚掉到地上');
-    assert.deepEqual(input?.objects, [{ english: 'egg', chinese: '鸡蛋' }]);
+    assert.deepEqual(input?.objects, [{ id: 'egg', english: 'egg', chinese: '鸡蛋', box: recognized.objects[0].box }]);
     assert.ok(input!.image.length > 0);
     const result = await response.json();
     assert.deepEqual(result.words.map((word: { english: string }) => word.english), ['egg', 'broken']);
-    assert.equal(result.words[1].box, undefined);
+    assert.deepEqual(result.words[1].box, recognized.objects[0].box);
+    assert.deepEqual(result.words.map((word: { kind: string }) => word.kind), ['object', 'state']);
+    const modern = await app.request('/v1/studio/scene', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'X-Vocabulary-Format': 'pos-v1' }, body: form() });
+    const canonical = await modern.json();
+    assert.deepEqual(canonical.words.map((word: { kind: string }) => word.kind), ['noun', 'adjective']);
+    assert.deepEqual(canonical.words.map((word: { id: string }) => word.id), result.words.map((word: { id: string }) => word.id));
     const invalid = form(); invalid.set('maxObjects', '99');
     assert.equal((await app.request('/v1/studio/scene', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: invalid })).status, 400);
 });
 test('scene schema rejects invented geometry and duplicate IDs and prompt requires visual evidence', () => {
     assert.equal(studioSceneSchema.safeParse(fixture).success, true);
-    assert.equal(studioSceneSchema.safeParse({ ...fixture, words: [{ id: 'egg', kind: 'object', english: 'egg', chinese: '鸡蛋', ipa: '', box: undefined }] }).success, false);
+    assert.equal(studioSceneSchema.safeParse({ ...fixture, words: [{ id: 'egg', kind: 'noun', english: 'egg', chinese: '鸡蛋', ipa: '', box: undefined }] }).success, false);
     assert.equal(studioSceneSchema.safeParse({ ...fixture, words: [fixture.words[0], fixture.words[0]] }).success, false);
-    assert.match(studioScenePrompt({ context: '', objects: [{ english: 'egg', chinese: '鸡蛋' }] }), /authoritative object-recognition pipeline/);
+    assert.match(studioScenePrompt({ context: '', objects: [{ id: 'egg', english: 'egg', chinese: '鸡蛋' }] }), /authoritative object-recognition pipeline/);
     assert.match(studioScenePrompt({ context: '', objects: [] }), /Static scenes are valid/);
     assert.match(studioScenePrompt({ context: '', objects: [] }), /must not be invented/);
     assert.match(studioScenePrompt({ context: '', objects: [] }), /Never say an inanimate object “waits”/);
     assert.match(studioScenePrompt({ context: '', objects: [] }), /Drinks and paper bags sit on the counter/);
     assert.match(studioScenePrompt({ context: '', objects: [] }), /Return one factual English description and one natural Chinese description/);
     assert.match(studioScenePrompt({ context: '', objects: [] }), /never more than 18/);
-    assert.match(studioScenePrompt({ context: '', objects: [{ english: 'window', chinese: '窗户' }] }), /Use as many supplied object words as fit naturally/);
+    assert.match(studioScenePrompt({ context: '', objects: [{ english: 'window', chinese: '窗户' }] }), /Use as many supplied nouns as fit naturally/);
 });
 
 test('caption review requires image-grounded facts and natural bilingual output', () => {
     const scenePrompt = captionReviewPrompt({
         caption: 'A room is ready for practice.', captionChinese: '房间已经准备好练习。',
         words: [
-            { english: 'practice', chinese: '练习', kind: 'action' },
-            { english: 'empty', chinese: '空的', kind: 'state' },
-            { english: 'room', chinese: '房间', kind: 'object' },
+            { english: 'practice', chinese: '练习', kind: 'verb' },
+            { english: 'empty', chinese: '空的', kind: 'adjective' },
+            { english: 'room', chinese: '房间', kind: 'noun' },
         ],
     });
     assert.match(scenePrompt, /practice/);
@@ -93,12 +98,12 @@ test('caption review requires image-grounded facts and natural bilingual output'
 
     const objectPrompt = captionReviewPrompt({
         caption: 'A room is ready.', captionChinese: '房间准备好了。',
-        words: [{ english: 'room', chinese: '房间', kind: 'object' }],
+        words: [{ english: 'room', chinese: '房间', kind: 'noun' }],
     });
     assert.match(objectPrompt, /return one corrected final description/);
     assert.match(objectPrompt, /visible vocabulary is authoritative and locked/);
     assert.match(learningObjectPrompt(8, 'serious'), /never more than 18/);
-    assert.match(learningObjectPrompt(8, 'serious'), /Use as many clearly visible supplied object words as naturally fit/);
+    assert.match(learningObjectPrompt(8, 'serious'), /Use as many clearly visible supplied nouns as naturally fit/);
 });
 
 test('caption review replaces unsupported claims and fails closed', async () => {
@@ -196,4 +201,16 @@ test('scene, regeneration and review return canonical paired sentences', async (
         assert.equal(result.caption, 'An egg lies on the floor. Its shell is broken.');
         assert.equal(result.captionChinese, '地板上有一个鸡蛋。蛋壳破了。');
     }
+});
+
+test('scene prompt examines optional visible container states independently of caption and actions', () => {
+    const prompt = studioScenePrompt({ context: '', objects: [{ id: 'cup-1', english: 'cup', chinese: '杯子' }] });
+    assert.match(prompt, /Static does NOT mean stateless/);
+    assert.match(prompt, /full \(满的\)/);
+    assert.match(prompt, /empty \(空的\)/);
+    assert.match(prompt, /Not every object needs a state/);
+    assert.match(prompt, /absent from the caption/);
+    assert.match(prompt, /Merely seeing some water does not mean full/);
+    assert.match(prompt, /uncertain contents cannot prove empty or full/);
+    assert.match(prompt, /Copy relatedObjectID exactly/);
 });

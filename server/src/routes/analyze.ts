@@ -1,3 +1,7 @@
+import { vocabularyResponse, vocabularyFormatHeader } from '../core/image-analysis/vocabulary-kind.js';
+import { studioSceneSchema } from '../core/image-analysis/studio-scene.js';
+import { finalizeSceneWords } from '../core/image-analysis/word-presentation.js';
+import type { EntitlementSummary, QuotaSnapshot, RecognitionAttemptResult } from "../core/access/types.js";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { isIP } from "node:net";
 import type { Context, Hono } from "hono";
@@ -54,6 +58,9 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
     const requestId = c.get("requestId");
     const analyzeStartedAt = performance.now();
     let stage = "validate_request";
+    const startedAt = new Date();
+    let finishAttempt: (outcome: RecognitionAttemptResult['outcome'], reasonCode: string | null, quota?: EntitlementSummary) => Promise<void> = async () => {};
+
 
     try {
       stage = "authenticate";
@@ -143,6 +150,32 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         imageHeight: dimensions.height,
       });
 
+      let recordedAttempt = false;
+      const beginAttempt = async (entitlement: EntitlementSummary, reserved: boolean) => {
+        if (!principal) return true;
+        try {
+          recordedAttempt = await accessService.beginRecognitionAttempt({
+            installationId: principal.installationId, operationId, requestId, startedAt,
+            environment: principal.storeEnvironment,
+            appVersion: validVersionHeader(c.req.header('x-app-version')),
+            appBuild: validVersionHeader(c.req.header('x-app-build')),
+            quotaBefore: quotaSnapshot(entitlement, reserved),
+          });
+          return recordedAttempt;
+        } catch (error) {
+          logger.error('recognition_attempts.write_failed', { requestId, stage: 'begin', ...errorFields(error, false) });
+          return true; // Diagnostics must not interrupt a valid recognition request.
+        }
+      };
+      finishAttempt = async (outcome, reasonCode, quota) => {
+        if (!principal || !recordedAttempt) return;
+        const after = quota ?? await accessService.status(principal).catch(() => null);
+        await accessService.finishRecognitionAttempt({
+          installationId: principal.installationId, operationId, outcome, reasonCode, stage,
+          quotaAfter: after ? quotaSnapshot(after) : null,
+        }).catch(error => logger.error('recognition_attempts.write_failed', { requestId, stage: 'finish', ...errorFields(error, false) }));
+      };
+
       stage = "quota_reservation";
       let reservation: Extract<import("../core/access/index.js").QuotaReservation, { allowed: true }> | undefined;
       try {
@@ -157,8 +190,9 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             entitlement: quotaReservation.entitlement,
           }, 409);
         } else if (quotaReservation && !quotaReservation.allowed) {
+          if (!await beginAttempt(quotaReservation.entitlement, false)) return c.json({ error: 'OPERATION_ALREADY_USED' }, 409);
           await recordMetricSafely(accessService, logger, "quota_exhausted", quotaReservation.entitlement);
-          if (principal) await recordInstallationMetricSafely(accessService, logger, principal, "recognition_attempt");
+          await finishAttempt('quota_exhausted', 'QUOTA_EXHAUSTED', quotaReservation.entitlement);
           return c.json({
             error: "QUOTA_EXHAUSTED",
             message: quotaReservation.entitlement.tier === "member"
@@ -181,8 +215,8 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         return c.json({ error: "QUOTA_UNAVAILABLE", message: "暂时无法读取识别额度，请稍后重试" }, 503);
       }
       if (reservation) {
+        if (!await beginAttempt(reservation.entitlement, true)) return c.json({ error: 'OPERATION_ALREADY_USED' }, 409);
         await recordMetricSafely(accessService, logger, "recognition_attempt", reservation.entitlement);
-        if (principal) await recordInstallationMetricSafely(accessService, logger, principal, "recognition_attempt");
       }
 
       stage = "daily_limit";
@@ -196,6 +230,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
           scope: "daily",
           ...errorFields(error, logLevel === "debug"),
         });
+        await finishAttempt('failure', 'USAGE_LIMIT_UNAVAILABLE');
         return c.json({
           error: "USAGE_LIMIT_UNAVAILABLE",
           message: "识别服务暂时不可用，请稍后重试",
@@ -208,6 +243,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
           scope: "daily",
           retryAfterSeconds: dailyDecision.retryAfterSeconds,
         });
+        await finishAttempt('rate_limited', 'DAILY_LIMIT_REACHED');
         c.header("Retry-After", String(dailyDecision.retryAfterSeconds));
         return c.json({
           error: "DAILY_LIMIT_REACHED",
@@ -244,12 +280,12 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
       return streamSSE(c, async (stream) => {
         let streamedObjectCount = 0;
         stream.onAbort(() => abortController.abort());
-        await stream.writeSSE({
-          event: "started",
-          data: JSON.stringify({ imageWidth: dimensions.width, imageHeight: dimensions.height }),
-        });
-
         try {
+          await stream.writeSSE({
+            event: "started",
+            data: JSON.stringify({ imageWidth: dimensions.width, imageHeight: dimensions.height }),
+          });
+
           const sendObject = async (object: AnalyzeResult["objects"][number]) => {
             streamedObjectCount += 1;
             if (streamedObjectCount === 1) {
@@ -260,7 +296,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
                 durationMs: Math.round(performance.now() - providerStartedAt),
               });
             }
-            await stream.writeSSE({ event: "object", data: JSON.stringify(object) });
+            await stream.writeSSE({ event: "object", data: JSON.stringify(vocabularyResponse(object, c.req.header(vocabularyFormatHeader))) });
           };
 
           const objectResult = provider.analyzeStream
@@ -276,18 +312,18 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             stage = "scene_analysis";
             await stream.writeSSE({ event: "sceneAnalyzing", data: "{}" });
             try {
-              const scene = await provider.analyzeStudioScene({
+              const scene = studioSceneSchema.parse(await provider.analyzeStudioScene({
                 image: bytes,
                 mimeType: input.mimeType,
                 context: "",
-                objects: objectResult.objects.map(({ english, chinese }) => ({ english, chinese })),
+                objects: objectResult.objects.map(({ id, english, chinese, box }) => ({ id, english, chinese, box })),
                 masteredWords,
                 maxSceneWords: 5,
                 signal: abortController.signal,
-              });
+              }));
               const usedIDs = new Set(objectResult.objects.map((object) => object.id));
-              const sceneWords = scene.words
-                .filter((word) => word.kind === "action" || word.kind === "state")
+              let sceneWords = scene.words
+                .filter((word) => word.kind === "verb" || word.kind === "adjective")
                 .slice(0, 5)
                 .map((word, index) => {
                   let id = word.id;
@@ -297,6 +333,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
                   return {
                     id,
                     kind: word.kind,
+                    relatedObjectID: word.kind === "adjective" ? word.relatedObjectID : undefined,
                     english: word.english,
                     chinese: word.chinese,
                     ipa: word.ipa,
@@ -312,15 +349,16 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
                   caption: scene.caption,
                   captionChinese: scene.captionChinese,
                   words: [
-                    ...objectResult.objects.map(({ english, chinese }) => ({ english, chinese, kind: "object" as const })),
+                    ...objectResult.objects.map(({ english, chinese }) => ({ english, chinese, kind: "noun" as const })),
                     ...sceneWords.map(({ english, chinese, kind }) => ({ english, chinese, kind })),
                   ],
                   signal: abortController.signal,
                 });
               }
+              sceneWords = finalizeSceneWords(sceneWords, objectResult.objects, normalizeCaption(caption).caption, caption.verbMatches, 5);
               result = normalizeCaption({ ...objectResult, ...caption, captionSentences: caption.captionSentences, captionStyle: "serious", sceneWords });
               for (const word of sceneWords) {
-                await stream.writeSSE({ event: "sceneWord", data: JSON.stringify(word) });
+                await stream.writeSSE({ event: "sceneWord", data: JSON.stringify(vocabularyResponse(word, c.req.header(vocabularyFormatHeader))) });
               }
             } catch (error) {
               if (abortController.signal.aborted) throw error;
@@ -334,12 +372,13 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
           }
 
           stage = "serialize_response";
-          await stream.writeSSE({ event: "complete", data: JSON.stringify(result) });
+          await stream.writeSSE({ event: "complete", data: JSON.stringify(vocabularyResponse(result, c.req.header(vocabularyFormatHeader))) });
           const entitlement = videoStudioRequest
             ? disabledEntitlement()
             : result.objects.length > 0
               ? await accessService.commitAnalyze(reservation!.reservationId, c.req.header("x-devicecheck-token"))
               : await releaseAndReadEntitlement(accessService, reservation!.reservationId, principal!);
+          await finishAttempt(result.objects.length > 0 ? 'success' : 'empty', result.objects.length > 0 ? null : 'NO_OBJECTS', entitlement);
           await stream.writeSSE({ event: "quota", data: JSON.stringify(entitlement) });
           await recordMetricSafely(
             accessService,
@@ -348,9 +387,6 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             entitlement,
             result.objects.length > 0 ? "success" : "empty",
           );
-          if (principal && result.objects.length > 0) {
-            await recordInstallationMetricSafely(accessService, logger, principal, "recognition_success");
-          }
           logger.info("vision.request_completed", {
             requestId,
             provider: providerName,
@@ -364,6 +400,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         } catch (error) {
           if (reservation) await accessService.releaseAnalyze(reservation.reservationId).catch(() => undefined);
           if (abortController.signal.aborted) {
+            await finishAttempt('cancelled', 'CLIENT_DISCONNECTED');
             await accessService.recordMetric({ eventName: "recognition_result", outcome: "cancelled" }).catch(() => undefined);
             logger.info("vision.request_cancelled", {
               requestId,
@@ -374,6 +411,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
             });
             return;
           }
+          await finishAttempt('failure', 'ANALYZE_FAILED');
           await accessService.recordMetric({ eventName: "recognition_result", outcome: "failure" }).catch(() => undefined);
           logger.error("analyze.failed", {
             requestId,
@@ -391,6 +429,7 @@ export function registerAnalyzeRoute(app: Hono<AppEnv>, dependencies: AnalyzeRou
         }
       });
     } catch (error) {
+      await finishAttempt('failure', 'ANALYZE_FAILED');
       logger.error("analyze.failed", {
         requestId,
         provider: providerName,
@@ -437,18 +476,14 @@ async function recordMetricSafely(
   });
 }
 
-async function recordInstallationMetricSafely(
-  accessService: AccessService,
-  logger: Logger,
-  principal: AccessPrincipal,
-  metric: "recognition_attempt" | "recognition_success",
-): Promise<void> {
-  await accessService.recordInstallationMetric(principal.installationId, metric, principal.storeEnvironment).catch((error) => {
-    logger.warn("metrics.installation_record_failed", {
-      metric,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  });
+function validVersionHeader(value: string | undefined): string | null {
+  return value && /^[a-zA-Z0-9._+-]{1,64}$/.test(value) ? value : null;
+}
+function quotaSnapshot(entitlement: EntitlementSummary, removeOwnReservation = false): QuotaSnapshot {
+  const reserved = Math.max(0, entitlement.reserved - (removeOwnReservation ? 1 : 0));
+  return { tier: entitlement.tier, limit: entitlement.limit, used: entitlement.used, reserved,
+    remaining: entitlement.unlimited ? entitlement.remaining : Math.max(0, entitlement.limit - entitlement.used - reserved),
+    unlimited: entitlement.unlimited, periodStart: entitlement.periodStart, resetAt: entitlement.resetAt };
 }
 
 async function releaseAndReadEntitlement(

@@ -32,6 +32,18 @@ enum PictureWordSchemaV3: VersionedSchema {
     }
 }
 
+enum PictureWordSchemaV4: VersionedSchema {
+    static let versionIdentifier = Schema.Version(4, 0, 0)
+    static var models: [any PersistentModel.Type] { PictureWordSchemaV3.models + [SceneWordsEntity.self] }
+}
+
+@Model
+final class SceneWordsEntity {
+    var recordID: UUID = UUID()
+    var payload: Data = Data()
+    init(recordID: UUID, payload: Data) { self.recordID = recordID; self.payload = payload }
+}
+
 @Model
 final class RecognitionRangeEntity {
     var recordID: UUID = UUID()
@@ -49,10 +61,11 @@ final class RecognitionRangeEntity {
 }
 
 enum PictureWordMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] { [PictureWordSchemaV1.self, PictureWordSchemaV2.self, PictureWordSchemaV3.self] }
+    static var schemas: [any VersionedSchema.Type] { [PictureWordSchemaV1.self, PictureWordSchemaV2.self, PictureWordSchemaV3.self, PictureWordSchemaV4.self] }
     static var stages: [MigrationStage] {
         [.lightweight(fromVersion: PictureWordSchemaV1.self, toVersion: PictureWordSchemaV2.self),
-         .lightweight(fromVersion: PictureWordSchemaV2.self, toVersion: PictureWordSchemaV3.self)]
+         .lightweight(fromVersion: PictureWordSchemaV2.self, toVersion: PictureWordSchemaV3.self),
+         .lightweight(fromVersion: PictureWordSchemaV3.self, toVersion: PictureWordSchemaV4.self)]
     }
 }
 
@@ -100,7 +113,7 @@ final class HistoryEntity {
         captionChinese = result.captionChinese
         captionSentencesData = result.captionSentences.flatMap { try? JSONEncoder().encode($0) }
         captionStyleRawValue = result.captionStyle?.rawValue
-        objects = result.allWords.enumerated().map { LearningObjectEntity(object: $0.element, sortIndex: $0.offset) }
+        objects = result.storedWords.enumerated().map { LearningObjectEntity(object: $0.element, sortIndex: $0.offset) }
     }
 }
 
@@ -153,7 +166,7 @@ final class LearningObjectEntity {
         anchorNeedsReview = object.anchorNeedsReview
         example = object.example
         exampleChinese = object.exampleChinese
-        confirmationStatusRawValue = object.kind == .object
+        confirmationStatusRawValue = object.kind == .noun
             ? object.confirmationStatus?.rawValue
             : "scene:\(object.kind.rawValue)"
         labelCenterX = object.labelCenterOverride?.x
@@ -278,9 +291,9 @@ enum PersistenceMapper {
                 imageWidth: entity.imageWidth,
                 imageHeight: entity.imageHeight,
                 objects: (entity.objects ?? []).sorted { $0.sortIndex < $1.sortIndex }
-                    .map(learningObject).filter { $0.kind == .object },
+                    .map(learningObject).filter { $0.kind == .noun },
                 sceneWords: (entity.objects ?? []).sorted { $0.sortIndex < $1.sortIndex }
-                    .map(learningObject).filter { $0.kind != .object }.map(SceneWord.init),
+                    .map(learningObject).filter { $0.kind != .noun }.map(SceneWord.init),
                 caption: entity.caption,
                 captionChinese: entity.captionChinese,
                 captionStyle: entity.captionStyleRawValue.flatMap(CaptionStyle.init(rawValue:)),
@@ -296,9 +309,9 @@ enum PersistenceMapper {
         let kind: VocabularyKind
         if let rawKind = entity.confirmationStatusRawValue?.split(separator: ":").last,
            entity.confirmationStatusRawValue?.hasPrefix("scene:") == true {
-            kind = VocabularyKind(rawValue: String(rawKind)) ?? .object
+            kind = VocabularyKind(compatibleRawValue: String(rawKind)) ?? .noun
         } else {
-            kind = .object
+            kind = .noun
         }
         return LearningObject(
             id: entity.stableID,
@@ -321,7 +334,7 @@ enum PersistenceMapper {
                     )
                 }
             },
-            confirmationStatus: kind == .object
+            confirmationStatus: kind == .noun
                 ? entity.confirmationStatusRawValue.flatMap(ObjectConfirmationStatus.init(rawValue:))
                 : nil,
             labelCenterOverride: anchor(x: entity.labelCenterX, y: entity.labelCenterY),

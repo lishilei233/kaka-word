@@ -40,7 +40,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
 
   app.use("*", cors({
     origin: "*",
-    allowHeaders: ["Authorization", "Content-Type", "X-DeviceCheck-Token", "X-Operation-ID", "X-Request-ID"],
+    allowHeaders: ["Authorization", "Content-Type", "X-DeviceCheck-Token", "X-Operation-ID", "X-Request-ID", "X-Vocabulary-Format"],
     exposeHeaders: ["X-Request-ID", "Retry-After"],
   }));
   app.use("*", requestLogger(logger, config.logLevel));

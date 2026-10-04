@@ -60,8 +60,8 @@ test('direct template waits for its configurable photo hold before word-by-word 
 
     const camera = timeline({ ...p, videoTemplate: 'camera', introSeconds: 2 });
     assert.equal(camera.intro, 60);
-    assert.equal(camera.reveal, 24);
-    assert.equal(camera.words[0].from, 84);
+    assert.equal(camera.reveal, 8);
+    assert.equal(camera.words[0].from, 68);
 });
 test('recognized objects sort by photo rows, then from left to right', () => {
     const objects = [
@@ -76,7 +76,7 @@ test('recognized objects sort by photo rows, then from left to right', () => {
 test('legacy version two drafts preserve descriptions and existing audio', () => {
     const old = { ...p, version: 2, captionVariants: { serious: { caption: 'A.', captionChinese: '甲。' }, funny: { caption: 'B.', captionChinese: '乙。' }, literary: { caption: 'C.', captionChinese: '丙。' } }, selectedCaptionStyle: 'funny' };
     const migrated = projectSchema.parse(old);
-    assert.equal(migrated.version, 4);
+    assert.equal(migrated.version, 5);
     assert.equal(migrated.caption, p.caption);
     assert.equal(migrated.captionChinese, p.captionChinese);
     assert.equal(migrated.captionReviewRequired, false);

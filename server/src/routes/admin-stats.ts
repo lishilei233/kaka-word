@@ -1,3 +1,6 @@
+import { deviceDetailsStyles, deviceDetailsMarkup, deviceDetailsScript } from "./admin-device-details-ui.js";
+import { recognitionOutcomes, type RecognitionOutcome } from "../core/access/types.js";
+import type { DeviceDetailQuery } from "../core/admin-device-details.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.js";
@@ -24,6 +27,40 @@ export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Depend
   });
 
   app.get("/admin/stats", (c) => c.html(adminStatsPage));
+
+  app.get('/admin/api/stats/devices/:installationId', async c => {
+    const installationId = c.req.param('installationId');
+    const oldest = addDays(todayInShanghai(), -89);
+    const startDate = c.req.query('startDate') ?? oldest;
+    const endDate = c.req.query('endDate') ?? todayInShanghai();
+    const outcome = c.req.query('outcome') || null;
+    const appVersion = c.req.query('appVersion')?.trim() || null;
+    let cursor: DeviceDetailQuery['cursor'] = null;
+    try {
+      const encoded = c.req.query('cursor');
+      if (encoded) {
+        if (encoded.length > 512 || !/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error('Invalid cursor');
+        const value = JSON.parse(Buffer.from(encoded, 'base64url').toString());
+        if (typeof value.startedAt !== 'string' || !Number.isFinite(Date.parse(value.startedAt)) || !isUUID(value.operationId)) throw new Error('Invalid cursor');
+        cursor = { startedAt: new Date(value.startedAt).toISOString(), operationId: value.operationId };
+      }
+    } catch { return c.json({ error: 'INVALID_STATS_QUERY' }, 400); }
+    if (!isUUID(installationId) || !isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate
+      || startDate < oldest || endDate > todayInShanghai()
+      || (outcome !== null && !recognitionOutcomes.includes(outcome as RecognitionOutcome))
+      || (appVersion !== null && (appVersion.length > 64 || /[\x00-\x1f]/.test(appVersion)))) {
+      return c.json({ error: 'INVALID_STATS_QUERY' }, 400);
+    }
+    try {
+      const data = await dependencies.repository!.loadDeviceDetails({ installationId, startDate, endDate,
+        outcome: outcome as RecognitionOutcome | null, appVersion, cursor });
+      return data ? c.json(data) : c.json({ error: 'DEVICE_NOT_FOUND' }, 404);
+    } catch (error) {
+      dependencies.logger.error('admin_stats.device_load_failed', { requestId: c.get('requestId'),
+        message: error instanceof Error ? error.message : String(error) });
+      return c.json({ error: 'STATS_UNAVAILABLE' }, 503);
+    }
+  });
 
   app.get("/admin/api/stats", async (c) => {
     const requestedStartDate = c.req.query("startDate");
@@ -66,6 +103,10 @@ export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Depend
       return c.json({ error: "STATS_UNAVAILABLE" }, 503);
     }
   });
+}
+
+function isUUID(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 function isValidDate(value: string): boolean {
@@ -187,18 +228,20 @@ const adminStatsPage = String.raw`<!doctype html>
     @media(max-width:1000px){.cards{grid-template-columns:repeat(3,1fr)}.span-8,.span-7,.span-6,.span-5,.span-4{grid-column:span 12}header{grid-template-columns:1fr}.filters{justify-self:start}}
     @media(max-width:600px){main{width:calc(100% - 20px)}body::before{left:20px}.section,.notice{margin-left:22px}.cards{grid-template-columns:repeat(2,1fr)}header{margin-left:22px}.card-value{font-size:30px}.section-head{align-items:start;flex-direction:column}.section-note{text-align:left}}
     @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+    ${deviceDetailsStyles}
   </style>
 </head>
 <body>
 <main id="app" class="loading">
-  <header><div><div class="eyebrow">Picture Word · Operations Notebook</div><h1>数据手账</h1><div class="subtitle">查看所选日期内新增设备的识别表现和当前额度；不限日期时显示所有安装。</div></div></header>
-  <div class="notice">口径提示：设备识别与反馈按设备记录的 StoreKit 环境筛选；无环境归属的数据仅包含在“全部环境”。注册时间按北京时间显示。</div>
+  <header><div><div class="eyebrow">Picture Word · Operations Notebook</div><h1>数据手账</h1><div class="subtitle">查看设备安装与会员分布，打开详情查看逐次识别结果和额度变化。</div></div></header>
+  <div class="notice">注册时间筛选决定主表设备范围；识别详情按独立的识别时间查询。无环境归属的设备显示“未知”，时间均按北京时间显示。</div>
   <div class="section-note" id="generated" style="margin:18px 8px 0 50px">正在读取数据…</div>
-  <section class="section"><div class="section-head"><div><div class="section-kicker">Device detail</div><h2>设备识别统计</h2></div><div class="section-note">识别计数按设备、按日累计；免费额度和会员类型为当前快照</div></div><div class="panel device-panel"><div class="table-wrap" id="devices"></div></div></section>
+  <section class="section"><div class="section-head"><div><div class="section-kicker">Device detail</div><h2>设备识别统计</h2></div><div class="section-note">会员类型为当前快照；识别和额度信息请查看详情</div></div><div class="panel device-panel"><div class="table-wrap" id="devices"></div></div></section>
   <section class="section"><div class="section-head"><div><div class="section-kicker">Conversion trail</div><h2>付费路径</h2></div><div class="section-note">漏斗为全环境事件；产品订阅与交易受环境筛选</div></div><div class="grid"><div class="panel span-7"><div class="panel-title"><h3>事件漏斗</h3><span data-tip="funnel"></span></div><div id="funnel"></div></div><div class="panel span-5"><div class="panel-title"><h3>套餐选择</h3><span data-tip="plans"></span></div><div id="plans"></div></div><div class="panel span-6"><div class="panel-title"><h3>购买结果</h3><span data-tip="purchase"></span></div><div id="purchase"></div></div><div class="panel span-6"><div class="panel-title"><h3>恢复购买</h3><span data-tip="restore"></span></div><div id="restore"></div></div></div></section>
   <section class="section"><div class="section-head"><div><div class="section-kicker">Recognition quality</div><h2>纠正词</h2></div></div><div class="grid"><div class="panel span-12"><div class="panel-title"><h3>常见纠正 · Top 20</h3><span data-tip="corrections"></span></div><div id="corrections"></div></div></div></section>
   <footer id="footer"></footer>
 </main>
+${deviceDetailsMarkup}
 <script>
 const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('zh-CN').format(n||0), pct=(a,b)=>b?((a/b)*100).toFixed(1)+'%':'—';
 const sum=(xs,fn=x=>x.count)=>xs.reduce((n,x)=>n+fn(x),0);
@@ -242,12 +285,8 @@ const deviceFilterColumns=[
 {key:'deviceId',title:'设备',fields:[['query','搜索设备编号','search']]},
 {key:'registrationDate',title:'注册时间（北京时间）',fields:[]},
 {key:'environment',title:'环境',fields:[['value','运行环境','select']]},
-{key:'membershipType',title:'会员类型',fields:[['value','会员类型','select']]},
-{key:'recognitionAttempts',title:'识别尝试',fields:[['min','最少','number'],['max','最多','number']]},
-{key:'recognitionSuccesses',title:'成功识别',fields:[['min','最少','number'],['max','最多','number']]},
-{key:'successRate',title:'识别成功率',fields:[['min','最低 %','percent'],['max','最高 %','percent']]},
-{key:'freeQuota',title:'免费额度已用 / 剩余',fields:[['usedMin','已用最少','number'],['usedMax','已用最多','number'],['remainingMin','剩余最少','number'],['remainingMax','剩余最多','number']]},
-{key:'changeRate',title:'用户改选率',fields:[['min','最低 %','percent'],['max','最高 %','percent']]}
+{key:'membershipType',title:'会员类型',fields:[['value','会员类型','select']]}
+
 ];
 let currentDeviceRows=[];
 let openDeviceFilter=null;
@@ -261,20 +300,6 @@ const filter=deviceFilters[column.key]||{};
 if(column.key==='deviceId'&&filter.query&&!device.deviceId.toLowerCase().includes(filter.query.trim().toLowerCase()))return false;
 if(column.key==='environment'&&filter.value&&device.environment!==filter.value)return false;
 if(column.key==='membershipType'&&filter.value&&device.membershipType!==filter.value)return false;
-if(column.key==='recognitionAttempts'&&!withinRange(device.recognitionAttempts,filter.min,filter.max))return false;
-if(column.key==='recognitionSuccesses'&&!withinRange(device.recognitionSuccesses,filter.min,filter.max))return false;
-if(column.key==='successRate'){
-const rate=device.recognitionAttempts?device.recognitionSuccesses/device.recognitionAttempts*100:null;
-if((filter.min!==''||filter.max!=='')&&(rate===null||!withinRange(rate,filter.min,filter.max)))return false;
-}
-if(column.key==='freeQuota'){
-const remaining=Math.max(0,3-device.freeUsed);
-if(!withinRange(device.freeUsed,filter.usedMin,filter.usedMax)||!withinRange(remaining,filter.remainingMin,filter.remainingMax))return false;
-}
-if(column.key==='changeRate'){
-const rate=device.confirmationCount?device.reselectionCount/device.confirmationCount*100:null;
-if((filter.min!==''||filter.max!=='')&&(rate===null||!withinRange(rate,filter.min,filter.max)))return false;
-}
 return true;
 });
 }
@@ -299,17 +324,16 @@ return '<div class="column-filter" data-filter-panel="'+column.key+'">'+controls
 function renderDeviceTable(){
 const root=$('devices');
 const devices=currentDeviceRows.filter(deviceMatchesFilters);
-const attempts=devices.reduce((n,x)=>n+x.recognitionAttempts,0),successes=devices.reduce((n,x)=>n+x.recognitionSuccesses,0),confirmations=devices.reduce((n,x)=>n+x.confirmationCount,0),reselected=devices.reduce((n,x)=>n+x.reselectionCount,0),freeUsed=devices.reduce((n,x)=>n+x.freeUsed,0),freeRemaining=devices.reduce((n,x)=>n+Math.max(0,3-x.freeUsed),0);
 const membershipCounts=devices.reduce((counts,device)=>{if(device.membershipType in counts)counts[device.membershipType]++;return counts},{free:0,monthly:0,annual:0});
 const header=column=>'<th class="filter-heading"><div class="heading-content"><span>'+column.title+'</span><button type="button" class="filter-toggle'+(activeDeviceFilter(column.key)?' is-active':'')+'" data-filter-toggle="'+column.key+'" aria-label="筛选：'+column.title+'" aria-pressed="'+(openDeviceFilter===column.key)+'">'+(activeDeviceFilter(column.key)?'⌕':'▽')+'</button></div></th>';
 const envLabels={Production:'正式环境',Sandbox:'沙盒环境',Xcode:'Xcode',LocalTesting:'本地测试',Unknown:'未知'};
-const cell=device=>'<tr><td>设备 '+escapeHtml(device.deviceId)+'</td><td>'+escapeHtml(device.registrationDate||'—')+'</td><td>'+escapeHtml(envLabels[device.environment]||device.environment||'未知')+'</td><td>'+({free:'免费版',monthly:'月会员',annual:'年会员'}[device.membershipType]||'会员')+'</td><td>'+fmt(device.recognitionAttempts)+'</td><td>'+fmt(device.recognitionSuccesses)+'</td><td>'+pct(device.recognitionSuccesses,device.recognitionAttempts)+'</td><td>'+fmt(device.freeUsed)+' / '+fmt(Math.max(0,3-device.freeUsed))+'</td><td>'+pct(device.reselectionCount,device.confirmationCount)+'</td></tr>';
-const filterRow=openDeviceFilter?'<tr class="filter-row">'+deviceFilterColumns.map(column=>'<td>'+(openDeviceFilter===column.key?filterControl(column):'')+'</td>').join('')+'</tr>':'';
+const cell=device=>'<tr><td>设备 '+escapeHtml(device.deviceId)+'</td><td>'+escapeHtml(device.registrationDate||'—')+'</td><td>'+escapeHtml(envLabels[device.environment]||device.environment||'未知')+'</td><td>'+({free:'免费版',monthly:'月会员',annual:'年会员'}[device.membershipType]||'会员')+'</td><td><button type="button" class="clear-filters" data-device-details="'+escapeHtml(device.installationId)+'" aria-label="查看设备 '+escapeHtml(device.deviceId)+' 的识别详情">查看详情</button></td></tr>';
+const filterRow=openDeviceFilter?'<tr class="filter-row">'+deviceFilterColumns.map(column=>'<td>'+(openDeviceFilter===column.key?filterControl(column):'')+'</td>').join('')+'<td></td></tr>':'';
 const emptyMessage=deviceTableError|| (currentDeviceRows.length?'没有设备符合这些筛选条件。':'所选注册日期范围内没有新增设备。');
-const body=devices.length?devices.map(cell).join(''):'<tr><td class="empty filtered-empty" colspan="9">'+emptyMessage+(anyDeviceFilter()?'<button type="button" class="clear-filters" data-filter-action="clear-all">清除筛选</button>':'')+'</td></tr>';
+const body=devices.length?devices.map(cell).join(''):'<tr><td class="empty filtered-empty" colspan="5">'+emptyMessage+(anyDeviceFilter()?'<button type="button" class="clear-filters" data-filter-action="clear-all">清除筛选</button>':'')+'</td></tr>';
 const membershipTotal='<div>免费会员：'+fmt(membershipCounts.free)+'<br>月会员：'+fmt(membershipCounts.monthly)+'<br>年会员：'+fmt(membershipCounts.annual)+'</div>';
-const total=devices.length?'<tfoot><tr><td>总计（'+fmt(devices.length)+' 台）</td><td>—</td><td>—</td><td>'+membershipTotal+'</td><td>'+fmt(attempts)+'</td><td>'+fmt(successes)+'</td><td>'+pct(successes,attempts)+'</td><td>'+fmt(freeUsed)+' / '+fmt(freeRemaining)+'</td><td>'+pct(reselected,confirmations)+'</td></tr></tfoot>':'';
-root.innerHTML='<div class="device-table-status"><span>当前显示 '+fmt(devices.length)+' / '+fmt(currentDeviceRows.length)+' 台设备</span><div><button type="button" class="clear-filters" data-filter-action="clear-all"'+(anyDeviceFilter()?'':' disabled')+'>清除全部筛选</button> <button type="button" data-filter-action="refresh">刷新数据</button></div></div><table class="device-table"><thead><tr>'+deviceFilterColumns.map(header).join('')+'</tr>'+filterRow+'</thead><tbody>'+body+'</tbody>'+total+'</table>';
+const total='<tfoot><tr><td>总计（'+fmt(devices.length)+' 台）</td><td>—</td><td>—</td><td>'+membershipTotal+'</td><td>—</td></tr></tfoot>';
+root.innerHTML='<div class="device-table-status"><span>当前显示 '+fmt(devices.length)+' / '+fmt(currentDeviceRows.length)+' 台设备</span><div><button type="button" class="clear-filters" data-filter-action="clear-all"'+(anyDeviceFilter()?'':' disabled')+'>清除全部筛选</button> <button type="button" data-filter-action="refresh">刷新数据</button></div></div><table class="device-table"><thead><tr>'+deviceFilterColumns.map(header).join('')+'<th scope="col">详情</th></tr>'+filterRow+'</thead><tbody>'+body+'</tbody>'+total+'</table>';
 }
 function handleDeviceFilterChange(event){
 const target=event.target;
@@ -325,8 +349,9 @@ const preset=$('devices').querySelector('[data-date-preset]');if(preset)preset.v
 }
 }
 function handleDeviceFilterClick(event){
-const target=event.target.closest('[data-filter-toggle],[data-filter-action]');
+const target=event.target.closest('[data-filter-toggle],[data-filter-action],[data-device-details]');
 if(!target)return;
+if(target.dataset.deviceDetails)return openDeviceDetails(target.dataset.deviceDetails);
 const action=target.dataset.filterAction;
 if(target.dataset.filterToggle){const key=target.dataset.filterToggle;openDeviceFilter=openDeviceFilter===key?null:key;if(openDeviceFilter==='registrationDate')pendingDateRange={...dateRange};renderDeviceTable();return}
 const key=target.dataset.filterKey;
@@ -349,6 +374,7 @@ $('plans').innerHTML=bars(aggregate(metrics(data,'plan_selection'),x=>shortProdu
 $('corrections').innerHTML=data.feedback.corrections.length?'<table><thead><tr><th>模型原词</th><th>用户修正</th><th>次数</th></tr></thead><tbody>'+data.feedback.corrections.map(x=>'<tr><td>'+escapeHtml(x.originalEnglish)+' · '+escapeHtml(x.originalChinese)+'</td><td>'+escapeHtml(x.correctedEnglish)+' · '+escapeHtml(x.correctedChinese)+'</td><td>'+fmt(x.count)+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">暂无纠正反馈</div>';
 $('generated').textContent='生成于 '+new Date(data.generatedAt).toLocaleString('zh-CN')+' · '+({All:'全部环境',Production:'正式环境',Sandbox:'沙盒环境',Xcode:'Xcode',LocalTesting:'本地测试'}[data.environment]||data.environment);$('footer').textContent='范围：'+(data.startDate&&data.endDate?data.startDate+' 至 '+data.endDate:'不限时间')+' · 时区：Asia/Shanghai · 订阅环境：'+data.environment+' · 页面不缓存';}
 document.querySelectorAll('[data-tip]').forEach(el=>{el.innerHTML=tipControl(tips[el.dataset.tip])});
-$('devices').addEventListener('change',handleDeviceFilterChange);load();
+${deviceDetailsScript}
+$('devices').addEventListener('change',handleDeviceFilterChange);renderDeviceTable();load();
 </script>
 </body></html>`;

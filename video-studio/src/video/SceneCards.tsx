@@ -1,4 +1,4 @@
-import { sceneWords, type Project } from '../lib/project';
+import { bottomVerbs, type Project } from '../lib/project';
 import { timeline } from '../lib/project';
 import { SCENE_CARD_HEIGHT } from '../lib/film-layout';
 import { annotationHighlight, sceneCapsuleHighlight, sceneCapsuleStyle } from './annotation-style';
@@ -17,7 +17,8 @@ export function sceneCardFontSize(english: string, highlighted: boolean, cardWid
 }
 
 export function SceneCards({ project, currentId, cover = false, frame, width = 496 }: { project: Project; currentId?: string; cover?: boolean; frame?: number; width?: number }) {
-    const words = sceneWords(project.words);
+    const words = bottomVerbs(project.words, project.caption);
+    if (!words.length) return null;
     const segments = frame === undefined ? undefined : timeline(project).words;
     const gap = 6;
     const availableCardWidth = words.length ? (width - gap * (words.length - 1)) / words.length : width;

@@ -8,6 +8,8 @@ import {
   type BootstrapResult,
   type EntitlementSummary,
   type InstallationMetric,
+  type RecognitionAttemptInput,
+  type RecognitionAttemptResult,
   type QuotaReservation,
   type RecognitionFeedbackInput,
   type StoreSyncResult,
@@ -43,6 +45,10 @@ export class DisabledAccessService implements AccessService {
   async recordMetric(_input: AggregateMetricInput): Promise<void> {}
   async recordRecognitionFeedback(_installationId: string, _input: RecognitionFeedbackInput): Promise<void> {}
   async recordInstallationMetric(_installationId: string, _metric: InstallationMetric): Promise<void> {}
+
+  async beginRecognitionAttempt(_input: RecognitionAttemptInput): Promise<boolean> { return true; }
+  async finishRecognitionAttempt(_result: RecognitionAttemptResult): Promise<void> {}
+  async maintainRecognitionAttempts(): Promise<void> {}
 
   async reserveAnalyze(): Promise<QuotaReservation> {
     return { allowed: true, reservationId: randomUUID(), entitlement: disabledEntitlement() };

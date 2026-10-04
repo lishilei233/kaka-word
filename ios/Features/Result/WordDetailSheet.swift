@@ -289,12 +289,12 @@ struct WordDetailSheet: View {
                     Text(object.chinese)
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.ink.opacity(0.82))
-                    Text("\(object.kind.title)词")
+                    Text("\(object.kind.title)")
                         .font(.system(size: 11, weight: .black, design: .rounded))
                         .foregroundStyle(Color.ink.opacity(0.66))
                         .padding(.horizontal, 9)
                         .padding(.vertical, 5)
-                        .background((object.kind == .action ? Color.sun : object.kind == .state ? Color.sky : Color.mint).opacity(0.3), in: Capsule())
+                        .background((object.kind == .verb ? Color.sun : object.kind == .adjective ? Color.sky : Color.mint).opacity(0.3), in: Capsule())
                 }
 
                 Divider()
@@ -537,16 +537,20 @@ struct WordDetailPhoto: Identifiable {
     }
 
     static func thumbnail(from image: UIImage, object: LearningObject?) -> UIImage {
-        let normalized = ImageProcessor.normalizedImage(from: image, maxDimension: 1200) ?? image
-        guard let object, object.kind == .object,
-              let rect = Self.rect(for: object.box, padding: 0.08), let cgImage = normalized.cgImage else { return normalized }
-        let pixels = CGRect(x: rect.minX * CGFloat(cgImage.width), y: rect.minY * CGFloat(cgImage.height),
-                            width: rect.width * CGFloat(cgImage.width), height: rect.height * CGFloat(cgImage.height)).integral
-            .intersection(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
-        guard let cropped = cgImage.cropping(to: pixels) else { return normalized }
-        let result = UIImage(cgImage: cropped)
-        return ImageProcessor.normalizedImage(from: result, maxDimension: 600) ?? result
+        let cropped = ImageProcessor.objectCrop(from: image, object: object)
+        return ImageProcessor.normalizedImage(from: cropped, maxDimension: 600) ?? cropped
     }
+
+    /// Gallery routes and sheets may outlive their snapshot. Resolve by identity, never by word alone.
+    @MainActor
+    func resolved(in historyStore: HistoryStore) -> WordDetailPhoto {
+        guard let recordID, let record = historyStore.record(id: recordID) else { return self }
+        let latest = objects.compactMap { old in record.result.allWords.first(where: { $0.id == old.id }) }
+        return WordDetailPhoto(recordID: recordID, date: record.createdAt, objects: latest,
+                               imageSize: imageSize, snapshot: record.result,
+                               isCurrentPhoto: isCurrentPhoto, load: load)
+    }
+
 }
 
 private struct WordPhotoImage: View {
@@ -581,7 +585,8 @@ private struct WordDetailPhotos: View {
     @EnvironmentObject private var wordLearningStore: WordLearningStore
     // Metadata is available before decoding; the first frame reserves the final grid.
     private var current: WordDetailPhoto? {
-        guard let resolved = source() else { return nil }
+        guard let source = source() else { return nil }
+        let resolved = source.resolved(in: historyStore)
         let record = resolved.recordID.flatMap { historyStore.record(id: $0) }
         let matches = record?.result.allWords.filter {
             WordLearningStore.normalizedKey(for: $0.english) == WordLearningStore.normalizedKey(for: object.english)
@@ -654,8 +659,10 @@ private struct WordPhotoTile: View {
     let action: () -> Void
     @State private var image: UIImage?
     @State private var loaded = false
+    @EnvironmentObject private var historyStore: HistoryStore
 
     var body: some View {
+        let resolvedPhoto = photo.resolved(in: historyStore)
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
                 WordPhotoImage(image: image, unavailable: loaded && image == nil, height: height)
@@ -685,11 +692,13 @@ private struct WordPhotoTile: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(isCurrent ? "当前照片，" : "")查看\(photo.objects.first?.english ?? "单词")的原始照片")
-        .task(id: photo.objects) {
+        .task(id: resolvedPhoto.objects) {
+            loaded = false
+            image = nil
             await Task.yield()
             guard !Task.isCancelled else { return }
-            let original = photo.load()
-            let object = photo.objects.first
+            let original = resolvedPhoto.load()
+            let object = resolvedPhoto.objects.first
             let thumbnail = await Task.detached(priority: .utility) {
                 original.map { WordDetailPhoto.thumbnail(from: $0, object: object) }
             }.value

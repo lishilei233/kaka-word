@@ -487,7 +487,9 @@ extension AnnotationLayoutEngineTests {
             let frame = CGRect(x: 0, y: 0, width: width, height: width * photo.size.height / photo.size.width)
             for object in objects {
                 let view = AnnotatedImageView(image: photo, objects: objects, isEditable: true,
-                                              emphasizedObjectIDs: [object.id], animatesFocus: false, onSelect: { _ in })
+                                              emphasizedObjectIDs: [object.id], animatesFocus: false, onSelect: { _ in },
+                                              onRecognitionRangeChange: { _, _ in nil }, editingObjectID: .constant(object.id))
+                    .environment(\.dynamicTypeSize, width == 320 ? .accessibility3 : .large)
                     .frame(width: frame.width, height: frame.height)
                 let image = try XCTUnwrap(ImageRenderer(content: view).uiImage)
                 let attachment = XCTAttachment(image: image)
@@ -497,7 +499,10 @@ extension AnnotationLayoutEngineTests {
                 XCTAssertEqual(image.size.width, width)
             }
         }
-        let editor = RecognitionRangeEditor(image: photo, object: objects[2], onSave: { _ in nil })
+        let editor = AnnotatedImageView(image: photo, objects: objects, isEditable: true,
+                                        animatesFocus: false, onSelect: { _ in },
+                                        onRecognitionRangeChange: { _, _ in nil },
+                                        editingObjectID: .constant(objects[2].id))
             .frame(width: 390, height: 1300)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)

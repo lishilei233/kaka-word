@@ -52,7 +52,7 @@ protocol VocabularyResolving {
 
 extension VocabularyResolving {
     func resolveVocabulary(term: String) async throws -> VocabularyDetails {
-        try await resolveVocabulary(term: term, kind: .object)
+        try await resolveVocabulary(term: term, kind: .noun)
     }
 }
 
@@ -88,6 +88,7 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
 
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/analyze"))
+        request.setValue("pos-v1", forHTTPHeaderField: "X-Vocabulary-Format")
         request.httpMethod = "POST"
         request.timeoutInterval = 120
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -97,6 +98,8 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
         }
         request.setValue(credentials.deviceCheckToken, forHTTPHeaderField: "X-DeviceCheck-Token")
         request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Operation-ID")
+        request.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, forHTTPHeaderField: "X-App-Version")
+        request.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, forHTTPHeaderField: "X-App-Build")
         let body = MultipartBuilder(boundary: boundary)
             .addField(name: "maxObjects", value: String(AppSettings.normalizedMaxObjects(maxObjects)))
             .addField(name: "masteredWords", value: Self.encodedMasteredWords(masteredWords))
@@ -131,13 +134,14 @@ struct APIClient: AnalysisProviding, VocabularyResolving, ContentProviding, AppV
         return result
     }
 
-    func resolveVocabulary(term: String, kind: VocabularyKind = .object) async throws -> VocabularyDetails {
+    func resolveVocabulary(term: String, kind: VocabularyKind = .noun) async throws -> VocabularyDetails {
         let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, normalized.count <= 60 else {
             throw APIError.server("请输入 1 到 60 个字符的中文或英文物体名称")
         }
 
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/vocabulary/resolve"))
+        request.setValue("pos-v1", forHTTPHeaderField: "X-Vocabulary-Format")
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

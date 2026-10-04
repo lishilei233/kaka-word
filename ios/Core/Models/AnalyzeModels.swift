@@ -66,16 +66,41 @@ enum ObjectConfirmationStatus: String, Codable, Hashable {
 }
 
 enum VocabularyKind: String, Codable, Hashable, CaseIterable {
-    case object
-    case action
-    case state
+    case noun
+    case adjective
+    case verb
 
     var title: String {
         switch self {
-        case .object: return "物体"
-        case .action: return "动作"
-        case .state: return "状态"
+        case .noun: return "名词"
+        case .adjective: return "形容词"
+        case .verb: return "动词"
         }
+    }
+
+    init?(compatibleRawValue value: String) {
+        switch value {
+        case "object": self = .noun
+        case "state": self = .adjective
+        case "action": self = .verb
+        default:
+            guard let kind = Self(rawValue: value) else { return nil }
+            self = kind
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        guard let kind = Self(compatibleRawValue: value) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unknown vocabulary kind: \(value)")
+        }
+        self = kind
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -97,6 +122,9 @@ struct LearningObject: Codable, Identifiable, Hashable {
     let labelCenterOverride: ObjectAnchor?
     let targetOverride: ObjectAnchor?
     let kind: VocabularyKind
+    var relatedObjectID: String?
+    var captionForm: String?
+    var captionEvidence: String?
     var recognitionBoxOverride: ObjectBox?
 
     init(
@@ -113,10 +141,13 @@ struct LearningObject: Codable, Identifiable, Hashable {
         confirmationStatus: ObjectConfirmationStatus? = nil,
         labelCenterOverride: ObjectAnchor?,
         targetOverride: ObjectAnchor?,
-        kind: VocabularyKind = .object,
+        kind: VocabularyKind = .noun,
         anchorSource: ObjectAnchorSource? = nil,
         anchorNeedsReview: Bool? = nil,
-        recognitionBoxOverride: ObjectBox? = nil
+        recognitionBoxOverride: ObjectBox? = nil,
+        relatedObjectID: String? = nil,
+        captionForm: String? = nil,
+        captionEvidence: String? = nil
     ) {
         self.id = id
         self.english = english
@@ -134,6 +165,9 @@ struct LearningObject: Codable, Identifiable, Hashable {
         self.labelCenterOverride = labelCenterOverride
         self.targetOverride = targetOverride
         self.kind = kind
+        self.relatedObjectID = relatedObjectID
+        self.captionForm = captionForm
+        self.captionEvidence = captionEvidence
         self.recognitionBoxOverride = recognitionBoxOverride
     }
 
@@ -154,7 +188,10 @@ struct LearningObject: Codable, Identifiable, Hashable {
         confirmationStatus = try container.decodeIfPresent(ObjectConfirmationStatus.self, forKey: .confirmationStatus)
         labelCenterOverride = try container.decodeIfPresent(ObjectAnchor.self, forKey: .labelCenterOverride)
         targetOverride = try container.decodeIfPresent(ObjectAnchor.self, forKey: .targetOverride)
-        kind = try container.decodeIfPresent(VocabularyKind.self, forKey: .kind) ?? .object
+        kind = try container.decodeIfPresent(VocabularyKind.self, forKey: .kind) ?? .noun
+        relatedObjectID = try container.decodeIfPresent(String.self, forKey: .relatedObjectID)
+        captionForm = try container.decodeIfPresent(String.self, forKey: .captionForm)
+        captionEvidence = try container.decodeIfPresent(String.self, forKey: .captionEvidence)
         recognitionBoxOverride = try container.decodeIfPresent(ObjectBox.self, forKey: .recognitionBoxOverride)
     }
 
@@ -176,7 +213,10 @@ struct LearningObject: Codable, Identifiable, Hashable {
             kind: kind,
             anchorSource: anchorSource,
             anchorNeedsReview: anchorNeedsReview,
-            recognitionBoxOverride: recognitionBoxOverride
+            recognitionBoxOverride: recognitionBoxOverride,
+            relatedObjectID: relatedObjectID,
+            captionForm: details.english == english ? captionForm : nil,
+            captionEvidence: details.english == english ? captionEvidence : nil
         )
     }
 
@@ -198,7 +238,10 @@ struct LearningObject: Codable, Identifiable, Hashable {
             kind: kind,
             anchorSource: target == nil ? anchorSource : .manual,
             anchorNeedsReview: target == nil ? anchorNeedsReview : false,
-            recognitionBoxOverride: recognitionBoxOverride
+            recognitionBoxOverride: recognitionBoxOverride,
+            relatedObjectID: relatedObjectID,
+            captionForm: captionForm,
+            captionEvidence: captionEvidence
         )
     }
 
@@ -220,7 +263,10 @@ struct LearningObject: Codable, Identifiable, Hashable {
             kind: kind,
             anchorSource: .centerFallback,
             anchorNeedsReview: true,
-            recognitionBoxOverride: recognitionBoxOverride
+            recognitionBoxOverride: recognitionBoxOverride,
+            relatedObjectID: relatedObjectID,
+            captionForm: captionForm,
+            captionEvidence: captionEvidence
         )
     }
 
@@ -265,7 +311,10 @@ struct LearningObject: Codable, Identifiable, Hashable {
             kind: kind,
             anchorSource: anchorSource,
             anchorNeedsReview: anchorNeedsReview,
-            recognitionBoxOverride: recognitionBoxOverride
+            recognitionBoxOverride: recognitionBoxOverride,
+            relatedObjectID: relatedObjectID,
+            captionForm: captionForm,
+            captionEvidence: captionEvidence
         )
     }
 
@@ -279,22 +328,21 @@ struct SceneWord: Codable, Identifiable, Hashable {
     let ipa: String
     let example: String
     let exampleChinese: String?
+    var relatedObjectID: String?
+    var captionForm: String?
+    var captionEvidence: String?
+    var box: ObjectBox?
+    var anchor: ObjectAnchor?
+    var labelCenterOverride: ObjectAnchor?
+    var targetOverride: ObjectAnchor?
 
     var learningObject: LearningObject {
-        LearningObject(
-            id: id,
-            english: english,
-            chinese: chinese,
-            ipa: ipa,
-            confidence: 1,
-            box: ObjectBox(x: 0, y: 0, width: 0, height: 0),
-            anchor: nil,
-            example: example,
-            exampleChinese: exampleChinese,
-            labelCenterOverride: nil,
-            targetOverride: nil,
-            kind: kind
-        )
+        LearningObject(id: id, english: english, chinese: chinese, ipa: ipa, confidence: 1,
+            box: box ?? ObjectBox(x: 0, y: 0, width: 0, height: 0), anchor: anchor,
+            example: example, exampleChinese: exampleChinese,
+            labelCenterOverride: labelCenterOverride, targetOverride: targetOverride, kind: kind,
+            anchorSource: targetOverride != nil ? .manual : (anchor != nil ? .ai : nil),
+            relatedObjectID: relatedObjectID, captionForm: captionForm, captionEvidence: captionEvidence)
     }
 
     init(object: LearningObject) {
@@ -305,6 +353,13 @@ struct SceneWord: Codable, Identifiable, Hashable {
         ipa = object.ipa
         example = object.example
         exampleChinese = object.exampleChinese
+        relatedObjectID = object.relatedObjectID
+        captionForm = object.captionForm
+        captionEvidence = object.captionEvidence
+        box = object.box
+        anchor = object.anchor
+        labelCenterOverride = object.labelCenterOverride
+        targetOverride = object.targetOverride
     }
 }
 
@@ -349,7 +404,41 @@ struct AnalyzeResult: Codable, Hashable {
         return [CaptionSentence(english: caption, chinese: captionChinese ?? "")]
     }
 
-    var allWords: [LearningObject] { objects + sceneWords.map(\.learningObject) }
+    var storedWords: [LearningObject] { objects + sceneWords.map(\.learningObject) }
+
+    var annotatedWords: [LearningObject] {
+        objects + sceneWords.filter { $0.kind == .adjective }.compactMap { word in
+            guard let parent = objects.first(where: { $0.id == word.relatedObjectID }),
+                  parent.box.width > 0, parent.box.height > 0 else { return nil }
+            var located = word
+            located.box = parent.box
+            located.anchor = parent.resolvedTarget
+            return located.learningObject
+        }
+    }
+
+    var bottomVerbs: [SceneWord] {
+        let text = descriptionSentences.map(\.english).joined(separator: " ")
+        let excluded: Set<String> = ["be", "am", "is", "are", "was", "were", "been", "being", "can", "could", "may", "might", "must", "shall", "should", "will", "would"]
+        var seen = Set<String>()
+        return Array(sceneWords.filter {
+            $0.kind == .verb && $0.captionEvidence == text && !excluded.contains($0.english.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                && Self.captionPosition(text, form: $0.captionForm) != nil
+        }.sorted {
+            Self.captionPosition(text, form: $0.captionForm)! < Self.captionPosition(text, form: $1.captionForm)!
+        }.filter { seen.insert($0.english.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()).inserted }.prefix(3))
+    }
+
+    private static func captionPosition(_ caption: String, form: String?) -> Int? {
+        func tokens(_ value: String) -> [String] {
+            value.lowercased().matches(of: /[a-z0-9]+(?:['’-][a-z0-9]+)*/).map { String($0.output) }
+        }
+        let sentence = tokens(caption), phrase = tokens(form ?? "")
+        guard !phrase.isEmpty, phrase.count <= sentence.count else { return nil }
+        return (0...(sentence.count - phrase.count)).first { Array(sentence[$0..<($0 + phrase.count)]) == phrase }
+    }
+
+    var allWords: [LearningObject] { annotatedWords + bottomVerbs.map(\.learningObject) }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

@@ -1,3 +1,5 @@
+import type { VocabularyKind } from './vocabulary-kind.js';
+import { nonNounKindSchema } from './vocabulary-kind.js';
 import { z } from "zod";
 
 export const objectBoxSchema = z.object({
@@ -38,11 +40,16 @@ export const learningObjectSchema = z.object({
   confirmationStatus: confirmationStatusSchema.default("confirmed"),
 });
 
-export const sceneWordKindSchema = z.enum(["action", "state"]);
+export const sceneWordKindSchema = nonNounKindSchema;
 
 export const sceneWordSchema = z.object({
   id: z.string().min(1).max(40),
   kind: sceneWordKindSchema,
+  relatedObjectID: z.string().max(40).optional(),
+  captionForm: z.string().max(120).optional(),
+  captionEvidence: z.string().max(441).optional(),
+  box: objectBoxSchema.optional(),
+  anchor: objectAnchorSchema.optional(),
   english: z.string().min(1).max(60),
   chinese: z.string().min(1).max(60),
   ipa: z.string().max(80).default(""),
@@ -108,7 +115,7 @@ export type VisionInput = {
 
 export type VocabularyInput = {
   term: string;
-  kind?: "object" | "action" | "state";
+  kind?: VocabularyKind;
   language: "zh-CN";
   signal?: AbortSignal;
 };
@@ -129,11 +136,13 @@ export type SocialCopyInput = {
   interaction?: { english: string; chinese: string };
   caption: string;
   captionChinese: string;
-  words: { english: string; chinese: string; ipa?: string; kind?: 'object' | 'action' | 'state' }[];
+  words: { english: string; chinese: string; ipa?: string; kind?: VocabularyKind }[];
   highlightedWords: string[];
   signal?: AbortSignal;
 };
+export const verbMatchSchema = z.object({ english: z.string().min(1).max(60), captionForm: z.string().min(1).max(120) });
 export const photoCaptionSchema = z.object({
+  verbMatches: z.array(verbMatchSchema).max(20).optional(),
   caption: z.string().trim().min(1).max(441),
   captionSentences: captionSentencesSchema.optional(),
   captionChinese: z.string().trim().min(1).max(440),
@@ -143,7 +152,7 @@ export type PhotoCaption = z.infer<typeof photoCaptionSchema>;
 export type CaptionGenerationInput = {
   image: Uint8Array;
   mimeType: string;
-  words: { english: string; chinese: string; kind?: 'object' | 'action' | 'state' }[];
+  words: { english: string; chinese: string; kind?: VocabularyKind }[];
   context?: string;
   signal?: AbortSignal;
 };
@@ -152,7 +161,7 @@ export type CaptionReviewInput = {
   mimeType: string;
   caption: string;
   captionChinese: string;
-  words: { english: string; chinese: string; kind?: 'object' | 'action' | 'state' }[];
+  words: { english: string; chinese: string; kind?: VocabularyKind }[];
   context?: string;
   signal?: AbortSignal;
 };

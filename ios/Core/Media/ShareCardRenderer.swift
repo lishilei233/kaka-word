@@ -17,7 +17,7 @@ enum DecoratedPhotoRenderer {
         result: AnalyzeResult,
         revealsAnnotations: Bool = true
     ) throws -> UIImage {
-        let logicalSize = logicalSize(for: image, sceneWordCount: result.sceneWords.count)
+        let logicalSize = logicalSize(for: image, sceneWordCount: result.bottomVerbs.count)
         let content = ShareableDecoratedPhoto(
             image: image,
             result: result,
@@ -54,7 +54,7 @@ private struct ShareableDecoratedPhoto: View {
             // as black by several share destinations and image viewers.
             AnnotatedPhotoCard(
                 image: image,
-                objects: result.objects,
+                objects: result.annotatedWords,
                 revealsAnnotations: revealsAnnotations,
                 showsShadow: false,
                 usesOriginalAspectRatio: true,
@@ -63,14 +63,14 @@ private struct ShareableDecoratedPhoto: View {
             .aspectRatio(image.size.width / max(image.size.height, 1), contentMode: .fit)
             .frame(maxWidth: .infinity)
 
-            if !result.sceneWords.isEmpty {
+            if !result.bottomVerbs.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("SCENE WORDS")
+                    Text("VERBS")
                         .font(.system(size: 10, weight: .black, design: .monospaced))
                         .tracking(1.4)
                         .foregroundStyle(Color.coral)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                        ForEach(result.sceneWords) { word in
+                        ForEach(result.bottomVerbs) { word in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(word.english)
                                     .font(.system(size: 14, weight: .bold, design: .serif))
@@ -82,7 +82,7 @@ private struct ShareableDecoratedPhoto: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
                             .padding(.horizontal, 9)
-                            .background((word.kind == .action ? Color.sun : Color.sky).opacity(0.24), in: RoundedRectangle(cornerRadius: 12))
+                            .background((word.kind == .verb ? Color.sun : Color.sky).opacity(0.24), in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
                 }

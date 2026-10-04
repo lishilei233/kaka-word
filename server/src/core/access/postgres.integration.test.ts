@@ -37,6 +37,7 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
     await readFile(new URL("../../../migrations/004_recognition_feedback.sql", import.meta.url), "utf8"),
     await readFile(new URL("../../../migrations/005_installation_stats.sql", import.meta.url), "utf8"),
     await readFile(new URL("../../../migrations/006_installation_environment.sql", import.meta.url), "utf8"),
+    await readFile(new URL("../../../migrations/007_recognition_attempts.sql", import.meta.url), "utf8"),
   ].join("\n");
   const setupPool = new Pool({ connectionString: isolatedURL.toString() });
   await setupPool.query(migration);
@@ -116,6 +117,7 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
   const firstMemberEntitlement = (await service.syncSubscription(firstPrincipal, "signed-transaction")).entitlement;
   assert.equal(firstMemberEntitlement.tier, "member");
   await service.syncSubscription(firstPrincipal, "signed-transaction-retry");
+  Object.assign(firstPrincipal, await service.authenticate(`Bearer ${firstBootstrap.accessToken}`, "Sandbox"));
   assert.equal((await setupPool.query("SELECT COUNT(*)::integer AS count FROM picture_word_subscription_transactions")).rows[0].count, 1);
   const firstMemberReservation = await service.reserveAnalyze(firstPrincipal, randomUUID());
   assert.equal(firstMemberReservation.allowed, true);
@@ -129,6 +131,7 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
   const secondMemberEntitlement = (await service.syncSubscription(secondPrincipal, "same-original-transaction")).entitlement;
   assert.equal(secondMemberEntitlement.used, 1);
   assert.equal(secondMemberEntitlement.remaining, 99);
+  Object.assign(secondPrincipal, await service.authenticate(`Bearer ${secondBootstrap.accessToken}`, "Sandbox"));
 
   verifier.transaction = {
     ...memberTransaction,

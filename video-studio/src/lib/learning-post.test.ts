@@ -5,9 +5,9 @@ import { fixedCoverTitle, fixedSocialCopy, publishingIssues, publishingPost, pub
 
 const p: Project = { ...emptyProject, sceneTheme: '书架一角',
     words: [
-        { id: 'state', english: 'open', chinese: '打开的', ipa: '/oʊpən/', kind: 'state' },
-        { id: 'book', english: 'book', chinese: '书', ipa: '/bʊk/', kind: 'object', needsLocation: true },
-        { id: 'shelf', english: 'bookshelf', chinese: '书架', ipa: '', kind: 'object', needsLocation: true },
+        { id: 'adjective', english: 'open', chinese: '打开的', ipa: '/oʊpən/', kind: 'adjective', relatedObjectID: 'book' },
+        { id: 'book', english: 'book', chinese: '书', ipa: '/bʊk/', kind: 'noun', box: { x: .1, y: .1, width: .2, height: .2 } },
+        { id: 'shelf', english: 'bookshelf', chinese: '书架', ipa: '', kind: 'noun', needsLocation: true },
     ], caption: 'Books sit on a shelf.', captionChinese: '书摆在书架上。',
     captionSentences: [{ english: 'Books sit on a shelf.', chinese: '书摆在书架上。' }, { english: 'A book is open.', chinese: '一本书打开着。' }],
 };
@@ -22,7 +22,7 @@ test('three platforms use the exact same fixed template and plain-text formattin
     assert.equal(publishingText(p, 'body'), `${expectedBody}\n\n${tags}`);
     assert.equal(publishingText(p, 'all'), `看照片学单词｜书架一角\n\n${expectedBody}\n\n${tags}`);
     assert.equal(publishingText(p, 'title'), copy.xiaohongshu.title);
-    assert.equal(fixedCoverTitle(p), '书架一角，你会几个单词？');
+    assert.equal(fixedCoverTitle(p), '书架一角，这3个英语你会吗？');
 });
 test('manual scene survives round trip without altering video data or historical copy', () => {
     const saved = projectSchema.parse({ ...p, publishingScene: '窗边书架', socialCopy: fixedSocialCopy(p), cover: { template: 'scene-question', title: '旧标题', audienceTitles: { adult: '旧受众标题' }, scale: .9, words: {} } });
@@ -32,7 +32,7 @@ test('manual scene survives round trip without altering video data or historical
     assert.equal(restored.cover?.title, '旧标题');
     assert.equal(restored.socialCopy?.xiaohongshu.title, '看照片学单词｜书架一角');
     assert.equal(publishingPost(restored).title, '看照片学单词｜窗边书架');
-    assert.equal(restored.version, 4);
+    assert.equal(restored.version, 5);
     assert.deepEqual(restored.words, p.words);
     assert.deepEqual(restored.captionSentences, p.captionSentences);
 });
@@ -40,8 +40,8 @@ test('legacy captions stay a single paired block and changes are reflected immed
     const legacy = { ...p, captionSentences: undefined, caption: 'One. Two.', captionChinese: '一句。两句。' };
     assert.ok(publishingPost(legacy).body.includes('再学一句：\nOne. Two.\n一句。两句。'));
     const changed = { ...legacy, publishingScene: '桌面', words: p.words.slice(0, 1), caption: 'It is open.', captionChinese: '它打开着。' };
-    assert.equal(fixedCoverTitle(changed), '桌面，你会几个单词？');
-    assert.ok(publishingPost(changed).body.includes('：\nopen\n\n再学一句：\nIt is open.\n它打开着。'));
+    assert.equal(fixedCoverTitle(changed), '桌面，这0个英语你会吗？');
+    assert.ok(publishingPost(changed).body.includes('：\n\n\n再学一句：\nIt is open.\n它打开着。'));
 });
 test('enabled interaction is included after the descriptions and remains out when disabled', () => {
     const interaction = { enabled: true, english: 'What else can you see?', chinese: '你还看到了什么？' };

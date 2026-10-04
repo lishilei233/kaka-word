@@ -1,9 +1,65 @@
 import SwiftData
 import XCTest
+import UIKit
 @testable import PictureWord
 
 @MainActor
 final class PersistenceTests: XCTestCase {
+    func testLegacySceneClassificationRetainsIdentityGeometryAndLearningContent() throws {
+        let original = makeRecord(index: 1).result.objects[0]
+        for (legacy, canonical) in [("state", VocabularyKind.adjective), ("action", VocabularyKind.verb)] {
+            let entity = LearningObjectEntity(object: original, sortIndex: 0)
+            entity.confirmationStatusRawValue = "scene:\(legacy)"
+            entity.labelCenterX = 0.8
+            entity.labelCenterY = 0.7
+            let restored = PersistenceMapper.learningObject(from: entity)
+            XCTAssertEqual(restored.kind, canonical)
+            XCTAssertEqual(restored.id, original.id)
+            XCTAssertEqual(restored.english, original.english)
+            XCTAssertEqual(restored.box, original.box)
+            XCTAssertEqual(restored.labelCenterOverride, ObjectAnchor(x: 0.8, y: 0.7))
+            XCTAssertEqual(LearningObjectEntity(object: restored, sortIndex: 0).confirmationStatusRawValue, "scene:\(canonical.rawValue)")
+        }
+    }
+
+    func testSceneWordEvidenceAndOverridesSurviveSaveAndReload() throws {
+        let container = try PersistenceController.makeContainer(inMemory: true)
+        let store = HistoryStore(container: container)
+        let original = makeRecord(index: 1).result
+        let parent = original.objects[0]
+        let data = Data(#"{"id":"empty","kind":"state","english":"empty","chinese":"空的","ipa":"","example":"An empty cup."}"#.utf8)
+        var word = try JSONDecoder().decode(SceneWord.self, from: data)
+        word.relatedObjectID = parent.id
+        word.labelCenterOverride = ObjectAnchor(x: 0.8, y: 0.7)
+        word.targetOverride = ObjectAnchor(x: 0.3, y: 0.4)
+        let result = AnalyzeResult(imageWidth: original.imageWidth, imageHeight: original.imageHeight,
+            objects: original.objects, sceneWords: [word], caption: original.caption, captionChinese: original.captionChinese, captionStyle: original.captionStyle)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in UIColor.white.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 20, height: 20)) }
+        let record = try store.save(image: image, result: result)
+        store.reload()
+        XCTAssertEqual(store.record(id: record.id)?.result.sceneWords, [word])
+        XCTAssertEqual(store.record(id: record.id)?.result.annotatedWords.last?.targetOverride, word.targetOverride)
+        store.delete(record)
+        XCTAssertTrue(try ModelContext(container).fetch(FetchDescriptor<SceneWordsEntity>()).isEmpty)
+    }
+
+    func testV3MigratesToSceneEvidenceSchemaWithoutLosingHistory() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configuration = ModelConfiguration(url: directory.appendingPathComponent("scene.store"))
+        let record = makeRecord(index: 1)
+        try autoreleasepool {
+            let old = try ModelContainer(for: Schema(versionedSchema: PictureWordSchemaV3.self), configurations: configuration)
+            let context = ModelContext(old)
+            context.insert(HistoryEntity(record: record))
+            try context.save()
+        }
+        let updated = try ModelContainer(for: Schema(versionedSchema: PictureWordSchemaV4.self), migrationPlan: PictureWordMigrationPlan.self, configurations: configuration)
+        XCTAssertEqual(try ModelContext(updated).fetch(FetchDescriptor<HistoryEntity>()).map(\.id), [record.id])
+        XCTAssertTrue(try ModelContext(updated).fetch(FetchDescriptor<SceneWordsEntity>()).isEmpty)
+    }
+
     func testV1StoreMigratesToListeningSchemaWithoutLosingHistoryOrMastery() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -192,6 +248,68 @@ extension PersistenceTests {
         reopened.delete(try XCTUnwrap(reopened.record(id: saved.id)))
         XCTAssertTrue(try ModelContext(container).fetch(FetchDescriptor<RecognitionRangeEntity>()).isEmpty)
 
+    }
+
+    func testEditingUnloadedHistoryRecordPublishesThumbnailRefresh() throws {
+        let container = try PersistenceController.makeContainer(inMemory: true)
+        let context = ModelContext(container)
+        let records = (0...HistoryStore.pageSize).map { makeRecord(index: $0) }
+        records.forEach { context.insert(HistoryEntity(record: $0)) }
+        try context.save()
+        let history = HistoryStore(container: container)
+        let unloaded = try XCTUnwrap(records.first { record in !history.records.contains(where: { $0.id == record.id }) })
+        var notifications = 0
+        let subscription = history.objectWillChange.sink { notifications += 1 }
+        var object = unloaded.result.objects[0]
+        object.recognitionBoxOverride = ObjectBox(x: 0.2, y: 0.2, width: 0.3, height: 0.4)
+        try history.updateResult(id: unloaded.id, result: unloaded.result.replacingObject(object))
+        XCTAssertGreaterThan(notifications, 0)
+        XCTAssertEqual(history.record(id: unloaded.id)?.result.objects[0].recognitionBoxOverride, object.recognitionBoxOverride)
+        withExtendedLifetime(subscription) {}
+    }
+
+    func testInlineRangeDragPreviewsWithoutSavingAndRollsBackOnFailure() {
+        let original = ObjectBox(x: 0.2, y: 0.3, width: 0.4, height: 0.2)
+        var drag = RecognitionRangeDragState()
+        var saved: ObjectBox? = original
+        var saveCount = 0
+        drag.update(from: original, corner: nil, dx: 0.1, dy: 0.1)
+        drag.update(from: original, corner: nil, dx: 0.2, dy: 0.1)
+        XCTAssertEqual(saveCount, 0)
+        XCTAssertEqual(saved, original)
+        XCTAssertEqual(drag.draft?.x ?? 0, 0.4, accuracy: 0.000001)
+        XCTAssertNil(drag.finish(objectID: "cup") { id, box in
+            XCTAssertEqual(id, "cup")
+            saved = box
+            saveCount += 1
+            return nil
+        })
+        XCTAssertEqual(saveCount, 1)
+        XCTAssertNil(drag.draft)
+        let committed = saved!
+        drag.update(from: committed, corner: "se", dx: 0.2, dy: 0.2)
+        XCTAssertEqual(drag.finish(objectID: "cup") { _, _ in "磁盘不可用" }, "磁盘不可用")
+        XCTAssertNil(drag.draft)
+        XCTAssertEqual(saved, committed)
+        drag.update(from: committed, corner: nil, dx: -0.1, dy: 0)
+        drag.reset()
+        XCTAssertNil(drag.finish(objectID: "cup") { _, _ in
+            XCTFail("Cancelled drags must not save")
+            return nil
+        })
+    }
+
+    func testInlineRangeMoveClampsEdgesWithoutResizing() {
+        let box = ObjectBox(x: 0.2, y: 0.3, width: 0.4, height: 0.2)
+        XCTAssertEqual(RecognitionRangeGeometry.moved(box, dx: -5, dy: -5),
+                       ObjectBox(x: 0, y: 0, width: 0.4, height: 0.2))
+        XCTAssertEqual(RecognitionRangeGeometry.moved(box, dx: 5, dy: 5),
+                       ObjectBox(x: 0.6, y: 0.8, width: 0.4, height: 0.2))
+        for corner in ["nw", "ne", "sw", "se"] {
+            var drag = RecognitionRangeDragState()
+            drag.update(from: box, corner: corner, dx: 0.1, dy: -0.1)
+            XCTAssertEqual(drag.draft, RecognitionRangeGeometry.resized(box, corner: corner, dx: 0.1, dy: -0.1))
+        }
     }
 
     func testRecognitionRangeGeometryRespectsEdgesAndSmallCorners() {

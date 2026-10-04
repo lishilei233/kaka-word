@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { RecognitionAttemptStore } from "./recognition-attempts.js";
 import type { AccessConfig } from "../../config.js";
 import type { Logger } from "../../utils/logger.js";
 import { monthlyQuotaPeriod } from "./quota-period.js";
@@ -16,6 +17,8 @@ import type {
   InstallationMetric,
   QuotaReservation,
   RecognitionFeedbackInput,
+  RecognitionAttemptInput,
+  RecognitionAttemptResult,
   StoreNotification,
   StoreSignedDataVerifying,
   StoreSyncResult,
@@ -58,6 +61,7 @@ const RESERVATION_TTL_MS = 10 * 60 * 1_000;
 
 export class PostgresAccessService implements AccessService {
   private readonly pool: Pool;
+  private readonly attempts: RecognitionAttemptStore;
 
   constructor(
     private readonly config: AccessConfig,
@@ -66,6 +70,7 @@ export class PostgresAccessService implements AccessService {
     private readonly logger: Logger,
   ) {
     this.pool = new Pool({ connectionString: config.databaseURL });
+    this.attempts = new RecognitionAttemptStore(this.pool);
   }
 
   async bootstrap(input: BootstrapInput): Promise<BootstrapResult> {
@@ -338,6 +343,10 @@ export class PostgresAccessService implements AccessService {
       [installationId, storeEnvironment ?? "Unknown"],
     );
   }
+
+  async beginRecognitionAttempt(input: RecognitionAttemptInput): Promise<boolean> { return this.attempts.begin(input); }
+  async finishRecognitionAttempt(result: RecognitionAttemptResult): Promise<void> { await this.attempts.finish(result); }
+  async maintainRecognitionAttempts(): Promise<void> { await this.attempts.maintain(); }
 
   async reserveAnalyze(
     principal: AccessPrincipal,

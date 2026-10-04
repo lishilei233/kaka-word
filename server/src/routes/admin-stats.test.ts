@@ -51,8 +51,8 @@ test("admin stats page and API accept correct credentials", async () => {
   assert.match(html, /注册时间（北京时间）/);
   assert.match(html, /option\('all','不限时间'\)/);
   assert.match(html, /font-size:14px; font-weight:850/);
-  assert.match(html, /pct\(successes,attempts\)/);
-  assert.match(html, /pct\(reselected,confirmations\)/);
+  assert.match(html, /pct\(s.recognitionSuccesses,s.recognitionAttempts\)/);
+  assert.match(html, /pct\(s.reselectionCount,s.confirmationCount\)/);
   assert.match(html, /总计/);
   assert.doesNotMatch(html, /id="trend"|id="freeUsage"|id="selections"/);
   assert.match(html, /id="funnel"/);
@@ -116,9 +116,9 @@ test("device header filters combine by column, recalculate totals, and clear cle
   assert.match(element("devices").innerHTML, /所选注册日期范围内没有新增设备/);
   requestedURLs.length = 0;
   const devices = [
-    { deviceId: "a1", registrationDate: "2026-09-01 10:00", environment: "Production", membershipType: "free", recognitionAttempts: 10, recognitionSuccesses: 8, confirmationCount: 4, reselectionCount: 1, freeUsed: 2 },
-    { deviceId: "b2", registrationDate: "2026-09-15 12:30", environment: "Unknown", membershipType: "monthly", recognitionAttempts: 0, recognitionSuccesses: 0, confirmationCount: 0, reselectionCount: 0, freeUsed: 0 },
-    { deviceId: "c3", registrationDate: "2026-09-30 23:59", environment: "Sandbox", membershipType: "annual", recognitionAttempts: 5, recognitionSuccesses: 5, confirmationCount: 2, reselectionCount: 2, freeUsed: 3 },
+    { installationId: "11111111-1111-4111-8111-111111111111", deviceId: "a1", registrationDate: "2026-09-01 10:00", environment: "Production", membershipType: "free", recognitionAttempts: 10, recognitionSuccesses: 8, confirmationCount: 4, reselectionCount: 1, freeUsed: 2 },
+    { installationId: "22222222-2222-4222-8222-222222222222", deviceId: "b2", registrationDate: "2026-09-15 12:30", environment: "Unknown", membershipType: "monthly", recognitionAttempts: 0, recognitionSuccesses: 0, confirmationCount: 0, reselectionCount: 0, freeUsed: 0 },
+    { installationId: "33333333-3333-4333-8333-333333333333", deviceId: "c3", registrationDate: "2026-09-30 23:59", environment: "Sandbox", membershipType: "annual", recognitionAttempts: 5, recognitionSuccesses: 5, confirmationCount: 2, reselectionCount: 2, freeUsed: 3 },
   ];
   runInContext(`currentDeviceRows=${JSON.stringify(devices)}; renderDeviceTable()`, context);
   const run = (code: string) => runInContext(code, context);
@@ -131,23 +131,10 @@ test("device header filters combine by column, recalculate totals, and clear cle
   assert.match(requestedURLs.at(-1) ?? "", /environment=All&startDate=2026-09-08&endDate=2026-09-14/);
   run(`currentDeviceRows=${JSON.stringify(devices)}; renderDeviceTable()`);
   const root = element("devices") as TestElement;
-  run("openDeviceFilter='recognitionAttempts'; renderDeviceTable()");
-  root.panel = { querySelectorAll: () => root.fields };
-  root.fields = [{ dataset: { filterField: "min" }, value: "6" }, { dataset: { filterField: "max" }, value: "" }];
-  context.applyButton = { dataset: { filterAction: "apply", filterKey: "recognitionAttempts" }, closest() { return this; } };
-  run("handleDeviceFilterClick({target:applyButton})");
-  assert.match(root.innerHTML, /总计（1 台）/);
-  run("deviceFilters=Object.fromEntries(deviceFilterColumns.map(column=>[column.key,emptyDeviceFilter(column)]))");
-
   for (const [keyName, filters, expected] of [
     ["deviceId", { query: "B2" }, [false, true, false]],
     ["environment", { value: "Sandbox" }, [false, false, true]],
     ["membershipType", { value: "annual" }, [false, false, true]],
-    ["recognitionAttempts", { min: "6", max: "10" }, [true, false, false]],
-    ["recognitionSuccesses", { min: "5", max: "8" }, [true, false, true]],
-    ["successRate", { min: "99", max: "100" }, [false, false, true]],
-    ["freeQuota", { usedMin: "3", usedMax: "3", remainingMin: "0", remainingMax: "0" }, [false, false, true]],
-    ["changeRate", { min: "25", max: "25" }, [true, false, false]],
   ] as const) {
     run(`deviceFilters=Object.fromEntries(deviceFilterColumns.map(column=>[column.key,emptyDeviceFilter(column)])); deviceFilters[${JSON.stringify(keyName)}]=Object.assign(emptyDeviceFilter(deviceFilterColumns.find(column=>column.key===${JSON.stringify(keyName)})),${JSON.stringify(filters)})`);
     assert.deepEqual(JSON.parse(run("JSON.stringify(currentDeviceRows.map(deviceMatchesFilters))")), expected, keyName);
@@ -157,14 +144,13 @@ test("device header filters combine by column, recalculate totals, and clear cle
   const table = element("devices").innerHTML;
   assert.match(table, /总计（1 台）/);
   assert.match(table, /免费会员：1<br>月会员：0<br>年会员：0/);
-  assert.match(table, /80\.0%/);
-  assert.match(table, /25\.0%/);
+  assert.match(table, /查看详情/);
+  assert.doesNotMatch(table, /识别尝试|成功识别|免费额度|用户改选率/);
   assert.match(table, /当前显示 1 \/ 3 台设备/);
 
-  run("deviceFilters=Object.fromEntries(deviceFilterColumns.map(column=>[column.key,emptyDeviceFilter(column)])); deviceFilters.successRate.min='0'; renderDeviceTable()");
-  assert.deepEqual(JSON.parse(run("JSON.stringify(currentDeviceRows.map(deviceMatchesFilters))")), [true, false, true]);
-  run("deviceFilters.successRate.min='101'; renderDeviceTable()");
+  run("deviceFilters=Object.fromEntries(deviceFilterColumns.map(column=>[column.key,emptyDeviceFilter(column)])); deviceFilters.deviceId.query='missing'; renderDeviceTable()");
   assert.match(element("devices").innerHTML, /没有设备符合这些筛选条件/);
+  assert.match(element("devices").innerHTML, /总计（0 台）/);
   const clearButton = { dataset: { filterAction: "clear-all" }, closest() { return this; } };
   context.clearButton = clearButton;
   run("handleDeviceFilterClick({target:clearButton})");
@@ -199,6 +185,9 @@ function auth(password: string): Record<string, string> {
 }
 
 class FakeRepository implements AdminStatsRepository {
+  detailData: import('../core/admin-device-details.js').DeviceDetails | null = null;
+  lastDetailQuery?: import('../core/admin-device-details.js').DeviceDetailQuery;
+  async loadDeviceDetails(query: import('../core/admin-device-details.js').DeviceDetailQuery): Promise<import('../core/admin-device-details.js').DeviceDetails | null> { this.lastDetailQuery = query; return this.detailData; }
   lastQuery?: { startDate: string | null; endDate: string | null; environment: AdminStatsEnvironment };
 
   async load(startDate: string | null, endDate: string | null, environment: AdminStatsEnvironment): Promise<AdminStatsSnapshot> {
@@ -212,6 +201,13 @@ class TestElement {
   value = "";
   listeners = new Map<string, (event: any) => void>();
   panel: { querySelectorAll: () => Array<{ dataset: { filterField: string }; value: string }> } | null = null;
+  hidden = false;
+  disabled = false;
+  textContent = "";
+  open = false;
+  setAttribute() {}
+  showModal() { this.open = true; }
+  close() { this.open = false; this.listeners.get("close")?.({}); }
   fields: Array<{ dataset: { filterField: string }; value: string }> = [];
   classList = { add() {}, remove() {} };
   addEventListener(name: string, listener: (event: any) => void) { this.listeners.set(name, listener); }
@@ -224,3 +220,60 @@ function shiftDate(value: string, days: number): string {
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
+
+const detailDeviceId = '11111111-1111-4111-8111-111111111111';
+function detailFixture(): import('../core/admin-device-details.js').DeviceDetails {
+  return {
+    device: { installationId: detailDeviceId, deviceId: '111111', registrationDate: '2026-10-01 12:00', environment: 'Sandbox', membershipType: 'free', freeUsed: 1, recognitionAttempts: 3, recognitionSuccesses: 1, confirmationCount: 4, reselectionCount: 1 },
+    summary: { recognitionAttempts: 3, recognitionSuccesses: 1, confirmationCount: 4, reselectionCount: 1 },
+    startDate: '2026-09-01', endDate: '2026-10-01', recordingStartedAt: '2026-10-01T04:00:00.000Z',
+    attempts: [{ operationId: detailDeviceId, requestId: 'request<escaped>', startedAt: '2026-10-01T05:00:00.000Z', finishedAt: '2026-10-01T05:00:02.000Z', environment: 'Sandbox', outcome: 'success', reasonCode: null, stage: 'serialize_response', durationMs: 2000, appVersion: '1.2.0', appBuild: '35', quotaBefore: { tier: 'free', limit: 3, used: 0, reserved: 0, remaining: 3, periodStart: null, resetAt: null }, quotaAfter: { tier: 'free', limit: 3, used: 1, reserved: 0, remaining: 2, periodStart: null, resetAt: null }, quotaState: 'committed' }], nextCursor: null,
+  };
+}
+
+test('device detail API enforces admin authentication, date retention, filters, cursors and missing devices', async () => {
+  const repo = new FakeRepository();
+  const app = appFor(key, repo), endpoint = '/admin/api/stats/devices/' + detailDeviceId;
+  assert.equal((await app.request(endpoint)).status, 401);
+  assert.equal((await app.request(endpoint, { headers: auth(key) })).status, 404);
+  assert.ok(repo.lastDetailQuery);
+  assert.equal(repo.lastDetailQuery.startDate, shiftDate(repo.lastDetailQuery.endDate, -89));
+  repo.detailData = detailFixture();
+  const cursor = Buffer.from(JSON.stringify({ startedAt: '2026-10-01T05:00:00.000Z', operationId: detailDeviceId })).toString('base64url');
+  assert.equal((await app.request(endpoint + '?outcome=success&appVersion=1.2.0&cursor=' + cursor, { headers: auth(key) })).status, 200);
+  assert.equal(repo.lastDetailQuery.outcome, 'success');
+  assert.equal(repo.lastDetailQuery.appVersion, '1.2.0');
+  assert.equal(repo.lastDetailQuery.cursor?.operationId, detailDeviceId);
+  for (const suffix of ['?startDate=2000-01-01', '?startDate=2026-02-30', '?endDate=2999-01-01', '?outcome=wrong', '?cursor=invalid', '?appVersion=' + 'x'.repeat(65)]) {
+    assert.equal((await app.request(endpoint + suffix, { headers: auth(key) })).status, 400, suffix);
+  }
+  assert.equal((await app.request('/admin/api/stats/devices/111111', { headers: auth(key) })).status, 400);
+});
+
+test('device drawer shows weighted summaries, quota snapshots, version and preserves headers on errors', async () => {
+  const html = await (await appFor(key, new FakeRepository()).request('/admin/stats', { headers: auth(key) })).text();
+  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)![1];
+  const elements = new Map<string, TestElement>();
+  const element = (id: string) => { if (!elements.has(id)) elements.set(id, new TestElement()); return elements.get(id)!; };
+  const urls: string[] = [];
+  const context = createContext({ document: { getElementById: element, querySelectorAll: () => [] }, URLSearchParams, Intl, Date, console,
+    fetch: async (url: string) => { urls.push(url); return { ok: true, json: async () => url.includes('/devices/') ? detailFixture() : snapshot }; } });
+  runInContext(script, context); await new Promise(resolve => setImmediate(resolve));
+  await runInContext('openDeviceDetails("' + detailDeviceId + '")', context);
+  assert.equal(element('deviceDetails').open, true);
+  assert.match(urls.at(-1)!, new RegExp('/devices/' + detailDeviceId));
+  assert.equal(element('detailPreset').value, '90');
+  assert.match(element('detailSummary').innerHTML, /33\.3%/);
+  assert.match(element('detailSummary').innerHTML, /25\.0%/);
+  assert.match(element('detailAttempts').innerHTML, /是 · 已扣除/);
+  assert.match(element('detailAttempts').innerHTML, /剩余 3[\s\S]*剩余 2/);
+  assert.match(element('detailAttempts').innerHTML, /1\.2\.0/);
+  assert.match(element('detailAttempts').innerHTML, /request&lt;escaped&gt;/);
+  context.fetch = async () => ({ ok: false, status: 503 });
+  await runInContext('loadDeviceDetailsPage()', context);
+  assert.match(element('detailStatus').textContent, /HTTP 503/);
+  assert.match(element('detailAttempts').innerHTML, /<thead>/);
+  assert.equal(element('detailRetry').hidden, false);
+  element('deviceDetails').close();
+  assert.equal(runInContext('detailDeviceId', context), null);
+});

@@ -42,6 +42,7 @@ struct AnnotatedImageView: View {
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
     var onUpdates: (([LearningObject]) -> Void)?
+    var onRecognitionRangeChange: ((String, ObjectBox?) -> String?)?
     var editingObjectID: Binding<String?> = .constant(nil)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -49,6 +50,7 @@ struct AnnotatedImageView: View {
     @State private var draftLabelCenters: [String: ObjectAnchor] = [:]
     @State private var draftTargets: [String: ObjectAnchor] = [:]
     @State private var dragBaselineLabelCenters: [String: ObjectAnchor] = [:]
+    @State private var rangeDrag = RecognitionRangeDragState()
     @State private var pointerActive = false
     @State private var labelActivationState = AnnotationLabelActivationState()
     @State private var dragPlacements: [AnnotationPlacement] = []
@@ -105,14 +107,15 @@ struct AnnotatedImageView: View {
                 }
                 if let emphasizedObjectIDs {
                     ForEach(objects.filter { emphasizedObjectIDs.contains($0.id) && $0.id != activeEditingObjectID }) { object in
-                        if revealsAnnotations, object.kind == .object, RecognitionRangeGeometry.isValid(object.box) {
+                        if revealsAnnotations, object.kind == .noun, RecognitionRangeGeometry.isValid(object.box) {
                             RecognitionCornerOverlay(box: RecognitionRangeGeometry.isValid(object.recognitionBoxOverride ?? object.box) ? (object.recognitionBoxOverride ?? object.box) : object.box, imageFrame: imageFrame, animated: animatesFocus)
                         }
                     }
                 }
-                if let editingPlacement = editingPlacement(in: layout) {
-                    if let box = RecognitionRangeGeometry.resolvedBox(for: editingPlacement.object) {
-                        RecognitionCornerOverlay(box: box, imageFrame: imageFrame, animated: false)
+                if let editingObject, let box = RecognitionRangeGeometry.resolvedBox(for: editingObject) {
+                    RecognitionCornerOverlay(box: rangeDrag.draft ?? box, imageFrame: imageFrame, animated: false)
+                    if onRecognitionRangeChange != nil {
+                        recognitionRangeMoveControl(object: editingObject, box: rangeDrag.draft ?? box, in: imageFrame)
                     }
                 }
 
@@ -132,11 +135,15 @@ struct AnnotatedImageView: View {
                         allPlacements: layout.placements,
                         in: imageFrame
                     )
+                    if let editingObject, let box = RecognitionRangeGeometry.resolvedBox(for: editingObject), onRecognitionRangeChange != nil {
+                        recognitionRangeCorners(object: editingObject, box: rangeDrag.draft ?? box, in: imageFrame)
+                    }
                 }
             }
             .coordinateSpace(name: "annotation-canvas")
             .animation(.spring(response: 0.42, dampingFraction: 0.72), value: objects.map(\.id))
             .onDisappear { settlingTask?.cancel() }
+            .onChange(of: activeEditingObjectID) { _, _ in rangeDrag.reset() }
             .task(id: request) {
                 await updateStreamedLayout(for: request)
             }
@@ -197,9 +204,79 @@ struct AnnotatedImageView: View {
         editingObjectID.wrappedValue
     }
 
+    private var editingObject: LearningObject? {
+        guard isEditable, let activeEditingObjectID else { return nil }
+        return objects.first { $0.id == activeEditingObjectID }
+    }
+
     private func editingPlacement(in layout: AnnotationLayout) -> AnnotationPlacement? {
         guard isEditable, let activeEditingObjectID else { return nil }
         return layout.placements.first { $0.id == activeEditingObjectID }
+    }
+
+    private func recognitionRangeMoveControl(object: LearningObject, box: ObjectBox, in imageFrame: CGRect) -> some View {
+        let rect = RecognitionRangeGeometry.rect(box, in: imageFrame)
+        return Rectangle()
+            .fill(Color.clear)
+            .contentShape(Rectangle())
+            .frame(width: rect.width, height: rect.height)
+            .position(x: rect.midX, y: rect.midY)
+            .gesture(recognitionRangeGesture(object: object, corner: nil, in: imageFrame))
+            .onTapGesture {} // A tap on the frame must not dismiss editing.
+            .accessibilityElement()
+            .accessibilityLabel("\(object.english) 的识别框")
+            .accessibilityHint("拖动移动识别框，松手保存并更新截图")
+            .accessibilityAction(named: Text("向左移动")) { changeRange(object, corner: nil, dx: -0.02, dy: 0) }
+            .accessibilityAction(named: Text("向右移动")) { changeRange(object, corner: nil, dx: 0.02, dy: 0) }
+            .accessibilityAction(named: Text("向上移动")) { changeRange(object, corner: nil, dx: 0, dy: -0.02) }
+            .accessibilityAction(named: Text("向下移动")) { changeRange(object, corner: nil, dx: 0, dy: 0.02) }
+    }
+
+    private func recognitionRangeCorners(object: LearningObject, box: ObjectBox, in imageFrame: CGRect) -> some View {
+        let rect = RecognitionRangeGeometry.rect(box, in: imageFrame)
+        return ForEach(["nw", "ne", "sw", "se"], id: \.self) { corner in
+            Circle()
+                .fill(Color.paperLight)
+                .frame(width: 12, height: 12)
+                .overlay(Circle().stroke(Color.recognitionInk, lineWidth: 2))
+                .frame(width: 44, height: 44)
+                .contentShape(RecognitionCornerHitShape(corner: corner, boxSize: rect.size))
+                .position(x: corner.contains("w") ? rect.minX : rect.maxX,
+                          y: corner.contains("n") ? rect.minY : rect.maxY)
+                .gesture(recognitionRangeGesture(object: object, corner: corner, in: imageFrame))
+                .onTapGesture {}
+                .accessibilityElement()
+                .accessibilityLabel("识别框\(corner.contains("n") ? "上" : "下")\(corner.contains("w") ? "左" : "右")角")
+                .accessibilityAction(named: Text("向左调整")) { changeRange(object, corner: corner, dx: -0.02, dy: 0) }
+                .accessibilityAction(named: Text("向右调整")) { changeRange(object, corner: corner, dx: 0.02, dy: 0) }
+                .accessibilityAction(named: Text("向上调整")) { changeRange(object, corner: corner, dx: 0, dy: -0.02) }
+                .accessibilityAction(named: Text("向下调整")) { changeRange(object, corner: corner, dx: 0, dy: 0.02) }
+        }
+    }
+
+    private func recognitionRangeGesture(object: LearningObject, corner: String?, in imageFrame: CGRect) -> some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named("annotation-canvas"))
+            .onChanged { drag in
+                guard activeEditingObjectID == object.id,
+                      let box = RecognitionRangeGeometry.resolvedBox(for: object) else { return }
+                rangeDrag.update(from: box, corner: corner,
+                                 dx: Double(drag.translation.width / max(imageFrame.width, 1)),
+                                 dy: Double(drag.translation.height / max(imageFrame.height, 1)))
+            }
+            .onEnded { _ in
+                guard activeEditingObjectID == object.id, let onRecognitionRangeChange else {
+                    rangeDrag.reset()
+                    return
+                }
+                _ = rangeDrag.finish(objectID: object.id, save: onRecognitionRangeChange)
+            }
+    }
+
+    private func changeRange(_ object: LearningObject, corner: String?, dx: Double, dy: Double) {
+        guard let box = RecognitionRangeGeometry.resolvedBox(for: object) else { return }
+        let updated = corner.map { RecognitionRangeGeometry.resized(box, corner: $0, dx: dx, dy: dy) }
+            ?? RecognitionRangeGeometry.moved(box, dx: dx, dy: dy)
+        _ = onRecognitionRangeChange?(object.id, updated)
     }
 
     private func objectRangeControl(
@@ -254,7 +331,7 @@ struct AnnotatedImageView: View {
         )) { timeline in
             let isActive = activeEditingObjectID == placement.id
             let elapsed = timeline.date.timeIntervalSinceReferenceDate
-            let angle = isActive
+            let angle = isActive && !reduceMotion
                 ? sin(elapsed * (2 * .pi / Interaction.jiggleInterval)) * Interaction.jiggleAmplitude
                 : 0
 
@@ -306,6 +383,10 @@ struct AnnotatedImageView: View {
                     in: imageFrame
                 ))
                 .transition(.scale(scale: 0.72).combined(with: .opacity))
+                .accessibilityAction(named: Text("编辑标注")) {
+                    guard isEditable else { return }
+                    beginEditing(placement.id)
+                }
                 .accessibilityHint(placement.object.needsConfirmation ? "名称待确认，点击选择正确单词" : "点击查看单词详情")
                 .scaleEffect(revealsAnnotations ? 1 : 0.72)
                 .opacity(revealsAnnotations ? 1 : 0)
@@ -599,6 +680,7 @@ struct AnnotatedPhotoCard: View {
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
     var onUpdates: (([LearningObject]) -> Void)?
+    var onRecognitionRangeChange: ((String, ObjectBox?) -> String?)?
 
     var body: some View {
         GeometryReader { proxy in
@@ -617,6 +699,7 @@ struct AnnotatedPhotoCard: View {
                 onSelect: onSelect,
                 onUpdate: onUpdate,
                 onUpdates: onUpdates,
+                onRecognitionRangeChange: onRecognitionRangeChange,
                 editingObjectID: editingObjectID
             )
 
@@ -669,6 +752,7 @@ private struct StableAnnotatedImage: View, Equatable {
     let onSelect: (LearningObject) -> Void
     let onUpdate: ((LearningObject) -> Void)?
     let onUpdates: (([LearningObject]) -> Void)?
+    let onRecognitionRangeChange: ((String, ObjectBox?) -> String?)?
     let editingObjectID: Binding<String?>
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -696,6 +780,7 @@ private struct StableAnnotatedImage: View, Equatable {
             onSelect: onSelect,
             onUpdate: onUpdate,
             onUpdates: onUpdates,
+            onRecognitionRangeChange: onRecognitionRangeChange,
             editingObjectID: editingObjectID
         )
     }
@@ -725,6 +810,10 @@ private final class AnnotationZoomViewController: UIViewController, UIScrollView
     private let scrollView = UIScrollView()
     private let hostingController: UIHostingController<StableAnnotatedImage>
     private var resetID: ObjectIdentifier
+    private weak var suspendedPopGesture: UIGestureRecognizer?
+    private var previousPopEnabled: Bool?
+    private weak var suspendedPagePan: UIPanGestureRecognizer?
+    private var previousPageTouches: Int?
 
     init(rootView: StableAnnotatedImage, resetID: ObjectIdentifier) {
         hostingController = UIHostingController(rootView: rootView)
@@ -777,8 +866,27 @@ private final class AnnotationZoomViewController: UIViewController, UIScrollView
         updatePanAvailability()
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        restorePopGesture()
+        restorePagePan()
+    }
+
+    private func restorePagePan() {
+        if let previousPageTouches { suspendedPagePan?.minimumNumberOfTouches = previousPageTouches }
+        suspendedPagePan = nil
+        previousPageTouches = nil
+    }
+
+    private func restorePopGesture() {
+        if let previousPopEnabled { suspendedPopGesture?.isEnabled = previousPopEnabled }
+        suspendedPopGesture = nil
+        previousPopEnabled = nil
+    }
+
     func update(rootView: StableAnnotatedImage, resetID: ObjectIdentifier) {
         hostingController.rootView = rootView
+        updatePanAvailability()
         guard self.resetID != resetID else { return }
         self.resetID = resetID
         scrollView.setZoomScale(scrollView.minimumZoomScale, animated: false)
@@ -803,10 +911,34 @@ private final class AnnotationZoomViewController: UIViewController, UIScrollView
     }
 
     private func updatePanAvailability() {
+        let isEditing = hostingController.rootView.editingObjectIDValue != nil
+        if isEditing, previousPopEnabled == nil, let gesture = navigationController?.interactivePopGestureRecognizer {
+            suspendedPopGesture = gesture
+            previousPopEnabled = gesture.isEnabled
+            gesture.isEnabled = false
+        } else if !isEditing {
+            restorePopGesture()
+        }
+        if isEditing, previousPageTouches == nil {
+            var ancestor = view.superview
+            while let candidate = ancestor {
+                if let page = candidate as? UIScrollView {
+                    suspendedPagePan = page.panGestureRecognizer
+                    previousPageTouches = page.panGestureRecognizer.minimumNumberOfTouches
+                    page.panGestureRecognizer.minimumNumberOfTouches = 2
+                    break
+                }
+                ancestor = candidate.superview
+            }
+        } else if !isEditing {
+            restorePagePan()
+        }
+        scrollView.panGestureRecognizer.minimumNumberOfTouches = isEditing ? 2 : 1
         scrollView.panGestureRecognizer.isEnabled = scrollView.zoomScale > scrollView.minimumZoomScale + 0.01
     }
 
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        guard hostingController.rootView.editingObjectIDValue == nil else { return }
         if scrollView.zoomScale > scrollView.minimumZoomScale + 0.01 {
             scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
             return
@@ -827,10 +959,10 @@ private final class AnnotationZoomViewController: UIViewController, UIScrollView
     }
 }
 
-/// Photo-space geometry shared by the display and the independent range editor.
+/// Photo-space geometry shared by the display and inline range controls.
 enum RecognitionRangeGeometry {
     static func resolvedBox(for object: LearningObject) -> ObjectBox? {
-        guard object.kind == .object, isValid(object.box) else { return nil }
+        guard object.kind == .noun, isValid(object.box) else { return nil }
         return object.recognitionBoxOverride.flatMap { isValid($0) ? $0 : nil } ?? object.box
     }
     static func isValid(_ box: ObjectBox) -> Bool {
@@ -842,6 +974,10 @@ enum RecognitionRangeGeometry {
     static func constrained(_ box: ObjectBox) -> ObjectBox {
         let width = min(max(box.width, 0.02), 1), height = min(max(box.height, 0.02), 1)
         return ObjectBox(x: min(max(box.x, 0), 1 - width), y: min(max(box.y, 0), 1 - height), width: width, height: height)
+    }
+
+    static func moved(_ box: ObjectBox, dx: Double, dy: Double) -> ObjectBox {
+        constrained(ObjectBox(x: box.x + dx, y: box.y + dy, width: box.width, height: box.height))
     }
 
     static func resized(_ box: ObjectBox, corner: String, dx: Double, dy: Double) -> ObjectBox {
@@ -935,105 +1071,41 @@ struct RecognitionCornerOverlay: View {
     }
 }
 
-struct RecognitionRangeEditor: View {
-    let image: UIImage
-    let object: LearningObject
-    let onSave: (LearningObject) -> String?
-    @Environment(\.dismiss) private var dismiss
-    @State private var draft: ObjectBox
-    @State private var usesAutomatic: Bool
-    @State private var dragStart: ObjectBox?
-    @State private var errorMessage: String?
+/// Partition overlapping hit areas at the box midpoint so every corner remains reachable on tiny boxes.
+struct RecognitionCornerHitShape: Shape {
+    let corner: String
+    let boxSize: CGSize
 
-    init(image: UIImage, object: LearningObject, onSave: @escaping (LearningObject) -> String?) {
-        self.image = image; self.object = object; self.onSave = onSave
-        _draft = State(initialValue: RecognitionRangeGeometry.constrained(object.recognitionBoxOverride.flatMap { RecognitionRangeGeometry.isValid($0) ? $0 : nil } ?? object.box))
-        _usesAutomatic = State(initialValue: object.recognitionBoxOverride == nil)
+    func path(in rect: CGRect) -> Path {
+        let left = corner.contains("w") ? rect.minX : max(rect.minX, rect.midX - boxSize.width / 2)
+        let right = corner.contains("w") ? min(rect.maxX, rect.midX + boxSize.width / 2) : rect.maxX
+        let top = corner.contains("n") ? rect.minY : max(rect.minY, rect.midY - boxSize.height / 2)
+        let bottom = corner.contains("n") ? min(rect.maxY, rect.midY + boxSize.height / 2) : rect.maxY
+        return Path(CGRect(x: left, y: top, width: right - left, height: bottom - top))
+    }
+}
+
+/// Keeps preview geometry separate from persisted objects; a failed commit clears the preview.
+struct RecognitionRangeDragState {
+    private(set) var draft: ObjectBox?
+    private var start: ObjectBox?
+
+    mutating func update(from box: ObjectBox, corner: String?, dx: Double, dy: Double) {
+        let baseline = start ?? box
+        start = baseline
+        draft = corner.map { RecognitionRangeGeometry.resized(baseline, corner: $0, dx: dx, dy: dy) }
+            ?? RecognitionRangeGeometry.moved(baseline, dx: dx, dy: dy)
     }
 
-    var body: some View {
-        PictureWordSheet {
-            PictureWordSheetHeader(eyebrow: "OBJECT FOCUS", title: "调整识别框") {
-                Button("取消") { dismiss() }.foregroundStyle(Color.ink)
-            }
-            Text(object.english).font(.scrapbookTitle)
-            GeometryReader { proxy in
-                let size = proxy.size
-                let imageFrame = CGRect(origin: .zero, size: size)
-                let rect = RecognitionRangeGeometry.rect(draft, in: imageFrame)
-                ZStack(alignment: .topLeading) {
-                    Image(uiImage: image).resizable().frame(width: size.width, height: size.height)
-                        .allowsHitTesting(false)
-                    Rectangle().fill(Color.clear).contentShape(Rectangle())
-                        .frame(width: rect.width, height: rect.height)
-                        .position(x: rect.midX, y: rect.midY)
-                        .gesture(drag(corner: nil, size: size))
-                        .accessibilityHidden(true)
-                    RecognitionCornerOverlay(box: draft, imageFrame: imageFrame, animated: false, photoCornerRadius: 0)
-                    ForEach(["nw", "ne", "sw", "se"], id: \.self) { corner in
-                        Circle().fill(Color.paperLight).frame(width: 10, height: 10)
-                            .overlay(Circle().stroke(Color.recognitionInk, lineWidth: 1))
-                            .frame(width: 44, height: 44).contentShape(Rectangle())
-                            .position(x: corner.contains("w") ? rect.minX : rect.maxX,
-                                      y: corner.contains("n") ? rect.minY : rect.maxY)
-                            .gesture(drag(corner: corner, size: size))
-                            .accessibilityHidden(true)
-                    }
-                }
-                .coordinateSpace(name: "recognition-editor")
-            }
-            .aspectRatio(image.size.width / max(image.size.height, 1), contentMode: .fit)
-            .padding(22)
-            Text("拖动框移动，拖动四角调整大小，也可以使用下方滑块。")
-                .font(.scrapbookCaption).foregroundStyle(Color.ink.opacity(0.65))
-            rangeSlider("横向", keyPath: \.x)
-            rangeSlider("纵向", keyPath: \.y)
-            rangeSlider("宽度", keyPath: \.width)
-            rangeSlider("高度", keyPath: \.height)
-            PictureWordButton("恢复自动范围", style: .secondary) {
-                draft = RecognitionRangeGeometry.constrained(object.box); usesAutomatic = true
-            }
-            PictureWordButton("完成") {
-                var updated = object
-                updated.recognitionBoxOverride = usesAutomatic ? nil : draft
-                if let error = onSave(updated) { errorMessage = error } else { dismiss() }
-            }
-        }
-        .alert("无法保存修改", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("知道了", role: .cancel) {}
-        } message: { Text(errorMessage ?? "") }
-        .pictureWordSheetPresentation()
-        .presentationDetents([.large])
+    mutating func finish(objectID: String, save: (String, ObjectBox?) -> String?) -> String? {
+        defer { reset() }
+        guard let draft, draft != start else { return nil }
+        return save(objectID, draft)
     }
 
-    private func drag(corner: String?, size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named("recognition-editor"))
-            .onChanged { value in
-                let start = dragStart ?? draft
-                dragStart = start
-                let dx = Double(value.translation.width / max(size.width, 1))
-                let dy = Double(value.translation.height / max(size.height, 1))
-                if let corner { draft = RecognitionRangeGeometry.resized(start, corner: corner, dx: dx, dy: dy) }
-                else { draft = RecognitionRangeGeometry.constrained(ObjectBox(x: start.x + dx, y: start.y + dy, width: start.width, height: start.height)) }
-                usesAutomatic = false
-            }
-            .onEnded { _ in dragStart = nil }
-    }
-
-    private func rangeSlider(_ title: String, keyPath: KeyPath<ObjectBox, Double>) -> some View {
-        VStack(alignment: .leading) {
-            Text("\(title) \(Int(draft[keyPath: keyPath] * 100))%")
-            Slider(value: Binding(get: { draft[keyPath: keyPath] }, set: { value in
-                draft = RecognitionRangeGeometry.constrained(ObjectBox(
-                    x: keyPath == \.x ? value : draft.x, y: keyPath == \.y ? value : draft.y,
-                    width: keyPath == \.width ? value : draft.width, height: keyPath == \.height ? value : draft.height))
-                usesAutomatic = false
-            }), in: keyPath == \.width || keyPath == \.height ? 0.02...1 : 0...1)
-            .tint(Color.sun)
-            .accessibilityLabel("识别框\(title)")
-            .accessibilityValue("\(Int(draft[keyPath: keyPath] * 100))%")
-        }
-        .font(.scrapbookCaption)
+    mutating func reset() {
+        draft = nil
+        start = nil
     }
 }
 

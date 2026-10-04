@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { emptyProject, clearProjectSpeech, projectSchema, timeline, editCaptionSentence, descriptionSentences, exportBlockers, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, FPS, type Project } from './project';
 const audio = '/studio-api/assets/abcd.wav';
 const project: Project = { ...emptyProject, image: '/studio-api/assets/abcd.jpg', captionReviewRequired: false,
-    words: [{ id: 'cup', kind: 'state', english: 'blue', chinese: '蓝色', ipa: '', audio, audioSeconds: 1 }],
+    words: [{ id: 'cup', kind: 'adjective', english: 'blue', chinese: '蓝色', ipa: '', audio, audioSeconds: 1 }],
     captionSentences: [
         { english: 'A cup sits on the table.', chinese: '桌上放着一个杯子。', audio, audioSeconds: 2.6 },
         { english: 'A plant stands beside it.', chinese: '旁边摆着一盆植物。', audio, audioSeconds: 4.2 },
@@ -43,7 +43,7 @@ test('missing second sentence audio blocks export even if legacy audio exists', 
 test('version three keeps old text and audio as one unsplit segment', () => {
     const legacy = { ...emptyProject, version: 3, caption: 'Dr. Smith has a cup. It is blue.', captionChinese: '史密斯有一个蓝色杯子。', captionReviewRequired: false, captionAudio: audio, captionAudioSeconds: 5 };
     const p = projectSchema.parse(legacy);
-    assert.equal(p.version, 4);
+    assert.equal(p.version, 5);
     assert.equal(p.caption, legacy.caption);
     assert.equal(p.captionSentences, undefined);
     assert.equal(descriptionSentences(p).length, 1);

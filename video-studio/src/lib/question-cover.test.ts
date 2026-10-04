@@ -10,12 +10,12 @@ test('legacy configuration stays legacy while unconfigured projects use question
     assert.equal(old.cover?.template, 'learning-card');
     assert.equal(isQuestionCover(old), false);
     assert.equal(old.cover?.title, '老标题');
-    assert.equal(old.version, 4);
+    assert.equal(old.version, 5);
 });
 test('legacy audience titles remain stored but the shared scene determines the title', () => {
     const original = structuredClone(project);
     const edited = { ...project, cover: { ...defaultCover, audienceTitles: { adult: '杯子英语怎么说？', family: '和孩子认杯子？', student: '这个单词你会吗？' } } };
-    for (const audience of ['adult', 'family', 'student'] as const) assert.equal(coverQuestionTitle({ ...edited, cover: { ...edited.cover, audience } }), '酒店抽屉，你会几个单词？');
+    for (const audience of ['adult', 'family', 'student'] as const) assert.equal(coverQuestionTitle({ ...edited, cover: { ...edited.cover, audience } }), '酒店抽屉，这4个英语你会吗？');
     assert.deepEqual(project, original);
     const { cover: _cover, ...video } = edited;
     assert.deepEqual(video, project);

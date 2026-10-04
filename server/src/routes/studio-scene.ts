@@ -1,3 +1,5 @@
+import { vocabularyKindSchema, vocabularyResponse, vocabularyFormatHeader } from '../core/image-analysis/vocabulary-kind.js';
+import { finalizeSceneWords } from '../core/image-analysis/word-presentation.js';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../app.js';
@@ -38,11 +40,12 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
                 objectIDs.add(id);
                 return {
                     id,
-                    kind: 'object' as const,
+                    kind: 'noun' as const,
                     english: object.english,
                     chinese: object.chinese,
                     ipa: object.ipa,
                     box: object.box,
+                    anchor: object.anchor,
                 };
             });
             const scene = studioSceneSchema.parse(await dependencies.provider.analyzeStudioScene({
@@ -50,12 +53,12 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
                 mimeType: 'image/jpeg',
                 context,
                 maxSceneWords: 10,
-                objects: objects.map(({ english, chinese }) => ({ english, chinese })),
+                objects: objects.map(({ id, english, chinese, box }) => ({ id, english, chinese, box })),
                 signal,
             }));
             const usedIDs = new Set(objectIDs);
             const sceneWords = scene.words
-                .filter(word => word.kind === 'action' || word.kind === 'state')
+                .filter(word => word.kind === 'verb' || word.kind === 'adjective')
                 .slice(0, 10)
                 .map((word, index) => {
                     let id = word.id;
@@ -75,7 +78,8 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
                 words: words.map(({ english, chinese, kind }) => ({ english, chinese, kind })),
                 signal,
             });
-            return c.json(studioSceneSchema.parse({ ...scene, ...reviewed, captionSentences: reviewed.captionSentences, words }));
+            const finalWords = finalizeSceneWords(sceneWords, objects, normalizeCaption(reviewed).caption, reviewed.verbMatches, 10);
+            return c.json(vocabularyResponse(studioSceneSchema.parse({ ...scene, ...reviewed, captionSentences: reviewed.captionSentences, words: [...objects, ...finalWords] }), c.req.header(vocabularyFormatHeader)));
         } catch { return c.json({ message: '场景分析失败，请重试或切换物体识别' }, 502); }
     });
 
@@ -91,7 +95,7 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
         const wordsSchema = z.array(z.object({
             english: z.string().trim().min(1).max(60),
             chinese: z.string().max(60),
-            kind: z.enum(['object', 'action', 'state']).optional(),
+            kind: vocabularyKindSchema.optional(),
         })).max(20);
         let words: ReturnType<typeof wordsSchema.safeParse> | null = null;
         if (typeof wordsJSON === 'string') {
@@ -123,7 +127,7 @@ export function registerStudioSceneRoute(app: Hono<AppEnv>, dependencies: { prov
         const image = form?.get('image'), context = form?.get('context') ?? '', wordsJSON = form?.get('words');
         const wordsSchema = z.array(z.object({
             english: z.string().trim().min(1).max(60), chinese: z.string().max(60),
-            kind: z.enum(['object', 'action', 'state']).optional(),
+            kind: vocabularyKindSchema.optional(),
         })).min(1).max(20);
         let words: z.infer<typeof wordsSchema> | undefined;
         if (typeof wordsJSON === 'string') {

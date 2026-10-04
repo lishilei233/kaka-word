@@ -36,7 +36,7 @@ test('recognition override survives v4 drafts without changing original boxes, s
         const before = { ...emptyProject, videoTemplate, words: [{ ...word, audio, audioSeconds: 1 }] };
         const saved = projectSchema.parse({ ...before, words: [{ ...before.words[0], recognitionBoxOverride: { x: .1, y: .1, width: .5, height: .5 } }] });
         const restored = projectSchema.parse(JSON.parse(JSON.stringify(saved)));
-        assert.equal(restored.version, 4);
+        assert.equal(restored.version, 5);
         assert.deepEqual(restored.words[0].box, word.box);
         assert.equal(restored.words[0].audio, audio);
         const times = (p: Project) => { const t = timeline(p); return { ...t, words: t.words.map(({ word: _word, ...segment }) => segment) }; };
@@ -46,7 +46,7 @@ test('recognition override survives v4 drafts without changing original boxes, s
 test('legacy ranges remain usable and unlocated and scene words do not render boxes', () => {
     assert.deepEqual(recognitionBox(word), word.box);
     assert.equal(recognitionBox({ ...word, needsLocation: true }), undefined);
-    assert.equal(recognitionBox({ ...word, kind: 'action' }), undefined);
+    assert.equal(recognitionBox({ ...word, kind: 'verb' }), undefined);
     assert.equal(recognitionBox({ ...word, box: undefined }), undefined);
     assert.equal(projectSchema.safeParse({ ...emptyProject, words: [{ ...word, recognitionBoxOverride: { x: .99, y: .9, width: .2, height: .2 } }] }).success, false);
 });

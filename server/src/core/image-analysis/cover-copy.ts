@@ -1,3 +1,4 @@
+import { vocabularyKindSchema } from './vocabulary-kind.js';
 import { z } from 'zod';
 
 export const coverAudienceSchema = z.enum(['adult', 'family', 'student']);
@@ -12,7 +13,7 @@ export const coverCopyInputSchema = z.object({
     captionChinese: z.string().trim().max(440),
     words: z.array(z.object({
         english: z.string().trim().min(1).max(60), chinese: z.string().max(60),
-        kind: z.enum(['object', 'action', 'state']).optional(),
+        kind: vocabularyKindSchema.optional(),
     })).min(1).max(20),
 });
 export type CoverCopyInput = z.infer<typeof coverCopyInputSchema> & { signal?: AbortSignal };

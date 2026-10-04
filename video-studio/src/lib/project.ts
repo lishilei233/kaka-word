@@ -1,3 +1,5 @@
+import { vocabularyKindSchema, vocabularyKindTitles, vocabularyKinds } from '../../../server/src/core/image-analysis/vocabulary-kind';
+import { captionVerbs, applyVerbEvidence } from '../../../server/src/core/image-analysis/word-presentation';
 import { coverAudienceSchema, coverCopySchema } from '../../../server/src/core/image-analysis/cover-copy';
 import { z } from 'zod';
 
@@ -26,7 +28,11 @@ export const voiceOptions = [
 const currentWordSchema = z.object({
     id: z.string().min(1).max(80), english: z.string().trim().min(1).max(60),
     chinese: z.string().max(60), ipa: z.string().max(80),
-    kind: z.enum(['object', 'action', 'state']).optional(),
+    kind: vocabularyKindSchema.optional(),
+    relatedObjectID: z.string().max(80).optional(),
+    captionForm: z.string().max(120).optional(),
+    captionEvidence: z.string().max(441).optional(),
+    anchor: pointSchema.optional(),
     needsLocation: z.boolean().optional(),
     recognitionBoxOverride: z.object({ x: position, y: position, width: z.number().min(.02).max(1), height: z.number().min(.02).max(1) }).refine(box => box.x + box.width <= 1 + 1e-9 && box.y + box.height <= 1 + 1e-9, '识别框不能超出照片').optional(),
     box: boxSchema.optional(), labelCenterOverride: pointSchema.optional(), targetCenterOverride: pointSchema.optional(),
@@ -96,11 +102,11 @@ export const captionSentenceSchema = z.object({
 });
 export type CaptionSentence = z.infer<typeof captionSentenceSchema>;
 const projectFields = { ...sharedProjectFields, captionSentences: z.array(captionSentenceSchema).min(1).max(2).optional(), captionReviewRequired: z.boolean().default(true) };
-const currentProjectSchema = z.object({ version: z.literal(4), ...projectFields, words: z.array(currentWordSchema).max(20) });
+const currentProjectSchema = z.object({ version: z.literal(5), ...projectFields, words: z.array(currentWordSchema).max(20) });
 const versionTwoProjectSchema = z.object({ version: z.literal(2), ...legacyProjectFields, words: z.array(currentWordSchema).max(20) });
 const legacyProjectSchema = z.object({ version: z.literal(1), ...legacyProjectFields, words: z.array(legacyWordSchema).max(20) });
 export const projectSchema = z.preprocess(input => {
-    if (input && typeof input === 'object' && 'version' in input && input.version === 3) return { ...input, version: 4 };
+    if (input && typeof input === 'object' && 'version' in input && (input.version === 3 || input.version === 4)) return { ...input, version: 5 };
     const versionTwo = versionTwoProjectSchema.safeParse(input);
     if (versionTwo.success) return migrateOldProject(versionTwo.data);
     const legacy = legacyProjectSchema.safeParse(input);
@@ -111,23 +117,48 @@ export const projectSchema = z.preprocess(input => {
     return migrateOldProject({ ...legacy.data, version: 2 as const, words });
 }, currentProjectSchema).transform(syncCaption).superRefine((p, ctx) => {
     if (new Set(p.words.map(w => w.id)).size !== p.words.length) ctx.addIssue({ code: 'custom', message: '单词 ID 不能重复' });
-    if (p.words.some(w => (w.kind ?? 'object') === 'object' && !w.box && !w.needsLocation)) ctx.addIssue({ code: 'custom', message: '物体词需要定位或标记待定位' });
+    if (p.words.some(w => (w.kind ?? 'noun') === 'noun' && !w.box && !w.needsLocation)) ctx.addIssue({ code: 'custom', message: '名词需要定位或标记待定位' });
 });
 export const wordSchema = currentWordSchema;
 export type Word = z.infer<typeof wordSchema>;
 export type Project = z.infer<typeof projectSchema>;
-export function objectWords(words: Word[]) {
-    return words.filter((w): w is Word & { box: NonNullable<Word['box']> } => (w.kind ?? 'object') === 'object' && !!w.box && !w.needsLocation);
+/** Preserve recognition IDs: adjective associations refer to these exact IDs. */
+export { vocabularyKinds };
+export function vocabularyTitle(kind: Word['kind']) { return vocabularyKindTitles[kind ?? 'noun']; }
+export function vocabularySummary(words: Word[], caption: string) {
+    const visible = readingWords(words, caption);
+    return vocabularyKinds.map(kind => `${visible.filter(word => (word.kind ?? 'noun') === kind).length} 个${vocabularyKindTitles[kind]}`).join('，');
 }
-export function sceneWords(words: Word[]) { return words.filter(w => w.kind === 'action' || w.kind === 'state'); }
-export function readingWords(words: Word[]) { return [...words.filter(w => (w.kind ?? 'object') === 'object'), ...sceneWords(words)]; }
+export function recognitionWords(result: { objects: (Word & { box: NonNullable<Word['box']> })[]; sceneWords?: Word[] }): Word[] {
+    return [...sortByPhotoPosition(result.objects).map(word => ({ ...word, kind: 'noun' as const })), ...(result.sceneWords ?? [])];
+}
+export function annotatedWords(words: Word[]) {
+    return [...words.filter(w => (w.kind ?? 'noun') === 'noun'), ...words.filter(w => w.kind === 'adjective')].flatMap(word => {
+        if (word.kind === 'verb') return [];
+        if (word.kind === 'adjective') {
+            const parent = words.find(parent => (parent.kind ?? 'noun') === 'noun' && parent.id === word.relatedObjectID);
+            if (!parent?.box || parent.needsLocation || parent.box.width <= 0 || parent.box.height <= 0) return [];
+            return [{ ...word, box: parent.box, needsLocation: false,
+                targetCenterOverride: word.targetCenterOverride ?? parent.targetCenterOverride ?? parent.anchor ?? word.anchor }];
+        }
+        return word.box && !word.needsLocation ? [{ ...word, box: word.box, targetCenterOverride: word.targetCenterOverride ?? word.anchor }] : [];
+    });
+}
+export function bottomVerbs(words: Word[], caption = '') { return captionVerbs(words, caption); }
+export function readingWords(words: Word[], caption = '') { return [...words.filter(w => (w.kind ?? 'noun') === 'noun'), ...annotatedWords(words).filter(w => w.kind === 'adjective'), ...bottomVerbs(words, caption)]; }
+export function withReviewedCaption(p: Project, reviewed: { caption: string; captionChinese: string; captionSentences?: CaptionSentence[]; verbMatches?: { english: string; captionForm: string }[] }): Project {
+    const caption = reviewed.captionSentences?.map(s => s.english).join(' ') ?? reviewed.caption;
+    return syncCaption({ ...p, ...reviewed, captionSentences: reviewed.captionSentences,
+        words: applyVerbEvidence(p.words, caption, reviewed.verbMatches),
+        captionReviewRequired: false, captionAudio: undefined, captionAudioSeconds: undefined });
+}
 export const FPS = 30;
 export const AUDIO_LEAD_FRAMES = 6;
 export const AUDIO_TAIL_FRAMES = 9;
 export const CAPTION_FRAMES = 90;
 export const emptyProject: Project = {
     analysisMode: 'scene', sceneContext: '',
-    version: 4, title: '生活里的英语', caption: '', captionChinese: '', captionReviewRequired: true, videoTemplate: 'direct', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
+    version: 5, title: '生活里的英语', caption: '', captionChinese: '', captionReviewRequired: true, videoTemplate: 'direct', voiceId: 'English_Graceful_Lady', speechSpeed: 0.92,
     safeTop: 120, safeBottom: 240, safeRight: 0, imageWidth: 4, imageHeight: 3,
     captureSeconds: 2, introSeconds: 2, directIntroSeconds: .5, pauseSeconds: 1.2, words: [],
 };
@@ -151,7 +182,7 @@ export function timeline(p: Project) {
     const intro = p.videoTemplate === 'direct' ? Math.round(p.directIntroSeconds * FPS) : Math.round(p.introSeconds * FPS);
     const reveal = p.videoTemplate === 'direct' ? 0 : 8;
     let cursor = intro + reveal;
-    const words = readingWords(p.words).map(word => {
+    const words = readingWords(p.words, p.caption).map(word => {
         const from = cursor;
         const audioFrames = Math.ceil((word.audioSeconds ?? 1) * FPS);
         const pauseFrames = Math.ceil(p.pauseSeconds * FPS);
@@ -178,7 +209,7 @@ export function activeWord(p: Project, frame: number) {
     return timeline(p).words.find(w => frame >= w.from && frame < w.from + w.duration)?.word;
 }
 export function changeEnglish(word: Word, english: string): Word {
-    return { ...word, english, audio: undefined, audioSeconds: undefined };
+    return { ...word, english, captionForm: undefined, captionEvidence: undefined, audio: undefined, audioSeconds: undefined };
 }
 export function exportReady(p: Project) {
     return exportBlockers(p).length === 0;
@@ -186,7 +217,7 @@ export function exportReady(p: Project) {
 export function exportBlockers(p: Project): string[] {
     const blockers: string[] = [];
     if (!p.image) blockers.push('缺少照片');
-    if (p.words.some(w => (w.kind ?? 'object') === 'object' && (!w.box || w.needsLocation))) blockers.push('物体词需要完成定位');
+    if (p.words.some(w => (w.kind ?? 'noun') === 'noun' && (!w.box || w.needsLocation))) blockers.push('名词需要完成定位');
     if (p.interaction?.enabled) {
         if (!p.interaction.english.trim()) blockers.push('缺少互动句');
         else if (!p.interaction.audio || !p.interaction.audioSeconds) blockers.push('互动句尚未生成配音');
@@ -194,7 +225,7 @@ export function exportBlockers(p: Project): string[] {
     if (!p.words.length) blockers.push('缺少单词');
     else {
         const unnamed = p.words.filter(word => !word.english.trim()).length;
-        const silent = p.words.filter(word => word.english.trim() && (!word.audio || !word.audioSeconds)).length;
+        const silent = readingWords(p.words, p.caption).filter(word => word.english.trim() && (!word.audio || !word.audioSeconds)).length;
         if (unnamed) blockers.push(`${unnamed} 个单词缺少英文`);
         if (silent) blockers.push(`${silent} 个单词尚未生成配音`);
     }
@@ -206,7 +237,7 @@ export function exportBlockers(p: Project): string[] {
 function migrateOldProject(p: z.infer<typeof versionTwoProjectSchema>) {
     return {
         ...p,
-        version: 4 as const,
+        version: 5 as const,
         captionReviewRequired: !p.caption.trim(),
     };
 }

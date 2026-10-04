@@ -1,6 +1,6 @@
 import { fixedCoverTitle, publishingSceneIssues } from './learning-post';
 import type { CoverConfig, Project, Word } from './project';
-import { sceneWords } from './project';
+import { bottomVerbs, annotatedWords, readingWords } from './project';
 
 export const legacyDefaultCover: CoverConfig = { template: 'learning-card', scale: .9, words: {} };
 export const defaultCover: CoverConfig = { template: 'scene-question', scale: .9, words: {} };
@@ -44,7 +44,7 @@ export function balancedCoverRows<T>(items: BalancedCoverItem<T>[], availableWid
 }
 
 function coverObjectWords(words: Word[]) {
-    return words.filter(word => (word.kind ?? 'object') === 'object');
+    return [...words.filter(w => (w.kind ?? 'noun') === 'noun'), ...annotatedWords(words).filter(w => w.kind === 'adjective')];
 }
 
 export function coverLayout(project: Project) {
@@ -52,7 +52,7 @@ export function coverLayout(project: Project) {
     const width = project.imageWidth * scale;
     const height = project.imageHeight * scale;
     const objects = coverObjectWords(project.words);
-    const scenes = sceneWords(project.words);
+    const scenes = bottomVerbs(project.words, project.caption);
     const title = fixedCoverTitle(project);
     const heading = fitCoverTitle(title, 820, 62, 40);
 
@@ -80,9 +80,10 @@ export const defaultCoverPhoto = { zoom: 1, x: .5, y: .5 };
 export const isQuestionCover = (project: Project) => (project.cover?.template ?? defaultCover.template) === 'scene-question';
 
 export function selectedCoverWords(project: Project) {
+    const visible = readingWords(project.words, project.caption);
     const ids = project.cover?.selectedWordIds;
-    if (ids) return ids.flatMap(id => project.words.find(word => word.id === id) ?? []).slice(0, 3);
-    const prioritized = [...project.words.filter(word => project.cover?.words[word.id]?.highlighted), ...project.words];
+    if (ids) return ids.flatMap(id => visible.find(word => word.id === id) ?? []).slice(0, 3);
+    const prioritized = [...visible.filter(word => project.cover?.words[word.id]?.highlighted), ...visible];
     return prioritized.filter((word, index) => prioritized.findIndex(other => other.id === word.id) === index).slice(0, 3);
 }
 
@@ -138,7 +139,7 @@ export function questionCoverLayout(project: Project) {
         if (last && last.width + 16 + width <= 936) { last.words.push(word); last.width += 16 + width; }
         else wordRows.push({ words: [word], width });
     }
-    const moreCount = words.length ? Math.max(0, project.words.length - words.length) : 0;
+    const moreCount = words.length ? Math.max(0, readingWords(project.words, project.caption).length - words.length) : 0;
     if (moreCount > 0) {
         const badgeWidth = coverTextWidth(`+${moreCount} 个词`, 36) + 48;
         const last = wordRows.at(-1)!;

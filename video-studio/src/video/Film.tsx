@@ -2,7 +2,7 @@ import { recognitionAnimation, recognitionBox, recognitionFocusBox, RECOGNITION_
 import { RecognitionFrame } from './RecognitionFrame';
 import { annotationHighlight, leaderStyle, objectCapsuleStyle } from './annotation-style';
 import { AbsoluteFill, Audio, Freeze, Img, OffthreadVideo, Sequence, interpolate, interpolateColors, staticFile, useCurrentFrame } from 'remotion';
-import { activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, FPS, openingMedia, timeline, objectWords, readingWords, type Project } from '../lib/project';
+import { vocabularyTitle, activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, FPS, openingMedia, timeline, annotatedWords, readingWords, type Project } from '../lib/project';
 import { SceneCards } from './SceneCards';
 import { SceneSentence } from './SceneSentence';
 import { InteractionArrow } from './InteractionArrow';
@@ -66,7 +66,7 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
     const shutterScale = interpolate(frame, [Math.max(0, t.intro - 7), Math.max(0, t.intro - 3), t.intro], [1, .84, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
     const textWidth = layout.textRight - layout.textLeft;
     const annotations = useMemo(
-        () => annotationLayout(objectWords(p.words), layout.photoImage),
+        () => annotationLayout(annotatedWords(p.words), layout.photoImage),
         [p.words, layout.photoImage.x, layout.photoImage.y, layout.photoImage.width, layout.photoImage.height],
     );
     const drag = useRef<{ id: string; kind: 'label' | 'target'; point: { x: number; y: number } } | undefined>(undefined);
@@ -167,7 +167,7 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
                         width={textWidth}
                         english={interactionActive ? p.interaction!.english : captionSegment.sentence.english}
                         chinese={interactionActive ? p.interaction!.chinese : captionSegment.sentence.chinese}
-                        vocabulary={readingWords(p.words).map(word => word.english)}
+                        vocabulary={readingWords(p.words, p.caption).map(word => word.english)}
                         chineseOpacity={descriptionEntrance(frame, interactionActive ? t.interactionFrom : captionSegment.from).chineseOpacity}
                     />
                 </div>
@@ -183,8 +183,8 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
             <div style={{ position: 'absolute', zIndex: layout.wordOverPhoto ? 4 : undefined, top: opening ? layout.shutterTop : frame >= t.captionFrom ? layout.closingTop : layout.wordTop, left: layout.textLeft, width: textWidth, textAlign: 'center', height: opening ? 104 : layout.wordDetailHeight, overflow: 'hidden', boxSizing: 'border-box', padding: !opening && layout.wordOverPhoto ? '8px 12px' : undefined, borderRadius: !opening && layout.wordOverPhoto ? 18 : undefined, background: !opening && layout.wordOverPhoto ? 'rgba(255,253,248,.92)' : undefined }}>
                 {opening ? <><div style={center}><div style={{ width: 64, height: 64, borderRadius: '50%', background: sun, border: '5px solid #ffffffe6', boxShadow: shutterScale < .95 ? '0 2px 5px #0005, 0 0 0 8px #f4c95d38' : '0 6px 12px #0004', transform: `scale(${shutterScale})` }} /></div><div style={{ fontSize: 14, marginTop: 14 }}>随手一拍，发现身边的英语</div></> : current ? <>
                     <div style={{ ...twoLines, fontFamily: serif, fontSize: current.english.length > 22 ? 22 : 34, fontWeight: 700, lineHeight: 1.05 }}>{current.english}</div>
-                    <div style={{ fontSize: 18, lineHeight: 1.25, marginTop: 7, color: '#6d6358', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ fontSize: 14, fontWeight: 800, color: '#8a6540', marginRight: 10 }}>{current.kind === 'action' ? '动作词' : current.kind === 'state' ? '状态词' : '物体词'}</span>{current.ipa} <span style={{ marginLeft: 12 }}>{current.chinese}</span></div>
-                    <div style={{ fontFamily: mono, fontSize: 12, marginTop: 10, letterSpacing: 2 }}>{String(wordIndex + 1).padStart(2, '0')} / {String(p.words.length).padStart(2, '0')} · 跟我读</div>
+                    <div style={{ fontSize: 18, lineHeight: 1.25, marginTop: 7, color: '#6d6358', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ fontSize: 14, fontWeight: 800, color: '#8a6540', marginRight: 10 }}>{vocabularyTitle(current.kind)}</span>{current.ipa} <span style={{ marginLeft: 12 }}>{current.chinese}</span></div>
+                    <div style={{ fontFamily: mono, fontSize: 12, marginTop: 10, letterSpacing: 2 }}>{String(wordIndex + 1).padStart(2, '0')} / {String(readingWords(p.words, p.caption).length).padStart(2, '0')} · 跟我读</div>
                 </> : <></>}
             </div>
             {!direct && (opening || transitioning) && <svg viewBox="0 0 540 960" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', opacity: opening ? 1 : 1 - revealProgress }}>

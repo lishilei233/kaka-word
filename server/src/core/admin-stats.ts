@@ -1,10 +1,12 @@
 import { Pool } from "pg";
+import { loadDeviceDetails, type DeviceDetailQuery, type DeviceDetails } from "./admin-device-details.js";
 export const adminStatsEnvironments = ["All", "Production", "Sandbox", "Xcode", "LocalTesting"] as const;
 export type AdminStatsEnvironment = (typeof adminStatsEnvironments)[number];
 export type CountByName = { name: string; count: number };
 export type DailyCount = { date: string; count: number };
 export type MetricCount = { date: string; eventName: string; productId: string; outcome: string; count: number };
 export type AdminStatsDevice = {
+  installationId: string;
   deviceId: string;
   registrationDate: string;
   environment: string;
@@ -27,6 +29,7 @@ export type AdminStatsSnapshot = {
   feedback: { selections: CountByName[]; corrections: Array<{ originalEnglish: string; originalChinese: string; correctedEnglish: string; correctedChinese: string; count: number }> };
 };
 export interface AdminStatsRepository {
+  loadDeviceDetails(query: DeviceDetailQuery): Promise<DeviceDetails | null>;
   load(startDate: string | null, endDate: string | null, environment: AdminStatsEnvironment): Promise<AdminStatsSnapshot>;
 }
 type Numeric = string | number;
@@ -35,6 +38,9 @@ const filter = "($1::date IS NULL OR %s >= $1::date) AND ($2::date IS NULL OR %s
 export class PostgresAdminStatsRepository implements AdminStatsRepository {
   private readonly pool: Pool;
   constructor(databaseURL: string) { this.pool = new Pool({ connectionString: databaseURL }); }
+
+  async loadDeviceDetails(query: DeviceDetailQuery): Promise<DeviceDetails | null> { return loadDeviceDetails(this.pool, query); }
+  async close(): Promise<void> { await this.pool.end(); }
 
   async load(startDate: string | null, endDate: string | null, environment: AdminStatsEnvironment): Promise<AdminStatsSnapshot> {
     const client = await this.pool.connect();
@@ -47,10 +53,10 @@ export class PostgresAdminStatsRepository implements AdminStatsRepository {
       const freeUsage = await client.query<{ name: Numeric; count: Numeric }>(
         `SELECT free_used AS name, COUNT(*) AS count FROM picture_word_installations WHERE ${filter.replaceAll("%s", "(created_at AT TIME ZONE 'Asia/Shanghai')::date")} GROUP BY free_used ORDER BY free_used`, params.slice(0, 2));
       const devices = await client.query<{
-        device_id: string; registration_date: string; store_environment: string; membership_type: string; recognition_attempt_count: Numeric;
+        installation_id: string; device_id: string; registration_date: string; store_environment: string; membership_type: string; recognition_attempt_count: Numeric;
         recognition_success_count: Numeric; confirmation_count: Numeric; reselection_count: Numeric; free_used: number;
       }>(
-        `SELECT right(i.id::text, 6) AS device_id,
+        `SELECT i.id::text AS installation_id, right(i.id::text, 6) AS device_id,
                 to_char(i.created_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI') AS registration_date,
                 COALESCE(i.store_environment, 'Unknown') AS store_environment,
                 COALESCE(member.product_id, 'free') AS membership_type,
@@ -94,7 +100,7 @@ export class PostgresAdminStatsRepository implements AdminStatsRepository {
           daily: installationDaily.rows.map((row) => ({ date: row.date, count: number(row.count) })),
           freeUsage: freeUsage.rows.map((row) => ({ name: String(row.name), count: number(row.count) })),
           devices: devices.rows.map((row) => ({
-            deviceId: row.device_id, registrationDate: row.registration_date, environment: row.store_environment,
+            installationId: row.installation_id, deviceId: row.device_id, registrationDate: row.registration_date, environment: row.store_environment,
             membershipType: row.membership_type === "free" ? "free" : row.membership_type.endsWith("annual") ? "annual" : "monthly",
             recognitionAttempts: number(row.recognition_attempt_count), recognitionSuccesses: number(row.recognition_success_count),
             confirmationCount: number(row.confirmation_count), reselectionCount: number(row.reselection_count), freeUsed: row.free_used,

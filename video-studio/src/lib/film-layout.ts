@@ -1,4 +1,4 @@
-import { sceneWords, type Project } from './project';
+import { bottomVerbs, type Project } from './project';
 export type Rect = { x: number; y: number; width: number; height: number };
 export const FILM_WIDTH = 540;
 export const FILM_HEIGHT = 960;
@@ -24,7 +24,7 @@ export function filmLayout(p: Project) {
     // upward before allowing the soft safe-area overlap.
     const photoTop = Math.min(top, Math.max(0, FILM_HEIGHT - photoHeight));
     const photo = { x: PHOTO_SIDE_MARGIN, y: photoTop, width: photoWidth, height: photoHeight };
-    const sceneHeight = sceneWords(p.words).length ? SCENE_CARD_HEIGHT : 0;
+    const sceneHeight = bottomVerbs(p.words, p.caption).length ? SCENE_CARD_HEIGHT : 0;
     const sceneTop = sceneHeight ? photo.y + photo.height - sceneHeight - 12 : photo.y + photo.height;
     const sceneLeft = photo.x + 12;
     const sceneWidth = photo.width - 24;
