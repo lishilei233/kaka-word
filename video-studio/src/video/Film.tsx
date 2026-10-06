@@ -195,7 +195,7 @@ export function Film({ project: p, renderScale = 1, onAnnotationMove, onInteract
             {!direct && frame >= t.intro && frame < t.intro + 5 && <div style={{ position: 'absolute', inset: 0, background: 'white', opacity: (5-(frame-t.intro))/5 }} />}
         </div>
         {!direct && <Sequence from={Math.max(0, t.intro - 3)} durationInFrames={45}><Audio src={staticFile('camera-shutter.mp3')} volume={0.72} pauseWhenBuffering /></Sequence>}
-        {t.words.map(({ word, from, audioFrames }) => word.audio ? <Sequence key={word.id} from={from + AUDIO_LEAD_FRAMES} durationInFrames={audioFrames + AUDIO_TAIL_FRAMES}><Audio src={word.audio} pauseWhenBuffering /></Sequence> : null)}
+        {t.words.map(({ word, audioFrom, audioFrames, audioTailFrames }) => word.audio ? <Sequence key={word.id} from={audioFrom} durationInFrames={audioFrames + audioTailFrames}><Audio src={word.audio} pauseWhenBuffering /></Sequence> : null)}
         {t.captions.map(({ sentence, from, audioFrames }, index) => sentence.audio ? <Sequence key={`caption-${index}`} from={from + AUDIO_LEAD_FRAMES} durationInFrames={audioFrames + AUDIO_TAIL_FRAMES}><Audio src={sentence.audio} pauseWhenBuffering /></Sequence> : null)}
         {p.interaction?.enabled && p.interaction.audio && <Sequence from={t.interactionFrom + AUDIO_LEAD_FRAMES} durationInFrames={t.interactionAudioFrames + AUDIO_TAIL_FRAMES}><Audio src={p.interaction.audio} pauseWhenBuffering /></Sequence>}
     </AbsoluteFill>;

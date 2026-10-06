@@ -472,6 +472,26 @@ actor AccessCredentialStore {
         )
     }
 
+    func activityEnvironment() async -> String? { await storeEnvironment() }
+
+    func uploadActivityEvents(_ events: [ActivityEvent]) async throws -> [UUID] {
+        struct Batch: Encodable { let events: [ActivityEvent] }
+        struct Receipt: Decodable { let acknowledgedEventIds: [UUID] }
+        let token = try await authorizationToken()
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/activity/events"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let environment = await storeEnvironment() { request.setValue(environment, forHTTPHeaderField: "X-Store-Environment") }
+        request.httpBody = try JSONEncoder().encode(Batch(events: events))
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw AccessCredentialError.invalidResponse }
+        if http.statusCode == 401 { clearAccessToken() }
+        guard http.statusCode == 200 else { throw AccessCredentialError.invalidResponse }
+        return try JSONDecoder().decode(Receipt.self, from: data).acknowledgedEventIds
+    }
+
     func recordMetric(eventName: String, productId: String? = nil, outcome: String? = nil) async {
         guard let token = try? await authorizationToken() else { return }
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/metrics"))

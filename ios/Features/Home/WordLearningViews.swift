@@ -741,7 +741,7 @@ struct ListeningPracticeView: View {
     private func playbackButton(for word: WordEntry) -> some View {
         Button {
             speechEnabled = true
-            speak(word.object.english)
+            speak(word.object.english, recordsWordPlay: true)
         } label: {
             Image(systemName: speechEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
                 .font(.system(size: 26, weight: .bold))
@@ -757,7 +757,7 @@ struct ListeningPracticeView: View {
     private func revealedAnswer(for word: WordEntry) -> some View {
         VStack(spacing: 5) {
             Button {
-                speak(word.object.english)
+                speak(word.object.english, recordsWordPlay: true)
             } label: {
                 Text(word.object.english)
                     .font(.system(size: 36, weight: .black, design: .rounded))
@@ -787,7 +787,7 @@ struct ListeningPracticeView: View {
                     session: session,
                     returnsToPhoto: sourceRecordID != nil,
                     onDiscover: onDiscover,
-                    onSpeak: { speechEnabled = true; speak($0) },
+                    onSpeak: { speechEnabled = true; speak($0, recordsWordPlay: true) },
                     onDone: closePractice,
                     onNext: {
                         speech.stop()
@@ -883,9 +883,9 @@ struct ListeningPracticeView: View {
         speak(word.object.english)
     }
 
-    private func speak(_ text: String) {
+    private func speak(_ text: String, recordsWordPlay: Bool = false) {
         guard speechEnabled else { return }
-        speech.speak(text, rate: speechRate)
+        speech.speak(text, rate: speechRate, recordsWordPlay: recordsWordPlay)
     }
 
     private func photoAvailable(_ id: UUID) -> Bool {
@@ -899,6 +899,7 @@ struct ListeningPracticeView: View {
             return
         }
         didLoad = true
+        ActivityTracker.shared.record(.listeningEnter)
         wordLearningStore.startListeningRound(recordID: sourceRecordID, photoAvailable: photoAvailable)
         resetQuestion()
     }

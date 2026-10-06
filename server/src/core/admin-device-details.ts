@@ -1,8 +1,9 @@
 import type { Pool } from 'pg';
-import type { AdminStatsDevice } from './admin-stats.js';
+import type { AdminStatsEnvironment, AdminStatsDevice } from './admin-stats.js';
 import type { QuotaSnapshot, RecognitionOutcome } from './access/types.js';
 
 export type DeviceDetailQuery = {
+  environment?: AdminStatsEnvironment;
   installationId: string; startDate: string; endDate: string;
   outcome: RecognitionOutcome | null; appVersion: string | null;
   cursor: { startedAt: string; operationId: string } | null;
@@ -47,7 +48,7 @@ export async function loadDeviceDetails(pool: Pool, query: DeviceDetailQuery): P
         COALESCE(SUM(confirmation_count), 0)::text AS confirmations,
         COALESCE(SUM(reselection_count), 0)::text AS reselections
        FROM picture_word_installation_metrics_daily WHERE installation_id = $1
-         AND metric_date BETWEEN $2::date AND $3::date`, [query.installationId, query.startDate, query.endDate],
+         AND metric_date BETWEEN $2::date AND $3::date AND ($4 = 'All' OR environment = $4)`, [query.installationId, query.startDate, query.endDate, query.environment ?? 'All'],
     );
     const metadata = await client.query<{ recorded_at: Date }>(
       `SELECT recorded_at FROM picture_word_stats_metadata WHERE name = 'recognition_attempts_started'`,
@@ -59,7 +60,7 @@ export async function loadDeviceDetails(pool: Pool, query: DeviceDetailQuery): P
           CASE WHEN o.state = 'reserved' AND o.lease_expires_at <= clock_timestamp() THEN 'released'
                ELSE COALESCE(o.state, 'not_reserved') END AS quota_state
         FROM picture_word_recognition_attempts a LEFT JOIN picture_word_quota_operations o ON o.operation_id = a.operation_id
-        WHERE a.installation_id = $1
+        WHERE a.installation_id = $1 AND ($8 = 'All' OR a.environment = $8)
           AND a.started_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Shanghai')
           AND a.started_at < (($3::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
           AND a.started_at >= (((clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date - 89)::timestamp AT TIME ZONE 'Asia/Shanghai')
@@ -74,7 +75,7 @@ export async function loadDeviceDetails(pool: Pool, query: DeviceDetailQuery): P
         AND ($6::timestamptz IS NULL OR (started_at, operation_id) < ($6::timestamptz, $7::uuid))
       ORDER BY started_at DESC, operation_id DESC LIMIT 51`,
       [query.installationId, query.startDate, query.endDate, query.outcome, query.appVersion,
-        query.cursor?.startedAt ?? null, query.cursor?.operationId ?? null],
+        query.cursor?.startedAt ?? null, query.cursor?.operationId ?? null, query.environment ?? 'All'],
     );
     const summary = {
       recognitionAttempts: Number(totals.rows[0].attempts), recognitionSuccesses: Number(totals.rows[0].successes),

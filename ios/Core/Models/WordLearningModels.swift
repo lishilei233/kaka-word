@@ -66,6 +66,7 @@ struct ListeningSession: Codable, Equatable {
     var cursor = 0
     var isRepeat = false
     var contentChanged = false
+    var activityStartRecorded: Bool?
     var current: ListeningQuestion? { round.indices.contains(cursor) ? round[cursor] : nil }
     var isFinished: Bool { current == nil }
     var foundCount: Int { round.filter { outcomes[$0.id] == .found }.count }

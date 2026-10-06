@@ -10,6 +10,8 @@ final class WordLearningStore: ObservableObject {
     @Published private(set) var listeningSession: ListeningSession?
     @Published private(set) var listeningSaveError: String?
 
+    var onActivity: ((ActivityEventName, UUID, String?) -> Void)?
+
     var onListeningRoundCompleted: ((Date) -> Void)?
 
     private let context: ModelContext
@@ -121,10 +123,23 @@ final class WordLearningStore: ObservableObject {
     func startListeningRound(recordID: UUID? = nil, photoAvailable: @escaping (UUID) -> Bool = { _ in true }) {
         validateListeningSession(photoAvailable: photoAvailable)
         if let session = listeningSession, !session.isFinished,
-           recordID == nil || session.sourceRecordID == recordID { return }
+           recordID == nil || session.sourceRecordID == recordID {
+            recordListeningStartIfNeeded()
+            return
+        }
         let pool = listeningCandidates(recordID: recordID).filter { photoAvailable($0.recordID) }
         listeningSession = ListeningSession(sourceRecordID: recordID, pool: pool, round: Array(pool.prefix(3)))
+        recordListeningStartIfNeeded()
         persistListeningSession()
+    }
+
+    private func recordListeningStartIfNeeded() {
+        guard var session = listeningSession, !session.round.isEmpty, !session.isFinished,
+              session.activityStartRecorded != true, onActivity != nil else { return }
+        session.activityStartRecorded = true
+        listeningSession = session
+        persistListeningSession()
+        onActivity?(.listeningStart, session.id, nil)
     }
 
     func revealListeningQuestion(_ outcome: ListeningOutcome) {
@@ -140,6 +155,7 @@ final class WordLearningStore: ObservableObject {
         persistProgress(key: question.wordKey, progress: progress, saveImmediately: false)
         listeningSession = session
         persistListeningSession()
+        onActivity?(.listeningAnswer, session.id, outcome.rawValue)
     }
 
     func advanceListeningQuestion() {
@@ -149,6 +165,7 @@ final class WordLearningStore: ObservableObject {
         listeningSession = session
         persistListeningSession()
         if session.isFinished && !session.round.isEmpty && !session.contentChanged {
+            onActivity?(.listeningComplete, session.id, nil)
             onListeningRoundCompleted?(now())
         }
     }
@@ -163,7 +180,9 @@ final class WordLearningStore: ObservableObject {
         session.outcomes = [:]
         session.cursor = 0
         session.id = UUID()
+        session.activityStartRecorded = nil
         listeningSession = session
+        recordListeningStartIfNeeded()
         persistListeningSession()
     }
 

@@ -1,3 +1,5 @@
+import type { DeviceActivityQuery } from '../core/activity-stats.js';
+import { activityMarkup, activityScript, activityDetailScript } from './admin-activity-ui.js';
 import { deviceDetailsStyles, deviceDetailsMarkup, deviceDetailsScript } from "./admin-device-details-ui.js";
 import { recognitionOutcomes, type RecognitionOutcome } from "../core/access/types.js";
 import type { DeviceDetailQuery } from "../core/admin-device-details.js";
@@ -28,6 +30,32 @@ export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Depend
 
   app.get("/admin/stats", (c) => c.html(adminStatsPage));
 
+  app.get('/admin/api/stats/devices/:installationId/activity', async c => {
+    const installationId = c.req.param('installationId');
+    const startDate = c.req.query('startDate') ?? addDays(todayInShanghai(), -89);
+    const endDate = c.req.query('endDate') ?? todayInShanghai();
+    const environment = c.req.query('environment') ?? 'All';
+    let cursor: DeviceActivityQuery['cursor'] = null;
+    try {
+      const encoded = c.req.query('cursor');
+      if (encoded) {
+        if (encoded.length > 512 || !/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error('Invalid cursor');
+        const value = JSON.parse(Buffer.from(encoded, 'base64url').toString());
+        if (typeof value.occurredAt !== 'string' || !Number.isFinite(Date.parse(value.occurredAt)) || !isUUID(value.eventId)) throw new Error('Invalid cursor');
+        cursor = { occurredAt: new Date(value.occurredAt).toISOString(), eventId: value.eventId };
+      }
+    } catch { return c.json({ error: 'INVALID_STATS_QUERY' }, 400); }
+    if (!isUUID(installationId) || !isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate
+      || endDate > todayInShanghai() || !isAdminStatsEnvironment(environment)) return c.json({ error: 'INVALID_STATS_QUERY' }, 400);
+    try {
+      const data = await dependencies.repository!.loadDeviceActivity({ installationId, startDate, endDate, environment, cursor });
+      return data ? c.json(data) : c.json({ error: 'DEVICE_NOT_FOUND' }, 404);
+    } catch (error) {
+      dependencies.logger.error('admin_stats.activity_load_failed', { requestId: c.get('requestId'), message: error instanceof Error ? error.message : String(error) });
+      return c.json({ error: 'STATS_UNAVAILABLE' }, 503);
+    }
+  });
+
   app.get('/admin/api/stats/devices/:installationId', async c => {
     const installationId = c.req.param('installationId');
     const oldest = addDays(todayInShanghai(), -89);
@@ -35,6 +63,7 @@ export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Depend
     const endDate = c.req.query('endDate') ?? todayInShanghai();
     const outcome = c.req.query('outcome') || null;
     const appVersion = c.req.query('appVersion')?.trim() || null;
+    const environment = c.req.query('environment') ?? 'All';
     let cursor: DeviceDetailQuery['cursor'] = null;
     try {
       const encoded = c.req.query('cursor');
@@ -45,7 +74,7 @@ export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Depend
         cursor = { startedAt: new Date(value.startedAt).toISOString(), operationId: value.operationId };
       }
     } catch { return c.json({ error: 'INVALID_STATS_QUERY' }, 400); }
-    if (!isUUID(installationId) || !isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate
+    if (!isUUID(installationId) || !isAdminStatsEnvironment(environment) || !isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate
       || startDate < oldest || endDate > todayInShanghai()
       || (outcome !== null && !recognitionOutcomes.includes(outcome as RecognitionOutcome))
       || (appVersion !== null && (appVersion.length > 64 || /[\x00-\x1f]/.test(appVersion)))) {
@@ -53,7 +82,7 @@ export function registerAdminStatsRoutes(app: Hono<AppEnv>, dependencies: Depend
     }
     try {
       const data = await dependencies.repository!.loadDeviceDetails({ installationId, startDate, endDate,
-        outcome: outcome as RecognitionOutcome | null, appVersion, cursor });
+        outcome: outcome as RecognitionOutcome | null, appVersion, cursor, environment });
       return data ? c.json(data) : c.json({ error: 'DEVICE_NOT_FOUND' }, 404);
     } catch (error) {
       dependencies.logger.error('admin_stats.device_load_failed', { requestId: c.get('requestId'),
@@ -228,15 +257,19 @@ const adminStatsPage = String.raw`<!doctype html>
     @media(max-width:1000px){.cards{grid-template-columns:repeat(3,1fr)}.span-8,.span-7,.span-6,.span-5,.span-4{grid-column:span 12}header{grid-template-columns:1fr}.filters{justify-self:start}}
     @media(max-width:600px){main{width:calc(100% - 20px)}body::before{left:20px}.section,.notice{margin-left:22px}.cards{grid-template-columns:repeat(2,1fr)}header{margin-left:22px}.card-value{font-size:30px}.section-head{align-items:start;flex-direction:column}.section-note{text-align:left}}
     @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+    #activityDaily { max-height:420px; overflow:auto; }
+    #activityDaily thead { position:sticky; top:0; background:var(--light); z-index:1; }
     ${deviceDetailsStyles}
+    .device-table { min-width:1100px; }
   </style>
 </head>
 <body>
 <main id="app" class="loading">
-  <header><div><div class="eyebrow">Picture Word · Operations Notebook</div><h1>数据手账</h1><div class="subtitle">查看设备安装与会员分布，打开详情查看逐次识别结果和额度变化。</div></div></header>
-  <div class="notice">注册时间筛选决定主表设备范围；识别详情按独立的识别时间查询。无环境归属的设备显示“未知”，时间均按北京时间显示。</div>
+  <header><div><div class="eyebrow">Picture Word · Operations Notebook</div><h1>数据手账</h1><div class="subtitle">查看访问、学习与功能使用趋势，打开设备详情查看行为记录和识别结果。</div></div></header>
+  <div class="notice">按安装标识统计设备，不等于真实人数。时间范围按行为发生日期筛选，包含回来的老设备；未上报的旧版行为不补造。设备环境和会员类型为当前快照；日期均为北京时间。</div>
+  ${activityMarkup}
   <div class="section-note" id="generated" style="margin:18px 8px 0 50px">正在读取数据…</div>
-  <section class="section"><div class="section-head"><div><div class="section-kicker">Device detail</div><h2>设备识别统计</h2></div><div class="section-note">会员类型为当前快照；识别和额度信息请查看详情</div></div><div class="panel device-panel"><div class="table-wrap" id="devices"></div></div></section>
+  <section class="section"><div class="section-head"><div><div class="section-kicker">Device detail</div><h2>设备活跃统计</h2></div><div class="section-note">包含所选期间有行为或新注册的设备；会员类型为当前快照</div></div><div class="panel device-panel"><div class="table-wrap" id="devices"></div></div></section>
   <section class="section"><div class="section-head"><div><div class="section-kicker">Conversion trail</div><h2>付费路径</h2></div><div class="section-note">漏斗为全环境事件；产品订阅与交易受环境筛选</div></div><div class="grid"><div class="panel span-7"><div class="panel-title"><h3>事件漏斗</h3><span data-tip="funnel"></span></div><div id="funnel"></div></div><div class="panel span-5"><div class="panel-title"><h3>套餐选择</h3><span data-tip="plans"></span></div><div id="plans"></div></div><div class="panel span-6"><div class="panel-title"><h3>购买结果</h3><span data-tip="purchase"></span></div><div id="purchase"></div></div><div class="panel span-6"><div class="panel-title"><h3>恢复购买</h3><span data-tip="restore"></span></div><div id="restore"></div></div></div></section>
   <section class="section"><div class="section-head"><div><div class="section-kicker">Recognition quality</div><h2>纠正词</h2></div></div><div class="grid"><div class="panel span-12"><div class="panel-title"><h3>常见纠正 · Top 20</h3><span data-tip="corrections"></span></div><div id="corrections"></div></div></div></section>
   <footer id="footer"></footer>
@@ -279,8 +312,9 @@ function shiftDate(value,days){const date=new Date(value+'T00:00:00.000Z');date.
 function rangeForDays(days){const endDate=dateKey(new Date());return {preset:String(days),startDate:shiftDate(endDate,-(days-1)),endDate}}
 let dateRange={...rangeForDays(30)};
 let pendingDateRange={...dateRange};
+let currentStatsEnvironment='All';
 let deviceTableError='';
-async function load(){const app=$('app');app.classList.add('loading');try{const params=new URLSearchParams({environment:'All'});if(dateRange.preset==='all')params.set('allTime','true');else{if(!dateRange.startDate||!dateRange.endDate||dateRange.startDate>dateRange.endDate)throw new Error('请选择有效的注册日期范围');params.set('startDate',dateRange.startDate);params.set('endDate',dateRange.endDate)}const res=await fetch('/admin/api/stats?'+params.toString());if(!res.ok)throw new Error('HTTP '+res.status);render(await res.json());}catch(e){deviceTableError='统计数据暂时无法读取，请检查日期范围或稍后重试。';$('generated').textContent='统计数据暂时无法读取：'+e.message;currentDeviceRows=[];renderDeviceTable();}finally{app.classList.remove('loading')}}
+async function load(){const app=$('app');app.classList.add('loading');try{const params=new URLSearchParams({environment:$('activityEnvironment').value||'All'});if(dateRange.preset==='all')params.set('allTime','true');else{if(!dateRange.startDate||!dateRange.endDate||dateRange.startDate>dateRange.endDate)throw new Error('请选择有效的统计日期范围');params.set('startDate',dateRange.startDate);params.set('endDate',dateRange.endDate)}const res=await fetch('/admin/api/stats?'+params.toString());if(!res.ok)throw new Error('HTTP '+res.status);render(await res.json());}catch(e){deviceTableError='统计数据暂时无法读取，请检查日期范围或稍后重试。';$('generated').textContent='统计数据暂时无法读取：'+e.message;currentDeviceRows=[];renderDeviceTable();}finally{app.classList.remove('loading')}}
 const deviceFilterColumns=[
 {key:'deviceId',title:'设备',fields:[['query','搜索设备编号','search']]},
 {key:'registrationDate',title:'注册时间（北京时间）',fields:[]},
@@ -292,7 +326,7 @@ let currentDeviceRows=[];
 let openDeviceFilter=null;
 const emptyDeviceFilter=column=>Object.fromEntries(column.fields.map(([field])=>[field,'']));
 let deviceFilters=Object.fromEntries(deviceFilterColumns.map(column=>[column.key,emptyDeviceFilter(column)]));
-function activeDeviceFilter(key){if(key==='registrationDate')return dateRange.preset!=='all';return Object.values(deviceFilters[key]||{}).some(value=>value!==''&&value!=null)}
+function activeDeviceFilter(key){if(key==='registrationDate')return false;return Object.values(deviceFilters[key]||{}).some(value=>value!==''&&value!=null)}
 function anyDeviceFilter(){return deviceFilterColumns.some(column=>activeDeviceFilter(column.key))}
 function deviceMatchesFilters(device){
 return deviceFilterColumns.every(column=>{
@@ -325,15 +359,16 @@ function renderDeviceTable(){
 const root=$('devices');
 const devices=currentDeviceRows.filter(deviceMatchesFilters);
 const membershipCounts=devices.reduce((counts,device)=>{if(device.membershipType in counts)counts[device.membershipType]++;return counts},{free:0,monthly:0,annual:0});
-const header=column=>'<th class="filter-heading"><div class="heading-content"><span>'+column.title+'</span><button type="button" class="filter-toggle'+(activeDeviceFilter(column.key)?' is-active':'')+'" data-filter-toggle="'+column.key+'" aria-label="筛选：'+column.title+'" aria-pressed="'+(openDeviceFilter===column.key)+'">'+(activeDeviceFilter(column.key)?'⌕':'▽')+'</button></div></th>';
+const header=column=>column.key==='registrationDate'?'<th scope="col">注册时间（北京时间）</th>':'<th class="filter-heading"><div class="heading-content"><span>'+column.title+'</span><button type="button" class="filter-toggle'+(activeDeviceFilter(column.key)?' is-active':'')+'" data-filter-toggle="'+column.key+'" aria-label="筛选：'+column.title+'" aria-pressed="'+(openDeviceFilter===column.key)+'">'+(activeDeviceFilter(column.key)?'⌕':'▽')+'</button></div></th>';
 const envLabels={Production:'正式环境',Sandbox:'沙盒环境',Xcode:'Xcode',LocalTesting:'本地测试',Unknown:'未知'};
-const cell=device=>'<tr><td>设备 '+escapeHtml(device.deviceId)+'</td><td>'+escapeHtml(device.registrationDate||'—')+'</td><td>'+escapeHtml(envLabels[device.environment]||device.environment||'未知')+'</td><td>'+({free:'免费版',monthly:'月会员',annual:'年会员'}[device.membershipType]||'会员')+'</td><td><button type="button" class="clear-filters" data-device-details="'+escapeHtml(device.installationId)+'" aria-label="查看设备 '+escapeHtml(device.deviceId)+' 的识别详情">查看详情</button></td></tr>';
-const filterRow=openDeviceFilter?'<tr class="filter-row">'+deviceFilterColumns.map(column=>'<td>'+(openDeviceFilter===column.key?filterControl(column):'')+'</td>').join('')+'<td></td></tr>':'';
-const emptyMessage=deviceTableError|| (currentDeviceRows.length?'没有设备符合这些筛选条件。':'所选注册日期范围内没有新增设备。');
-const body=devices.length?devices.map(cell).join(''):'<tr><td class="empty filtered-empty" colspan="5">'+emptyMessage+(anyDeviceFilter()?'<button type="button" class="clear-filters" data-filter-action="clear-all">清除筛选</button>':'')+'</td></tr>';
+const cell=device=>'<tr><td>设备 '+escapeHtml(device.deviceId)+'</td><td>'+escapeHtml(device.registrationDate||'—')+'</td><td>'+escapeHtml(envLabels[device.environment]||device.environment||'未知')+'</td><td>'+({free:'免费版',monthly:'月会员',annual:'年会员'}[device.membershipType]||'会员')+'</td>'+activityDeviceCells(device.activity)+'<td><button type="button" class="clear-filters" data-device-details="'+escapeHtml(device.installationId)+'" aria-label="查看设备 '+escapeHtml(device.deviceId)+' 的活跃和识别详情">查看详情</button></td></tr>';
+const activityHeader='<th>最近活跃</th><th>活跃天数</th><th>打开次数</th><th>学习次数</th>';
+const filterRow=openDeviceFilter?'<tr class="filter-row">'+deviceFilterColumns.map(column=>'<td>'+(openDeviceFilter===column.key?filterControl(column):'')+'</td>').join('')+'<td colspan="5"></td></tr>':'';
+const emptyMessage=deviceTableError|| (currentDeviceRows.length?'没有设备符合这些筛选条件。':'所选时间范围内没有活跃或新增设备。');
+const body=devices.length?devices.map(cell).join(''):'<tr><td class="empty filtered-empty" colspan="9">'+emptyMessage+(anyDeviceFilter()?'<button type="button" class="clear-filters" data-filter-action="clear-all">清除筛选</button>':'')+'</td></tr>';
 const membershipTotal='<div>免费会员：'+fmt(membershipCounts.free)+'<br>月会员：'+fmt(membershipCounts.monthly)+'<br>年会员：'+fmt(membershipCounts.annual)+'</div>';
-const total='<tfoot><tr><td>总计（'+fmt(devices.length)+' 台）</td><td>—</td><td>—</td><td>'+membershipTotal+'</td><td>—</td></tr></tfoot>';
-root.innerHTML='<div class="device-table-status"><span>当前显示 '+fmt(devices.length)+' / '+fmt(currentDeviceRows.length)+' 台设备</span><div><button type="button" class="clear-filters" data-filter-action="clear-all"'+(anyDeviceFilter()?'':' disabled')+'>清除全部筛选</button> <button type="button" data-filter-action="refresh">刷新数据</button></div></div><table class="device-table"><thead><tr>'+deviceFilterColumns.map(header).join('')+'<th scope="col">详情</th></tr>'+filterRow+'</thead><tbody>'+body+'</tbody>'+total+'</table>';
+const total='<tfoot><tr><td>总计（'+fmt(devices.length)+' 台）</td><td>—</td><td>—</td><td>'+membershipTotal+'</td><td colspan="5">—</td></tr></tfoot>';
+root.innerHTML='<div class="device-table-status"><span>当前显示 '+fmt(devices.length)+' / '+fmt(currentDeviceRows.length)+' 台设备</span><div><button type="button" class="clear-filters" data-filter-action="clear-all"'+(anyDeviceFilter()?'':' disabled')+'>清除全部筛选</button> <button type="button" data-filter-action="refresh">刷新数据</button></div></div><table class="device-table"><thead><tr>'+deviceFilterColumns.map(header).join('')+activityHeader+'<th scope="col">详情</th></tr>'+filterRow+'</thead><tbody>'+body+'</tbody>'+total+'</table>';
 }
 function handleDeviceFilterChange(event){
 const target=event.target;
@@ -357,7 +392,7 @@ if(target.dataset.filterToggle){const key=target.dataset.filterToggle;openDevice
 const key=target.dataset.filterKey;
 if(action==='refresh')return load();
 if(action==='apply'&&key==='registrationDate'){
-if(pendingDateRange.preset!=='all'&&(!pendingDateRange.startDate||!pendingDateRange.endDate||pendingDateRange.startDate>pendingDateRange.endDate)){$('generated').textContent='请选择有效的注册日期范围';return}
+if(pendingDateRange.preset!=='all'&&(!pendingDateRange.startDate||!pendingDateRange.endDate||pendingDateRange.startDate>pendingDateRange.endDate)){$('generated').textContent='请选择有效的统计日期范围';return}
 dateRange={...pendingDateRange};openDeviceFilter=null;return load();
 }
 if(action==='apply'&&key){const panel=$('devices').querySelector('[data-filter-panel="'+key+'"]');const state={};panel.querySelectorAll('[data-filter-field]').forEach(field=>{state[field.dataset.filterField]=field.value.trim()});deviceFilters[key]=state;openDeviceFilter=null;renderDeviceTable();return}
@@ -367,6 +402,8 @@ if(action==='clear-all'){deviceFilters=Object.fromEntries(deviceFilterColumns.ma
 }
 $('devices').addEventListener('click',handleDeviceFilterClick);
 function render(data){
+currentStatsEnvironment=data.environment;
+renderActivity(data.activity);
 deviceTableError='';
 currentDeviceRows=data.installations.devices;openDeviceFilter=null;renderDeviceTable();
 const paywall=total(data,'paywall_exposure'),selected=total(data,'plan_selection'),bought=total(data,'purchase_result','success');$('funnel').innerHTML=bars([{name:'付费墙曝光',count:paywall},{name:'套餐选择',count:selected},{name:'购买成功',count:bought}],'var(--coral)')+'<div class="legend"><span>选择率 '+pct(selected,paywall)+'</span><span>事件转化率 '+pct(bought,paywall)+'</span></div>';
@@ -374,7 +411,9 @@ $('plans').innerHTML=bars(aggregate(metrics(data,'plan_selection'),x=>shortProdu
 $('corrections').innerHTML=data.feedback.corrections.length?'<table><thead><tr><th>模型原词</th><th>用户修正</th><th>次数</th></tr></thead><tbody>'+data.feedback.corrections.map(x=>'<tr><td>'+escapeHtml(x.originalEnglish)+' · '+escapeHtml(x.originalChinese)+'</td><td>'+escapeHtml(x.correctedEnglish)+' · '+escapeHtml(x.correctedChinese)+'</td><td>'+fmt(x.count)+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">暂无纠正反馈</div>';
 $('generated').textContent='生成于 '+new Date(data.generatedAt).toLocaleString('zh-CN')+' · '+({All:'全部环境',Production:'正式环境',Sandbox:'沙盒环境',Xcode:'Xcode',LocalTesting:'本地测试'}[data.environment]||data.environment);$('footer').textContent='范围：'+(data.startDate&&data.endDate?data.startDate+' 至 '+data.endDate:'不限时间')+' · 时区：Asia/Shanghai · 订阅环境：'+data.environment+' · 页面不缓存';}
 document.querySelectorAll('[data-tip]').forEach(el=>{el.innerHTML=tipControl(tips[el.dataset.tip])});
+${activityScript}
 ${deviceDetailsScript}
+${activityDetailScript}
 $('devices').addEventListener('change',handleDeviceFilterChange);renderDeviceTable();load();
 </script>
 </body></html>`;

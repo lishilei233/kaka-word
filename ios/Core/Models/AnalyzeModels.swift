@@ -438,7 +438,14 @@ struct AnalyzeResult: Codable, Hashable {
         return (0...(sentence.count - phrase.count)).first { Array(sentence[$0..<($0 + phrase.count)]) == phrase }
     }
 
-    var allWords: [LearningObject] { annotatedWords + bottomVerbs.map(\.learningObject) }
+    var readingGroups: [[LearningObject]] {
+        let adjectives = annotatedWords.filter { $0.kind == .adjective }
+        return objects.map { object in
+            [object] + adjectives.filter { $0.relatedObjectID == object.id }
+        } + bottomVerbs.map { [$0.learningObject] }
+    }
+
+    var allWords: [LearningObject] { readingGroups.flatMap { $0 } }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

@@ -120,6 +120,8 @@ final class SpeechService: NSObject, ObservableObject {
     private let synthesizer: any SpeechSynthesizing
     private let voiceProvider: () -> [AVSpeechSynthesisVoice]
     private let defaults: UserDefaults
+    private var trackedUtterances: Set<ObjectIdentifier> = []
+    var onWordPlaybackStarted: () -> Void = { ActivityTracker.shared.record(.wordPlay) }
     @Published private(set) var availableEnglishVoices: [SpeechVoiceDescriptor]
 
     init(
@@ -133,6 +135,7 @@ final class SpeechService: NSObject, ObservableObject {
         self.defaults = defaults
         availableEnglishVoices = []
         super.init()
+        (synthesizer as? AVSpeechSynthesizer)?.delegate = self
         if refreshesVoicesOnInit {
             refreshAvailableVoices()
         }
@@ -151,12 +154,14 @@ final class SpeechService: NSObject, ObservableObject {
     func speak(
         _ text: String,
         rate: Double = AppSettings.defaultSpeechRate,
-        voiceIdentifier: String? = nil
+        voiceIdentifier: String? = nil,
+        recordsWordPlay: Bool = false
     ) {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else { return }
 
         // 新点击或音色切换直接替换上一次发音，避免累积播放队列。
+        trackedUtterances.removeAll()
         _ = synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: normalizedText)
         let selectedIdentifier = voiceIdentifier
@@ -164,10 +169,12 @@ final class SpeechService: NSObject, ObservableObject {
             ?? AppSettings.defaultEnglishVoiceIdentifier
         utterance.voice = resolvedVoice(selectedIdentifier: selectedIdentifier)
         utterance.rate = Float(min(max(rate, 0.35), 0.55))
+        if recordsWordPlay { trackedUtterances.insert(ObjectIdentifier(utterance)) }
         synthesizer.speak(utterance)
     }
 
     func stop() {
+        trackedUtterances.removeAll()
         _ = synthesizer.stopSpeaking(at: .immediate)
     }
 
@@ -231,5 +238,15 @@ final class SpeechService: NSObject, ObservableObject {
             isNoveltyVoice: voice.voiceTraits.contains(.isNoveltyVoice),
             isPersonalVoice: voice.voiceTraits.contains(.isPersonalVoice)
         )
+    }
+}
+
+extension SpeechService: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        let identifier = ObjectIdentifier(utterance)
+        Task { @MainActor [weak self] in
+            guard let self, self.trackedUtterances.remove(identifier) != nil else { return }
+            self.onWordPlaybackStarted()
+        }
     }
 }

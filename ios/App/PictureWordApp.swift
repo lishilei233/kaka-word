@@ -37,6 +37,7 @@ struct PictureWordApp: App {
             .environmentObject(membershipStore)
             .environmentObject(notifications)
             .task {
+                ActivityTracker.shared.enterForeground()
                 data.prepareIfNeeded()
                 if !data.isPreparing && data.migrationError == nil {
                     notifications.attach(membership: membershipStore, words: data.wordLearningStore, history: data.historyStore)
@@ -44,12 +45,15 @@ struct PictureWordApp: App {
                 await membershipStore.prepare()
                 notifications.requestReconcile()
             }
+            .task { await ActivityTracker.shared.prepare() }
             .task(id: didCompleteOnboarding) {
                 guard didCompleteOnboarding else { return }
                 await appVersionCoordinator.checkAfterOnboarding()
             }
             .onChange(of: scenePhase) { _, phase in
+                if phase == .background { ActivityTracker.shared.enterBackground() }
                 guard phase == .active else { return }
+                ActivityTracker.shared.enterForeground()
                 notifications.requestReconcile()
                 Task {
                     await membershipStore.refreshAfterForegroundActivation()
@@ -87,6 +91,9 @@ private final class AppDataBootstrap: ObservableObject {
         historyStore = HistoryStore(container: container)
         journeyStore = LearningJourneyStore(container: container)
         wordLearningStore = WordLearningStore(container: container)
+        wordLearningStore.onActivity = { name, sessionID, outcome in
+            ActivityTracker.shared.record(name, sessionID: sessionID, outcome: outcome)
+        }
         historyStore.onHistoryChanged = { [weak wordLearningStore] in wordLearningStore?.reload() }
     }
 

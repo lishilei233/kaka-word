@@ -1,3 +1,4 @@
+import { registerActivityRoute } from './routes/activity.js';
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import type { ServerConfig } from "./config.js";
@@ -56,6 +57,7 @@ export function createApp({ config, provider, usageLimiter, accessService = new 
   registerMembershipRoute(app, config.access);
   registerAccessRoutes(app, { accessService, logger });
   registerStoreRoutes(app, { accessService, logger });
+  registerActivityRoute(app, { accessService, logger });
   registerMetricsRoute(app, { accessService, logger });
   registerRecognitionFeedbackRoute(app, { accessService, logger });
   registerAnalyzeRoute(app, {

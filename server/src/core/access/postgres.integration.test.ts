@@ -38,6 +38,7 @@ test("PostgreSQL access quotas are atomic, idempotent, and shared by Apple purch
     await readFile(new URL("../../../migrations/005_installation_stats.sql", import.meta.url), "utf8"),
     await readFile(new URL("../../../migrations/006_installation_environment.sql", import.meta.url), "utf8"),
     await readFile(new URL("../../../migrations/007_recognition_attempts.sql", import.meta.url), "utf8"),
+    await readFile(new URL("../../../migrations/008_activity_events.sql", import.meta.url), "utf8"),
   ].join("\n");
   const setupPool = new Pool({ connectionString: isolatedURL.toString() });
   await setupPool.query(migration);

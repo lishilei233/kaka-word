@@ -18,7 +18,7 @@ import { bundleStudioVideo } from './render-bundle';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { getImageDimensions } from './image-dimensions.ts';
 import { normalizedPhoto } from './normalize-photo.ts';
-import { projectSchema, exportBlockers, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
+import { projectSchema, readingWords, exportBlockers, timeline, voiceIdSchema, type Project } from '../lib/project.ts';
 import { analyzeScene, generateCoverCopy, recognizeImage, regenerateCaption, reviewCaption } from './recognition.server.ts';
 import { fixedSocialCopy, publishingIssues } from '../lib/learning-post.ts';
 
@@ -342,7 +342,7 @@ export async function handleStudioRequest(req: Request): Promise<Response> {
             const blockers = exportBlockers(p);
             if (blockers.length) throw new Error(`导出前还需要：${blockers.join('；')}`);
             if (state.rendering) return send({ error: '已有导出正在进行，请等待完成' }, 409);
-            await Promise.all([p.image!, ...descriptionSentences(p).map(s => s.audio!), ...(p.interaction?.enabled ? [p.interaction.audio!] : []), ...(p.video ? [p.video] : []), ...p.words.map(w => w.audio!)].map(asset => stat(assetFile(asset))));
+            await Promise.all([p.image!, ...descriptionSentences(p).map(s => s.audio!), ...(p.interaction?.enabled ? [p.interaction.audio!] : []), ...(p.video ? [p.video] : []), ...readingWords(p.words, p.caption).map(w => w.audio!)].map(asset => stat(assetFile(asset))));
             // Asset checks yield; another request may have started a render meanwhile.
             if (state.rendering) return send({ error: '已有导出正在进行，请等待完成' }, 409);
             const id = randomUUID(); state.rendering = true; state.jobs.set(id, { status: 'rendering', progress: 0 });

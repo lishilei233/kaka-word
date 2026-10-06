@@ -12,7 +12,7 @@ const p: Project = { ...emptyProject, sceneTheme: '书架一角',
     captionSentences: [{ english: 'Books sit on a shelf.', chinese: '书摆在书架上。' }, { english: 'A book is open.', chinese: '一本书打开着。' }],
 };
 test('three platforms use the exact same fixed template and plain-text formatting', () => {
-    const expectedBody = '把每天看到的东西，变成英语。📷\n\n今天看看「书架一角」里有哪些英文单词：\nbook / bookshelf / open\n\n再学一句：\nBooks sit on a shelf.\n书摆在书架上。\nA book is open.\n一本书打开着。\n\n照片里还有什么，你会用英语说吗？👀';
+    const expectedBody = '把每天看到的东西，变成英语。📷\n\n今天看看「书架一角」里有哪些英文单词：\nbook / open / bookshelf\n\n再学一句：\nBooks sit on a shelf.\n书摆在书架上。\nA book is open.\n一本书打开着。\n\n照片里还有什么，你会用英语说吗？👀';
     const copy = fixedSocialCopy(p);
     assert.deepEqual(copy.xiaohongshu, copy.douyin);
     assert.deepEqual(copy.douyin, copy.channels);

@@ -1,3 +1,4 @@
+import { activityDetailMarkup } from './admin-activity-ui.js';
 export const deviceDetailsStyles = `
 .device-table { min-width:720px; }
 .device-table .filtered-empty { display:table-cell; text-align:center!important; white-space:normal!important; padding:36px 12px; }
@@ -34,13 +35,15 @@ export const deviceDetailsMarkup = `
   <div class="detail-body">
     <div id="detailProfile" class="detail-profile"></div>
     <form id="detailFilters" class="detail-controls">
-      <label>识别时间范围<select id="detailPreset"><option value="1">今天</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="90" selected>近 90 天</option><option value="custom">自定义</option></select></label>
+      <label>统计时间范围<select id="detailPreset"><option value="1">今天</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="90" selected>近 90 天</option><option value="custom">自定义</option></select></label>
       <label>开始日期（北京时间）<input id="detailStart" type="date" required></label>
       <label>结束日期（北京时间）<input id="detailEnd" type="date" required></label>
       <label>识别结果<select id="detailOutcome"><option value="">全部结果</option><option value="processing">处理中</option><option value="success">成功</option><option value="empty">空结果</option><option value="failure">失败</option><option value="cancelled">取消</option><option value="quota_exhausted">额度耗尽</option><option value="rate_limited">服务限流</option><option value="unfinished">未正常结束</option></select></label>
       <label>App 版本／构建号<input id="detailVersion" type="search" maxlength="64" placeholder="例如 1.2.0 或 35"></label>
       <div class="detail-actions"><button type="submit">应用筛选</button><button type="button" id="detailRefresh" class="clear-filters">刷新</button></div>
     </form>
+    ${activityDetailMarkup}
+    <h3>识别记录与额度</h3>
     <div id="detailSummary" class="detail-summary"></div>
     <p id="detailHistory" class="detail-note">明细自上线后开始记录，保留最近 90 天；更早的数据仅有每日汇总，无法还原逐次结果。</p>
     <p class="detail-note">时段汇总按识别日期计算，不受结果与版本筛选影响。额度为请求时快照，“是否扣次”按实际额度操作状态判断。</p>
@@ -69,7 +72,7 @@ $('detailMore').hidden=!detailNextCursor;
 }
 function renderDeviceDetails(data){
 const d=data.device,s=data.summary;
-$('detailTitle').textContent='设备 '+d.deviceId+' · 识别详情';
+$('detailTitle').textContent='设备 '+d.deviceId+' · 活跃与识别详情';
 $('detailProfile').textContent='注册 '+d.registrationDate+'（北京时间） · '+(environmentNames[d.environment]||d.environment)+' · '+(membershipNames[d.membershipType]||'会员')+' · 当前免费额度 已用 '+d.freeUsed+' / 剩余 '+Math.max(0,3-d.freeUsed);
 $('detailSummary').innerHTML=[['识别尝试',fmt(s.recognitionAttempts)],['成功识别',fmt(s.recognitionSuccesses)],['识别成功率',pct(s.recognitionSuccesses,s.recognitionAttempts)],['用户改选率',pct(s.reselectionCount,s.confirmationCount)]].map(([label,value])=>'<div class="detail-metric"><span>'+label+'</span><strong>'+value+'</strong></div>').join('');
 $('detailHistory').textContent='明细自 '+beijingTime(data.recordingStartedAt)+' 上线后开始记录，保留最近 90 天；更早的数据仅有每日汇总，无法还原逐次结果。';
@@ -79,7 +82,7 @@ if(!detailDeviceId||!detailQuery)return;
 const serial=++detailSequence;
 if(!append){detailRows=[];detailNextCursor=null;$('detailSummary').innerHTML=''}
 detailBusy=true;$('detailMore').disabled=true;$('detailRetry').hidden=true;$('detailStatus').textContent='正在读取详情…';$('detailAttempts').setAttribute('aria-busy','true');renderAttemptTable();
-const params=new URLSearchParams(detailQuery);if(append&&detailNextCursor)params.set('cursor',detailNextCursor);
+const params=new URLSearchParams({...detailQuery,environment:currentStatsEnvironment});if(append&&detailNextCursor)params.set('cursor',detailNextCursor);
 try{
 const res=await fetch('/admin/api/stats/devices/'+encodeURIComponent(detailDeviceId)+'?'+params.toString());
 if(!res.ok)throw new Error(res.status===404?'设备记录不存在':'HTTP '+res.status);
@@ -91,15 +94,15 @@ finally{if(serial===detailSequence){detailBusy=false;$('detailMore').disabled=fa
 function openDeviceDetails(installationId){
 detailDeviceId=installationId;const range=rangeForDays(90);$('detailPreset').value='90';$('detailStart').value=range.startDate;$('detailEnd').value=range.endDate;$('detailOutcome').value='';$('detailVersion').value='';
 for(const id of ['detailStart','detailEnd']){$(id).min=range.startDate;$(id).max=range.endDate}
-detailQuery={startDate:range.startDate,endDate:range.endDate};$('detailTitle').textContent='设备识别详情';$('detailProfile').textContent='正在读取当前设备信息…';$('deviceDetails').showModal();$('deviceDetails').scrollTop=0;return loadDeviceDetailsPage();
+detailQuery={startDate:range.startDate,endDate:range.endDate};$('detailTitle').textContent='设备识别详情';$('detailProfile').textContent='正在读取当前设备信息…';$('deviceDetails').showModal();$('deviceDetails').scrollTop=0;void loadDeviceActivityPage();return loadDeviceDetailsPage();
 }
 $('detailClose').addEventListener('click',()=>$('deviceDetails').close());
-$('deviceDetails').addEventListener('close',()=>{detailSequence++;detailDeviceId=null;detailBusy=false});
+$('deviceDetails').addEventListener('close',()=>{activityDetailSequence++;detailSequence++;detailDeviceId=null;detailBusy=false});
 $('deviceDetails').addEventListener('click',event=>{if(event.target===$('deviceDetails')){const bounds=$('deviceDetails').getBoundingClientRect();if(event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom)$('deviceDetails').close()}});
 $('detailPreset').addEventListener('change',()=>{if($('detailPreset').value!=='custom'){const r=rangeForDays(Number($('detailPreset').value));$('detailStart').value=r.startDate;$('detailEnd').value=r.endDate}});
 for(const id of ['detailStart','detailEnd'])$(id).addEventListener('change',()=>{$('detailPreset').value='custom'});
-$('detailFilters').addEventListener('submit',event=>{event.preventDefault();const start=$('detailStart').value,end=$('detailEnd').value,r=rangeForDays(90);if(!start||!end||start>end||start<r.startDate||end>r.endDate){$('detailStatus').textContent='请选择最近 90 天内有效的识别日期范围';return}detailQuery={startDate:start,endDate:end,outcome:$('detailOutcome').value,appVersion:$('detailVersion').value.trim()};void loadDeviceDetailsPage()});
-$('detailRefresh').addEventListener('click',()=>{void loadDeviceDetailsPage()});
+$('detailFilters').addEventListener('submit',event=>{event.preventDefault();const start=$('detailStart').value,end=$('detailEnd').value,r=rangeForDays(90);if(!start||!end||start>end||start<r.startDate||end>r.endDate){$('detailStatus').textContent='请选择最近 90 天内有效的识别日期范围';return}detailQuery={startDate:start,endDate:end,outcome:$('detailOutcome').value,appVersion:$('detailVersion').value.trim()};void loadDeviceDetailsPage();void loadDeviceActivityPage()});
+$('detailRefresh').addEventListener('click',()=>{void loadDeviceDetailsPage();void loadDeviceActivityPage()});
 $('detailRetry').addEventListener('click',()=>{void loadDeviceDetailsPage(Boolean(detailRows.length&&detailNextCursor))});
 $('detailMore').addEventListener('click',()=>{if(!detailBusy&&detailNextCursor)void loadDeviceDetailsPage(true)});
 `;

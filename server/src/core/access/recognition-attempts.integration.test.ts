@@ -21,7 +21,7 @@ test('recognition details are atomic, idempotent, paginated and retained indepen
   const pool = new Pool({ connectionString: url.toString() });
   const repository = new PostgresAdminStatsRepository(url.toString());
   t.after(async () => { await repository.close(); await pool.end(); });
-  for (const migration of ['002_subscriptions', '003_subscription_transactions', '004_recognition_feedback', '005_installation_stats', '006_installation_environment', '007_recognition_attempts']) {
+  for (const migration of ['002_subscriptions', '003_subscription_transactions', '004_recognition_feedback', '005_installation_stats', '006_installation_environment', '007_recognition_attempts', '008_activity_events']) {
     await pool.query(await readFile(new URL(`../../../migrations/${migration}.sql`, import.meta.url), 'utf8'));
   }
   const installationId = randomUUID();

@@ -614,6 +614,7 @@ class FakeAccessService implements AccessService {
   async processStoreNotification(): Promise<void> {}
   async recordMetric(): Promise<void> {}
   async recordRecognitionFeedback(): Promise<void> {}
+  async recordActivityEvents(): Promise<void> {}
   async recordInstallationMetric(_installationId: string, metric: "recognition_attempt" | "recognition_success"): Promise<void> {
     this.installationMetrics.push(metric);
   }

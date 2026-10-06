@@ -5,6 +5,120 @@ import XCTest
 
 @MainActor
 final class AnalysisViewModelTests: XCTestCase {
+    func testSingleCameraZoomPresetsAndTenTimesLimit() {
+        let zoom = CameraZoomConfiguration(multiplier: 1, minimum: 1, maximum: 100, nativeFactors: [1])
+        XCTAssertEqual(zoom.presets, [1, 2])
+        XCTAssertEqual(zoom.deviceFactor(for: 0.5), 1)
+        XCTAssertEqual(zoom.deviceFactor(for: 50), 10)
+        XCTAssertEqual(zoom.deviceFactor(for: 2), 2)
+    }
+
+    func testDualWideCameraUsesMainCameraAsOneTimes() {
+        let multiplier = CameraZoomConfiguration.legacyMultiplier(wideIndex: 1, switchFactors: [2])
+        let zoom = CameraZoomConfiguration(multiplier: multiplier, minimum: 1, maximum: 40, nativeFactors: [1, 2])
+        XCTAssertEqual(multiplier, 0.5)
+        XCTAssertEqual(zoom.presets, [0.5, 1, 2])
+        XCTAssertEqual(zoom.deviceFactor(for: 0.5), 1)
+        XCTAssertEqual(zoom.deviceFactor(for: 1), 2)
+        XCTAssertEqual(zoom.displayFactor(for: 2), 1)
+        XCTAssertEqual(zoom.maximum, 20)
+    }
+
+    func testDualCameraExposesNativeTelephotoWithoutUltraWide() {
+        let multiplier = CameraZoomConfiguration.legacyMultiplier(wideIndex: 0, switchFactors: [3])
+        let zoom = CameraZoomConfiguration(multiplier: multiplier, minimum: 1, maximum: 12, nativeFactors: [1, 3])
+        XCTAssertEqual(zoom.presets, [1, 2, 3])
+        XCTAssertEqual(zoom.deviceFactor(for: 3), 3)
+    }
+
+    func testTripleCameraPresetsAreNormalizedAndDeduplicated() {
+        let zoom = CameraZoomConfiguration(multiplier: 0.5, minimum: 1, maximum: 40, nativeFactors: [1, 2, 4, 10])
+        XCTAssertEqual(zoom.presets, [0.5, 1, 2, 5])
+        XCTAssertEqual(zoom.deviceFactor(for: 5), 10)
+        XCTAssertEqual(zoom.deviceFactor(for: 10), 20)
+    }
+
+    func testZoomRangeChangesRemoveUnavailablePresetsAndClampFactors() {
+        let zoom = CameraZoomConfiguration(multiplier: 0.5, minimum: 2, maximum: 6, nativeFactors: [1, 2, 10])
+        XCTAssertEqual(zoom.presets, [1, 2])
+        XCTAssertEqual(zoom.deviceFactor(for: 0.5), 2)
+        XCTAssertEqual(zoom.deviceFactor(for: 5), 6)
+        XCTAssertEqual(zoom.clampedDeviceFactor(.infinity), 2)
+        XCTAssertEqual(CameraZoomConfiguration.legacyMultiplier(wideIndex: 2, switchFactors: [2]), 1)
+    }
+
+    func testZoomLabelsUseOneDecimalAndOmitIntegerDecimal() {
+        XCTAssertEqual(CameraZoomConfiguration.label(for: 0.5), "0.5×")
+        XCTAssertEqual(CameraZoomConfiguration.label(for: 1), "1×")
+        XCTAssertEqual(CameraZoomConfiguration.label(for: 2.34), "2.3×")
+        XCTAssertEqual(CameraZoomConfiguration.label(for: 1.99), "2×")
+    }
+
+    func testPhotoFrameReaderReportsActualPhotoBoundsInWindow() async {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = UIView(frame: CGRect(x: 25, y: 59, width: 340, height: 700))
+        window.addSubview(container)
+        let photo = CapturePhotoFrameReportingView(frame: CGRect(x: 8, y: 80, width: 324, height: 432))
+        container.addSubview(photo)
+        let measured = expectation(description: "Actual photo window frame")
+        photo.onFrame = { frame in
+            XCTAssertEqual(frame, CGRect(x: 33, y: 139, width: 324, height: 432))
+            measured.fulfill()
+        }
+        photo.layoutIfNeeded()
+        await fulfillment(of: [measured], timeout: 2)
+    }
+
+    func testPhotoTransitionEndsAtActualResultPhotoBounds() async {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let overlay = CapturePhotoTransitionOverlayView(frame: CGRect(x: 12, y: 59, width: 366, height: 785))
+        window.addSubview(overlay)
+        overlay.source = CGRect(x: 20, y: 140, width: 350, height: 466)
+        // Deliberately off center: destination geometry must win over screen centering.
+        overlay.target = CGRect(x: 38, y: 110, width: 314, height: 419)
+        overlay.duration = 0.01
+        let completed = expectation(description: "Photo reaches result bounds")
+        overlay.onComplete = {
+            XCTAssertEqual(overlay.imageView.frame, CGRect(x: 26, y: 51, width: 314, height: 419))
+            XCTAssertEqual(overlay.imageView.convert(overlay.imageView.bounds, to: window), overlay.target)
+            completed.fulfill()
+        }
+        overlay.layoutIfNeeded()
+        XCTAssertEqual(overlay.imageView.frame, CGRect(x: 8, y: 81, width: 350, height: 466))
+        await fulfillment(of: [completed], timeout: 2)
+    }
+
+    func testCameraCaptureDeliversOnlyOnce() {
+        var state = CameraCaptureState()
+        XCTAssertFalse(state.finish())
+        XCTAssertTrue(state.begin())
+        XCTAssertFalse(state.begin())
+        XCTAssertTrue(state.finish())
+        XCTAssertFalse(state.finish())
+        state.fail()
+        XCTAssertFalse(state.begin())
+    }
+
+    func testFailedCameraCaptureCanBeRetried() {
+        var state = CameraCaptureState()
+        XCTAssertTrue(state.begin())
+        state.fail()
+        XCTAssertFalse(state.isBusy)
+        XCTAssertFalse(state.didDeliver)
+        XCTAssertTrue(state.begin())
+        XCTAssertTrue(state.finish())
+    }
+
+    func testCancelledCameraSelectionDoesNotDeliverPhoto() {
+        var state = CameraCaptureState()
+        XCTAssertTrue(state.begin())
+        state.fail()
+        XCTAssertFalse(state.finish())
+        XCTAssertFalse(state.didDeliver)
+    }
+
     func testCanonicalPartOfSpeechReadsLegacyAndWritesCanonicalValues() throws {
         for (canonical, legacy) in [("noun", "object"), ("adjective", "state"), ("verb", "action")] {
             for input in [canonical, legacy] {
@@ -80,6 +194,16 @@ final class AnalysisViewModelTests: XCTestCase {
         XCTAssertEqual(updated.chinese, "花瓶")
         XCTAssertEqual(updated.confirmationStatus, .userConfirmed)
         XCTAssertFalse(updated.needsConfirmation)
+    }
+
+    func testReadingGroupsKeepAdjectivesWithTheirExactObject() throws {
+        let data = Data(#"{"imageWidth":100,"imageHeight":80,"objects":[{"id":"left","english":"cup","chinese":"杯子","ipa":"","confidence":1,"box":{"x":0.1,"y":0.2,"width":0.2,"height":0.3},"example":"A cup."},{"id":"right","english":"cup","chinese":"杯子","ipa":"","confidence":1,"box":{"x":0.6,"y":0.2,"width":0.2,"height":0.3},"example":"A cup."}],"sceneWords":[{"id":"full","kind":"adjective","relatedObjectID":"right","english":"full","chinese":"满的","ipa":"","example":"Full."},{"id":"empty","kind":"adjective","relatedObjectID":"left","english":"empty","chinese":"空的","ipa":"","example":"Empty."},{"id":"blue","kind":"adjective","relatedObjectID":"left","english":"blue","chinese":"蓝色的","ipa":"","example":"Blue."},{"id":"orphan","kind":"adjective","relatedObjectID":"deleted","english":"small","chinese":"小的","ipa":"","example":"Small."},{"id":"run","kind":"verb","english":"run","chinese":"跑","ipa":"","example":"She ran.","captionForm":"ran","captionEvidence":"She ran past two cups."}],"caption":"She ran past two cups."}"#.utf8)
+        let result = try JSONDecoder().decode(AnalyzeResult.self, from: data)
+        XCTAssertEqual(result.readingGroups.map { $0.map(\.id) }, [["left", "empty", "blue"], ["right", "full"], ["run"]])
+        XCTAssertEqual(result.allWords.map(\.id), ["left", "empty", "blue", "right", "full", "run"])
+        XCTAssertEqual(result.removingObject(id: "left").allWords.map(\.id), ["right", "full", "run"])
+        let restored = try JSONDecoder().decode(AnalyzeResult.self, from: JSONEncoder().encode(result))
+        XCTAssertEqual(restored.readingGroups, result.readingGroups)
     }
 
     func testAdjectivesRequireAnObjectAndVerbsRequireFinalCaptionEvidence() throws {

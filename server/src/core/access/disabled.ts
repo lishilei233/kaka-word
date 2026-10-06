@@ -1,3 +1,4 @@
+import type { ActivityEvent } from './activity.js';
 import { randomUUID } from "node:crypto";
 import {
   disabledEntitlement,
@@ -44,6 +45,7 @@ export class DisabledAccessService implements AccessService {
   async processStoreNotification(_signedPayload: string, _requestId?: string): Promise<void> {}
   async recordMetric(_input: AggregateMetricInput): Promise<void> {}
   async recordRecognitionFeedback(_installationId: string, _input: RecognitionFeedbackInput): Promise<void> {}
+  async recordActivityEvents(_installationId: string, _events: ActivityEvent[]): Promise<void> {}
   async recordInstallationMetric(_installationId: string, _metric: InstallationMetric): Promise<void> {}
 
   async beginRecognitionAttempt(_input: RecognitionAttemptInput): Promise<boolean> { return true; }

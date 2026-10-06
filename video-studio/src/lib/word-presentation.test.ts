@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyProject, recognitionWords, annotatedWords, bottomVerbs, readingWords, projectSchema, withReviewedCaption, timeline } from './project';
+import { emptyProject, recognitionWords, annotatedWords, bottomVerbs, readingWords, projectSchema, withReviewedCaption, timeline, readingGroups, activeWord, AUDIO_LEAD_FRAMES, AUDIO_TAIL_FRAMES, FPS } from './project';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { SceneCards } from '../video/SceneCards';
@@ -84,5 +84,47 @@ test('version 1 through 4 projects migrate legacy kinds to version 5 without los
         assert.equal(restored.words[3].captionForm, 'ran');
         assert.equal(restored.words[3].audio, '/studio-api/assets/1234.wav');
         assert.deepEqual(JSON.parse(JSON.stringify(projectSchema.parse(JSON.parse(JSON.stringify(restored))))), JSON.parse(JSON.stringify(restored)));
+    }
+});
+
+
+test('reading groups follow exact object IDs with multiple adjectives and omit invalid associations', () => {
+    const words = [
+        { ...p.words[0], id: 'left-cup' }, { ...p.words[0], id: 'right-cup' },
+        { ...p.words[1], id: 'full', relatedObjectID: 'right-cup' },
+        { ...p.words[1], id: 'empty', relatedObjectID: 'left-cup' },
+        { ...p.words[1], id: 'blue', relatedObjectID: 'left-cup' },
+        { ...p.words[1], id: 'orphan', relatedObjectID: 'deleted-cup' },
+        { ...p.words[3], captionForm: 'ran', captionEvidence: p.caption },
+    ];
+    assert.deepEqual(readingGroups(words, p.caption).map(group => group.map(w => w.id)), [['left-cup', 'empty', 'blue'], ['right-cup', 'full'], ['run']]);
+    assert.deepEqual(readingWords(words.filter(w => w.id !== 'left-cup'), p.caption).map(w => w.id), ['right-cup', 'full', 'run']);
+    const restored = projectSchema.parse(JSON.parse(JSON.stringify({ ...p, words })));
+    assert.deepEqual(readingGroups(restored.words, restored.caption), readingGroups(words, p.caption));
+});
+
+test('same-object words have contiguous audio and highlights, with follow-along pauses only between groups', () => {
+    const words = [
+        { ...p.words[0], audioSeconds: .81 },
+        { ...p.words[0], id: 'table', english: 'table', audioSeconds: .6 },
+        { ...p.words[1], audioSeconds: 1.03 },
+        { ...p.words[1], id: 'blue', audioSeconds: .75 },
+    ];
+    for (const pauseSeconds of [0, 1.2, 3]) {
+        const project = { ...p, words, pauseSeconds };
+        const segments = timeline(project).words;
+        assert.deepEqual(segments.map(s => s.word.id), ['cup', 'empty', 'blue', 'table']);
+        assert.equal(segments[0].audioFrom, segments[0].from + AUDIO_LEAD_FRAMES);
+        for (let index = 0; index < 2; index++) {
+            const current = segments[index], next = segments[index + 1];
+            assert.equal(next.audioFrom, current.audioFrom + current.audioFrames);
+            assert.equal(current.audioTailFrames, 0);
+            assert.equal(activeWord(project, next.audioFrom - 1)?.id, current.word.id);
+            assert.equal(activeWord(project, next.audioFrom)?.id, next.word.id);
+        }
+        const lastAdjective = segments[2], nextObject = segments[3];
+        assert.equal(nextObject.audioFrom - (lastAdjective.audioFrom + lastAdjective.audioFrames), AUDIO_TAIL_FRAMES + Math.ceil(pauseSeconds * FPS) + AUDIO_LEAD_FRAMES);
+        assert.equal(lastAdjective.audioTailFrames, AUDIO_TAIL_FRAMES);
+        for (const segment of segments) assert.ok(segment.audioFrom + segment.audioFrames + segment.audioTailFrames <= segment.from + segment.duration);
     }
 });

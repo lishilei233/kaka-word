@@ -1,3 +1,4 @@
+import type { ActivityEvent } from './activity.js';
 export type SubscriptionState = "none" | "active" | "grace" | "expired" | "revoked";
 export type SyncedTransactionState = Exclude<SubscriptionState, "none">;
 export type AccessEnvironment = "Sandbox" | "Production" | "Xcode" | "LocalTesting";
@@ -139,6 +140,7 @@ export interface AccessService {
     requestId?: string,
   ): Promise<StoreSyncResult>;
   processStoreNotification(signedPayload: string, requestId?: string): Promise<void>;
+  recordActivityEvents(installationId: string, events: ActivityEvent[]): Promise<void>;
   recordMetric(input: AggregateMetricInput): Promise<void>;
   recordRecognitionFeedback(installationId: string, input: RecognitionFeedbackInput, storeEnvironment?: AccessEnvironment | null): Promise<void>;
   recordInstallationMetric(installationId: string, metric: InstallationMetric, storeEnvironment?: AccessEnvironment | null): Promise<void>;

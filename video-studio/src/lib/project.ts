@@ -145,7 +145,14 @@ export function annotatedWords(words: Word[]) {
     });
 }
 export function bottomVerbs(words: Word[], caption = '') { return captionVerbs(words, caption); }
-export function readingWords(words: Word[], caption = '') { return [...words.filter(w => (w.kind ?? 'noun') === 'noun'), ...annotatedWords(words).filter(w => w.kind === 'adjective'), ...bottomVerbs(words, caption)]; }
+export function readingGroups(words: Word[], caption = ''): Word[][] {
+    const adjectives = annotatedWords(words).filter(w => w.kind === 'adjective');
+    return [
+        ...words.filter(w => (w.kind ?? 'noun') === 'noun').map(noun => [noun, ...adjectives.filter(w => w.relatedObjectID === noun.id)]),
+        ...bottomVerbs(words, caption).map(verb => [verb]),
+    ];
+}
+export function readingWords(words: Word[], caption = '') { return readingGroups(words, caption).flat(); }
 export function withReviewedCaption(p: Project, reviewed: { caption: string; captionChinese: string; captionSentences?: CaptionSentence[]; verbMatches?: { english: string; captionForm: string }[] }): Project {
     const caption = reviewed.captionSentences?.map(s => s.english).join(' ') ?? reviewed.caption;
     return syncCaption({ ...p, ...reviewed, captionSentences: reviewed.captionSentences,
@@ -182,14 +189,17 @@ export function timeline(p: Project) {
     const intro = p.videoTemplate === 'direct' ? Math.round(p.directIntroSeconds * FPS) : Math.round(p.introSeconds * FPS);
     const reveal = p.videoTemplate === 'direct' ? 0 : 8;
     let cursor = intro + reveal;
-    const words = readingWords(p.words, p.caption).map(word => {
+    const words = readingGroups(p.words, p.caption).flatMap(group => group.map((word, index) => {
         const from = cursor;
         const audioFrames = Math.ceil((word.audioSeconds ?? 1) * FPS);
-        const pauseFrames = Math.ceil(p.pauseSeconds * FPS);
-        const duration = AUDIO_LEAD_FRAMES + audioFrames + AUDIO_TAIL_FRAMES + pauseFrames;
+        const leadFrames = index === 0 ? AUDIO_LEAD_FRAMES : 0;
+        const audioTailFrames = index === group.length - 1 ? AUDIO_TAIL_FRAMES : 0;
+        const pauseFrames = index === group.length - 1 ? Math.ceil(p.pauseSeconds * FPS) : 0;
+        const audioFrom = from + leadFrames;
+        const duration = leadFrames + audioFrames + audioTailFrames + pauseFrames;
         cursor += duration;
-        return { word, from, duration, audioFrames };
-    });
+        return { word, from, duration, audioFrames, audioFrom, audioTailFrames };
+    }));
     const captionFrom = cursor;
     const captions = descriptionSentences(p).map(sentence => {
         const from = cursor;

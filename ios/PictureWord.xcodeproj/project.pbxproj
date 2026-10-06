@@ -61,6 +61,8 @@
 		E10000000000000000000004 /* NotificationSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000003 /* NotificationSettingsSection.swift */; };
 		E10000000000000000000006 /* LocalNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000005 /* LocalNotificationTests.swift */; };
 		E1278A010000000000000001 /* KakawordSubscriptions.storekit in Resources */ = {isa = PBXBuildFile; fileRef = A931C8BD303EDCE6002F4806 /* KakawordSubscriptions.storekit */; };
+		F10000000000000000000002 /* ActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* ActivityTracker.swift */; };
+		F10000000000000000000004 /* ActivityTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000003 /* ActivityTrackerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -132,6 +134,8 @@
 		E10000000000000000000001 /* LocalNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotificationCoordinator.swift; sourceTree = "<group>"; };
 		E10000000000000000000003 /* NotificationSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsSection.swift; sourceTree = "<group>"; };
 		E10000000000000000000005 /* LocalNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotificationTests.swift; sourceTree = "<group>"; };
+		F10000000000000000000001 /* ActivityTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTracker.swift; sourceTree = "<group>"; };
+		F10000000000000000000003 /* ActivityTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTrackerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -247,6 +251,7 @@
 			isa = PBXGroup;
 			children = (
 				222222222222222222222204 /* APIClient.swift */,
+				F10000000000000000000001 /* ActivityTracker.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -368,6 +373,7 @@
 			isa = PBXGroup;
 			children = (
 				D00000000000000000000002 /* WordLearningStoreTests.swift */,
+				F10000000000000000000003 /* ActivityTrackerTests.swift */,
 				D00000000000000000000011 /* MembershipStoreTests.swift */,
 				E10000000000000000000005 /* LocalNotificationTests.swift */,
 				D00000000000000000000013 /* AnnotationLayoutEngineTests.swift */,
@@ -480,6 +486,7 @@
 				111111111111111111111102 /* AnalyzeModels.swift in Sources */,
 				111111111111111111111103 /* ImageProcessor.swift in Sources */,
 				111111111111111111111104 /* APIClient.swift in Sources */,
+				F10000000000000000000002 /* ActivityTracker.swift in Sources */,
 				111111111111111111111105 /* SpeechService.swift in Sources */,
 				111111111111111111111106 /* CameraView.swift in Sources */,
 				111111111111111111111107 /* HomeView.swift in Sources */,
@@ -527,6 +534,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D00000000000000000000001 /* WordLearningStoreTests.swift in Sources */,
+				F10000000000000000000004 /* ActivityTrackerTests.swift in Sources */,
 				D00000000000000000000010 /* MembershipStoreTests.swift in Sources */,
 				E10000000000000000000006 /* LocalNotificationTests.swift in Sources */,
 				D00000000000000000000012 /* AnnotationLayoutEngineTests.swift in Sources */,
@@ -554,7 +562,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_TESTABILITY = YES;
@@ -563,7 +571,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词Test";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.7.0;
+				MARKETING_VERSION = 0.8.0;
 				PICTURE_WORD_API_BASE_URL = "http://192.168.0.105:8787";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -584,7 +592,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 7P2JUNKZYQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -592,7 +600,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "咔咔单词";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.7.0;
+				MARKETING_VERSION = 0.8.0;
 				PICTURE_WORD_API_BASE_URL = "https://api.kakaword.com";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kakaword.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

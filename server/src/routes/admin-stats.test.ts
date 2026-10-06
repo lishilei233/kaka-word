@@ -1,3 +1,4 @@
+import { summarizeActivity } from '../core/activity-stats.js';
 import assert from "node:assert/strict";
 import { createContext, runInContext } from "node:vm";
 import test from "node:test";
@@ -10,6 +11,7 @@ import { registerAdminStatsRoutes } from "./admin-stats.js";
 const key = "admin-dashboard-test-key-with-32-characters";
 const logger: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 const snapshot: AdminStatsSnapshot = {
+  activity: summarizeActivity([], '2026-09-01', '2026-09-30', 'Production', null),
   generatedAt: "2026-09-22T00:00:00.000Z",
   startDate: "2026-09-01",
   endDate: "2026-09-30",
@@ -113,7 +115,7 @@ test("device header filters combine by column, recalculate totals, and clear cle
   runInContext(script, context);
   await new Promise(resolve => setImmediate(resolve));
   assert.match(element("devices").innerHTML, /<table class="device-table">[\s\S]*注册时间（北京时间）[\s\S]*环境/);
-  assert.match(element("devices").innerHTML, /所选注册日期范围内没有新增设备/);
+  assert.match(element("devices").innerHTML, /所选时间范围内没有活跃或新增设备/);
   requestedURLs.length = 0;
   const devices = [
     { installationId: "11111111-1111-4111-8111-111111111111", deviceId: "a1", registrationDate: "2026-09-01 10:00", environment: "Production", membershipType: "free", recognitionAttempts: 10, recognitionSuccesses: 8, confirmationCount: 4, reselectionCount: 1, freeUsed: 2 },
@@ -185,6 +187,9 @@ function auth(password: string): Record<string, string> {
 }
 
 class FakeRepository implements AdminStatsRepository {
+  activityData: import('../core/activity-stats.js').DeviceActivity | null = null;
+  lastActivityQuery?: import('../core/activity-stats.js').DeviceActivityQuery;
+  async loadDeviceActivity(query: import('../core/activity-stats.js').DeviceActivityQuery) { this.lastActivityQuery = query; return this.activityData; }
   detailData: import('../core/admin-device-details.js').DeviceDetails | null = null;
   lastDetailQuery?: import('../core/admin-device-details.js').DeviceDetailQuery;
   async loadDeviceDetails(query: import('../core/admin-device-details.js').DeviceDetailQuery): Promise<import('../core/admin-device-details.js').DeviceDetails | null> { this.lastDetailQuery = query; return this.detailData; }
@@ -276,4 +281,50 @@ test('device drawer shows weighted summaries, quota snapshots, version and prese
   assert.equal(element('detailRetry').hidden, false);
   element('deviceDetails').close();
   assert.equal(runInContext('detailDeviceId', context), null);
+});
+
+
+test('device activity API validates identity, dates, environment and independent pagination', async () => {
+  const repository = new FakeRepository(), app = appFor(key, repository);
+  const endpoint = '/admin/api/stats/devices/' + detailDeviceId + '/activity';
+  assert.equal((await app.request(endpoint)).status, 401);
+  assert.equal((await app.request(endpoint, { headers: auth(key) })).status, 404);
+  assert.equal(repository.lastActivityQuery?.environment, 'All');
+  repository.activityData = { summary: { installationId: detailDeviceId, clientActivityCovered: true,
+    activeDays: 1, learningDays: 1, lastActiveAt: '2026-10-01T00:00:00Z', opens: 1, recognitionAttempts: 0,
+    recognitionSuccesses: 0, listeningEnters: 1, listeningStarts: 1, listeningAnswers: 3, listeningFound: 2,
+    listeningRevealed: 1, listeningCompletions: 1, historyViews: 0, wordPlays: 0 }, recordingStartedAt: null,
+    daily: [], events: [], nextCursor: null };
+  const cursor = Buffer.from(JSON.stringify({ occurredAt: '2026-10-01T00:00:00Z', eventId: detailDeviceId })).toString('base64url');
+  assert.equal((await app.request(endpoint + '?startDate=2026-10-01&endDate=2026-10-01&environment=Unknown&cursor=' + cursor, { headers: auth(key) })).status, 200);
+  assert.equal(repository.lastActivityQuery?.environment, 'Unknown');
+  assert.equal(repository.lastActivityQuery?.cursor?.eventId, detailDeviceId);
+  for (const suffix of ['?startDate=2026-02-30', '?startDate=2026-10-02&endDate=2026-10-01', '?environment=Other', '?cursor=invalid', '?endDate=2999-01-01']) {
+    assert.equal((await app.request(endpoint + suffix, { headers: auth(key) })).status, 400);
+  }
+  // Old daily summaries remain queryable even after detail retention expires.
+  assert.equal((await app.request(endpoint + '?startDate=2020-01-01&endDate=2020-01-02', { headers: auth(key) })).status, 200);
+});
+
+test('activity dashboard distinguishes historical coverage and calculates weighted recognition success', async () => {
+  const app = appFor(key, new FakeRepository());
+  const html = await (await app.request('/admin/stats', { headers: auth(key) })).text();
+  const script = html.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1];
+  assert.ok(script);
+  const elements = new Map<string, TestElement>();
+  const element = (id: string) => { if (!elements.has(id)) elements.set(id, new TestElement()); return elements.get(id)!; };
+  const context = createContext({ document: { getElementById: element, querySelectorAll: () => [] },
+    Intl, Date, URLSearchParams, fetch: async () => ({ ok: true, json: async () => snapshot }) });
+  runInContext(script, context);
+  const activity = summarizeActivity([
+    { installationId: detailDeviceId, date: '2026-10-01', eventName: 'recognition_attempt', environment: 'Production', outcome: '', count: 4, firstAt: '2026-10-01T00:00:00Z', lastAt: '2026-10-01T00:00:00Z' },
+    { installationId: detailDeviceId, date: '2026-10-01', eventName: 'recognition_success', environment: 'Production', outcome: '', count: 3, firstAt: '2026-10-01T00:00:00Z', lastAt: '2026-10-01T00:00:00Z' },
+  ], '2026-09-30', '2026-10-01', 'Production', '2026-10-01T00:00:00Z');
+  context.activity = activity;
+  runInContext('renderActivity(activity)', context);
+  assert.match(element('activityCards').innerHTML, /75.0%/);
+  assert.match(element('activityDaily').innerHTML, /未覆盖/);
+  assert.match(element('activityBehaviors').innerHTML, /识别尝试/);
+  context.deviceActivity = activity.devices[0];
+  assert.match(runInContext('activityDeviceCells(deviceActivity)', context), /仅识别日期/);
 });

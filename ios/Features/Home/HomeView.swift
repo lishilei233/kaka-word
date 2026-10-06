@@ -52,8 +52,6 @@ struct HomeView: View {
     @State private var discoveryAlbumPresented = false
     @State private var settingsPresented = false
     @State private var cameraPresented = false
-    @State private var capturedImage: UIImage?
-    @State private var recognitionImage: PresentedImage?
     @State private var presentedHistory: PhotoDetailDestination?
     @State private var historyMessage: String?
     @State private var confirmMissionSwitch = false
@@ -123,22 +121,8 @@ struct HomeView: View {
                 DiscoveryAlbumView(onOpen: openHistory)
             }
         }
-        .fullScreenCover(isPresented: $cameraPresented, onDismiss: presentCapturedImage) {
-            CameraView { image in
-                capturedImage = image
-                cameraPresented = false
-            } onCancel: {
-                cameraPresented = false
-            }
-            .ignoresSafeArea()
-        }
-        .fullScreenCover(item: $recognitionImage, onDismiss: notificationPresentationEnded) { item in
-            NavigationStack {
-                RecognitionFlowView(image: item.image)
-                    .toolbar(.hidden, for: .navigationBar)
-            }
-            .environmentObject(historyStore)
-            .environmentObject(journeyStore)
+        .fullScreenCover(isPresented: $cameraPresented, onDismiss: notificationPresentationEnded) {
+            CaptureRecognitionFlowView()
         }
         .fullScreenCover(item: $presentedHistory, onDismiss: notificationPresentationEnded) { item in
             NavigationStack {
@@ -210,7 +194,7 @@ struct HomeView: View {
 
     private var canRouteNotification: Bool {
         guard scenePhase == .active, notificationRootVisible,
-              !cameraPresented, capturedImage == nil, recognitionImage == nil, presentedHistory == nil,
+              !cameraPresented, presentedHistory == nil,
               paywallSource == nil, !discoveryAlbumPresented, !notificationPracticePresented,
               historyMessage == nil, !confirmMissionSwitch, membershipUnavailableMessage == nil,
               let anchor = notificationAnchor, anchor.viewIfLoaded?.window != nil else { return false }
@@ -225,7 +209,7 @@ struct HomeView: View {
     private var canReturnToHomeForNotification: Bool {
         guard scenePhase == .active, let anchor = notificationAnchor,
               let navigation = anchor.navigationController, navigation.viewIfLoaded?.window != nil,
-              !cameraPresented, recognitionImage == nil, presentedHistory == nil, paywallSource == nil else { return false }
+              !cameraPresented, presentedHistory == nil, paywallSource == nil else { return false }
         var controller: UIViewController? = navigation.topViewController
         while let current = controller {
             if current.presentedViewController != nil || current.isBeingDismissed || current.isBeingPresented { return false }
@@ -286,13 +270,6 @@ struct HomeView: View {
         } else {
             journeyStore.switchToNextMission()
         }
-    }
-
-    private func presentCapturedImage() {
-        defer { notificationPresentationEnded() }
-        guard let image = capturedImage else { return }
-        recognitionImage = PresentedImage(image: image)
-        capturedImage = nil
     }
 
     private func requestCamera() {

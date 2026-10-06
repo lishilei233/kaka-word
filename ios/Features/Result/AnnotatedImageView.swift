@@ -676,6 +676,7 @@ struct AnnotatedPhotoCard: View {
     var editingObjectID: Binding<String?> = .constant(nil)
     var showsShadow = true
     var usesOriginalAspectRatio = false
+    var onPhotoFrameChange: ((CGRect) -> Void)? = nil
     var supportsZoom = true
     let onSelect: (LearningObject) -> Void
     var onUpdate: ((LearningObject) -> Void)?
@@ -716,6 +717,11 @@ struct AnnotatedPhotoCard: View {
                     }
                 }
                 .frame(width: contentSize.width, height: contentSize.height)
+                .background {
+                    if let onPhotoFrameChange {
+                        CapturePhotoFrameReader(onFrame: onPhotoFrameChange)
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
             .position(x: proxy.size.width / 2, y: proxy.size.height / 2)

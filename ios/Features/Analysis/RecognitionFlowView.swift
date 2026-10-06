@@ -4,6 +4,8 @@ import UIKit
 /// One recognition flow that renders partial labels directly in the card detail layout.
 struct RecognitionFlowView: View {
     let image: UIImage
+    var revealsAnnotations = true
+    var onPhotoFrameChange: ((CGRect) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyStore: HistoryStore
@@ -36,7 +38,7 @@ struct RecognitionFlowView: View {
                 result: visibleResult,
                 sourceRecordID: savedRecordID,
                 missionUpdate: missionUpdate,
-                revealsAnnotations: true,
+                revealsAnnotations: revealsAnnotations,
                 status: cardStatus,
                 onClose: close,
                 onShare: {
@@ -49,7 +51,8 @@ struct RecognitionFlowView: View {
                 },
                 onRetry: retry,
                 onResultChange: updateResult,
-                recognitionSessionID: recognitionSessionID
+                recognitionSessionID: recognitionSessionID,
+                onPhotoFrameChange: onPhotoFrameChange
             )
         }
         .onAppear {

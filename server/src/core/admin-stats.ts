@@ -1,6 +1,7 @@
+import { loadActivityOverview, loadDeviceActivity, type ActivityOverview, type ActivityDeviceSummary, type DeviceActivityQuery, type DeviceActivity } from './activity-stats.js';
 import { Pool } from "pg";
 import { loadDeviceDetails, type DeviceDetailQuery, type DeviceDetails } from "./admin-device-details.js";
-export const adminStatsEnvironments = ["All", "Production", "Sandbox", "Xcode", "LocalTesting"] as const;
+export const adminStatsEnvironments = ["All", "Production", "Sandbox", "Xcode", "LocalTesting", "Unknown"] as const;
 export type AdminStatsEnvironment = (typeof adminStatsEnvironments)[number];
 export type CountByName = { name: string; count: number };
 export type DailyCount = { date: string; count: number };
@@ -16,8 +17,10 @@ export type AdminStatsDevice = {
   confirmationCount: number;
   reselectionCount: number;
   freeUsed: number;
+  activity?: ActivityDeviceSummary;
 };
 export type AdminStatsSnapshot = {
+  activity: ActivityOverview;
   generatedAt: string;
   startDate: string | null;
   endDate: string | null;
@@ -29,6 +32,7 @@ export type AdminStatsSnapshot = {
   feedback: { selections: CountByName[]; corrections: Array<{ originalEnglish: string; originalChinese: string; correctedEnglish: string; correctedChinese: string; count: number }> };
 };
 export interface AdminStatsRepository {
+  loadDeviceActivity(query: DeviceActivityQuery): Promise<DeviceActivity | null>;
   loadDeviceDetails(query: DeviceDetailQuery): Promise<DeviceDetails | null>;
   load(startDate: string | null, endDate: string | null, environment: AdminStatsEnvironment): Promise<AdminStatsSnapshot>;
 }
@@ -39,6 +43,7 @@ export class PostgresAdminStatsRepository implements AdminStatsRepository {
   private readonly pool: Pool;
   constructor(databaseURL: string) { this.pool = new Pool({ connectionString: databaseURL }); }
 
+  async loadDeviceActivity(query: DeviceActivityQuery): Promise<DeviceActivity | null> { return loadDeviceActivity(this.pool, query); }
   async loadDeviceDetails(query: DeviceDetailQuery): Promise<DeviceDetails | null> { return loadDeviceDetails(this.pool, query); }
   async close(): Promise<void> { await this.pool.end(); }
 
@@ -46,6 +51,8 @@ export class PostgresAdminStatsRepository implements AdminStatsRepository {
     const client = await this.pool.connect();
     try {
       const params = [startDate, endDate, environment];
+      const activity = await loadActivityOverview(client, startDate, endDate, environment);
+      const activityByDevice = new Map(activity.devices.map(device => [device.installationId, device]));
       const installationTotal = await client.query<{ count: Numeric }>(
         `SELECT COUNT(*) AS count FROM picture_word_installations WHERE ${filter.replaceAll("%s", "(created_at AT TIME ZONE 'Asia/Shanghai')::date")}`, params.slice(0, 2));
       const installationDaily = await client.query<{ date: string; count: Numeric }>(
@@ -67,7 +74,7 @@ export class PostgresAdminStatsRepository implements AdminStatsRepository {
          FROM picture_word_installations i
          LEFT JOIN picture_word_installation_metrics_daily m ON m.installation_id = i.id
            AND ${filter.replaceAll("%s", "m.metric_date")}
-           AND m.environment = COALESCE(i.store_environment, 'Unknown')
+           AND ($3 = 'All' OR m.environment = $3)
          LEFT JOIN LATERAL (
            SELECT s.product_id FROM picture_word_access_tokens t JOIN picture_word_subscriptions s
              ON s.environment = t.subscription_environment AND s.original_transaction_id = t.original_transaction_id
@@ -76,8 +83,13 @@ export class PostgresAdminStatsRepository implements AdminStatsRepository {
              AND ((s.state = 'active' AND s.expires_at > clock_timestamp()) OR (s.state = 'grace' AND s.grace_expires_at > clock_timestamp()))
            ORDER BY t.last_used_at DESC LIMIT 1
          ) member ON TRUE
-         WHERE ${filter.replaceAll("%s", "(i.created_at AT TIME ZONE 'Asia/Shanghai')::date")}
-         GROUP BY i.id, i.created_at, i.free_used, i.store_environment, member.product_id ORDER BY i.created_at DESC, i.id`, params.slice(0, 2));
+         WHERE ((${filter.replaceAll("%s", "(i.created_at AT TIME ZONE 'Asia/Shanghai')::date")}
+             AND ($3 = 'All' OR COALESCE(i.store_environment, 'Unknown') = $3))
+           OR EXISTS (SELECT 1 FROM picture_word_activity_daily ad WHERE ad.installation_id = i.id
+             AND ${filter.replaceAll("%s", "ad.metric_date")} AND ($3 = 'All' OR ad.environment = $3))
+           OR EXISTS (SELECT 1 FROM picture_word_installation_metrics_daily rd WHERE rd.installation_id = i.id
+             AND ${filter.replaceAll("%s", "rd.metric_date")} AND ($3 = 'All' OR rd.environment = $3)))
+         GROUP BY i.id, i.created_at, i.free_used, i.store_environment, member.product_id ORDER BY i.created_at DESC, i.id`, params);
       const subscriptionStates = await client.query<{ name: string; count: Numeric }>(
         `SELECT state AS name, COUNT(DISTINCT original_transaction_id) AS count FROM picture_word_subscriptions WHERE ($1 = 'All' OR environment = $1) GROUP BY state ORDER BY state`, [environment]);
       const subscriptionProducts = await client.query<{ name: string; count: Numeric }>(
@@ -94,12 +106,14 @@ export class PostgresAdminStatsRepository implements AdminStatsRepository {
       const corrections = await client.query<{ original_english: string; original_chinese: string; corrected_english: string; corrected_chinese: string; count: Numeric }>(
         `SELECT original_english, original_chinese, corrected_english, corrected_chinese, SUM(correction_count) AS count FROM picture_word_recognition_corrections_daily WHERE ${filter.replaceAll("%s", "metric_date")} GROUP BY original_english, original_chinese, corrected_english, corrected_chinese ORDER BY count DESC, original_english, corrected_english LIMIT 20`, params.slice(0, 2));
       return {
+        activity,
         generatedAt: new Date().toISOString(), startDate, endDate, environment,
         installations: {
           total: number(installationTotal.rows[0]?.count),
           daily: installationDaily.rows.map((row) => ({ date: row.date, count: number(row.count) })),
           freeUsage: freeUsage.rows.map((row) => ({ name: String(row.name), count: number(row.count) })),
           devices: devices.rows.map((row) => ({
+            activity: activityByDevice.get(row.installation_id),
             installationId: row.installation_id, deviceId: row.device_id, registrationDate: row.registration_date, environment: row.store_environment,
             membershipType: row.membership_type === "free" ? "free" : row.membership_type.endsWith("annual") ? "annual" : "monthly",
             recognitionAttempts: number(row.recognition_attempt_count), recognitionSuccesses: number(row.recognition_success_count),

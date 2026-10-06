@@ -891,6 +891,66 @@ final class WordLearningStoreTests: XCTestCase {
         }
     }
 
+    func testListeningActivityCountsOnceAcrossRestoreAndNewRounds() throws {
+        let store = makeStore()
+        replaceHistory(with: [makeRecord(word: "book", chinese: "书", date: Date())], store: store)
+        var events: [ActivityEventName] = []
+        var roundIDs: [UUID] = []
+        store.onActivity = { name, id, _ in events.append(name); roundIDs.append(id) }
+        store.startListeningRound()
+        store.startListeningRound()
+        store.revealListeningQuestion(.revealed)
+        store.revealListeningQuestion(.found)
+        XCTAssertEqual(events, [.listeningStart, .listeningAnswer])
+        let restored = makeStore()
+        restored.onActivity = { name, id, _ in events.append(name); roundIDs.append(id) }
+        restored.startListeningRound()
+        restored.revealListeningQuestion(.revealed)
+        restored.advanceListeningQuestion()
+        restored.advanceListeningQuestion()
+        XCTAssertEqual(events, [.listeningStart, .listeningAnswer, .listeningComplete])
+        XCTAssertEqual(Set(roundIDs).count, 1)
+        restored.nextListeningRound()
+        XCTAssertEqual(events.last, .listeningStart)
+        XCTAssertEqual(Set(roundIDs).count, 2)
+    }
+
+    func testEmptyAndDeletedListeningContentDoNotCountCompletedRounds() {
+        let store = makeStore()
+        var events: [ActivityEventName] = []
+        store.onActivity = { name, _, _ in events.append(name) }
+        store.startListeningRound()
+        XCTAssertTrue(events.isEmpty)
+        replaceHistory(with: [makeRecord(word: "cup", chinese: "杯", date: Date())], store: store)
+        store.startListeningRound()
+        replaceHistory(with: [], store: store)
+        store.advanceListeningQuestion()
+        XCTAssertEqual(events, [.listeningStart])
+    }
+
+    func testSpeechActivityRequiresManualPlaybackToActuallyStart() async {
+        let spy = SpeechSynthesizerSpy()
+        let service = SpeechService(synthesizer: spy, voiceProvider: { [] })
+        let callbackSource = AVSpeechSynthesizer()
+        var starts = 0
+        service.onWordPlaybackStarted = { starts += 1 }
+        service.speak("book")
+        service.speechSynthesizer(callbackSource, didStart: spy.utterances.last!)
+        await Task.yield()
+        XCTAssertEqual(starts, 0)
+        service.speak("book", recordsWordPlay: true)
+        service.speechSynthesizer(callbackSource, didStart: spy.utterances.last!)
+        service.speechSynthesizer(callbackSource, didStart: spy.utterances.last!)
+        await Task.yield()
+        XCTAssertEqual(starts, 1)
+        service.speak("cup", recordsWordPlay: true)
+        let cancelled = spy.utterances.last!
+        service.stop()
+        service.speechSynthesizer(callbackSource, didStart: cancelled)
+        await Task.yield()
+        XCTAssertEqual(starts, 1)
+    }
+
     private func makeStore(now: Date = Date()) -> WordLearningStore {
         WordLearningStore(container: container, now: { now })
     }

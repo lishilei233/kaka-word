@@ -1,3 +1,4 @@
+import { ActivityEventStore, type ActivityEvent } from './activity.js';
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { RecognitionAttemptStore } from "./recognition-attempts.js";
@@ -61,6 +62,7 @@ const RESERVATION_TTL_MS = 10 * 60 * 1_000;
 
 export class PostgresAccessService implements AccessService {
   private readonly pool: Pool;
+  private readonly activity: ActivityEventStore;
   private readonly attempts: RecognitionAttemptStore;
 
   constructor(
@@ -70,6 +72,7 @@ export class PostgresAccessService implements AccessService {
     private readonly logger: Logger,
   ) {
     this.pool = new Pool({ connectionString: config.databaseURL });
+    this.activity = new ActivityEventStore(this.pool);
     this.attempts = new RecognitionAttemptStore(this.pool);
   }
 
@@ -346,7 +349,8 @@ export class PostgresAccessService implements AccessService {
 
   async beginRecognitionAttempt(input: RecognitionAttemptInput): Promise<boolean> { return this.attempts.begin(input); }
   async finishRecognitionAttempt(result: RecognitionAttemptResult): Promise<void> { await this.attempts.finish(result); }
-  async maintainRecognitionAttempts(): Promise<void> { await this.attempts.maintain(); }
+  async recordActivityEvents(installationId: string, events: ActivityEvent[]): Promise<void> { await this.activity.record(installationId, events); }
+  async maintainRecognitionAttempts(): Promise<void> { await this.attempts.maintain(); await this.activity.maintain(); }
 
   async reserveAnalyze(
     principal: AccessPrincipal,

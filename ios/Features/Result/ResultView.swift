@@ -37,6 +37,7 @@ struct ResultView: View {
     @State private var isReanalyzing = false
     @State private var reanalysisErrorMessage: String?
     @State private var paywallPresented = false
+    @State private var didRecordHistoryView = false
     @State private var result: AnalyzeResult
 
     init(
@@ -106,6 +107,11 @@ struct ResultView: View {
             Button("知道了", role: .cancel) {}
         } message: {
             Text(feedbackErrorMessage ?? "请在系统中配置邮件账户后重试。")
+        }
+        .onAppear {
+            guard recordID != nil, !didRecordHistoryView else { return }
+            didRecordHistoryView = true
+            ActivityTracker.shared.record(.historyView)
         }
         .onReceive(historyStore.$records) { records in
             guard !isReanalyzing, let recordID,
@@ -279,6 +285,7 @@ struct PhotoWordCardDetailView: View {
     var usesNavigationBackButton = false
     var focusedWord: String? = nil
     var recognitionSessionID: UUID? = nil
+    var onPhotoFrameChange: ((CGRect) -> Void)? = nil
 
     @State private var practicePresented = false
     @State private var selectedObject: LearningObject?
@@ -632,7 +639,8 @@ struct PhotoWordCardDetailView: View {
             recognitionComplete: status.isComplete,
             editingObjectID: annotationEditingBinding,
             showsShadow: false,
-            usesOriginalAspectRatio: true
+            usesOriginalAspectRatio: true,
+            onPhotoFrameChange: onPhotoFrameChange
         ) { object in
             finishAnnotationEditing()
             if object.needsConfirmation {

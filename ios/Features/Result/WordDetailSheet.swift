@@ -392,7 +392,7 @@ struct WordDetailSheet: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 9) {
                         Button {
-                            speech.speak(object.english, rate: speechRate)
+                            speech.speak(object.english, rate: speechRate, recordsWordPlay: true)
                         } label: {
                             Text(object.english)
                                 .font(.system(size: 36, weight: .black, design: .rounded))
