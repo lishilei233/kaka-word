@@ -65,6 +65,19 @@ test('focus corners converge onto the saved range without crossing photo edges',
     }
 });
 
+test('adjectives focus their associated noun range including manual edits', () => {
+    const adjective: Word = { id: 'leafy', english: 'leafy', chinese: '枝叶茂密的', ipa: '', kind: 'adjective', relatedObjectID: word.id,
+        box: { x: 0, y: 0, width: .1, height: .1 } };
+    const edited = { ...word, recognitionBoxOverride: { x: .2, y: .3, width: .4, height: .5 } };
+    assert.deepEqual(recognitionBox(adjective, [word, adjective]), word.box);
+    assert.deepEqual(recognitionBox(adjective, [edited, adjective]), edited.recognitionBoxOverride);
+    assert.equal(recognitionBox(adjective, [adjective]), undefined);
+    assert.equal(recognitionBox(adjective, [{ ...word, needsLocation: true }]), undefined);
+    assert.equal(recognitionBox(adjective, [{ ...word, box: undefined }]), undefined);
+    assert.equal(recognitionBox(adjective, [{ ...word, kind: 'adjective' }]), undefined);
+    assert.equal(recognitionBox({ ...adjective, kind: 'verb' }, [word]), undefined);
+});
+
 test('rounded brackets include stroke inset for tiny and wide photos', () => {
     for (const [width, height, scale] of [[4, 4, 1], [540, 100, 1], [10, 500, 1], [32, 42, 320 / 540]]) {
         const path = recognitionCorners(width, height, scale);

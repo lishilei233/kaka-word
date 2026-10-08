@@ -7,7 +7,11 @@ export function constrainRecognitionBox(box: RecognitionBox): RecognitionBox {
     const width = clamp(box.width, .02, 1), height = clamp(box.height, .02, 1);
     return { x: clamp(box.x, 0, 1 - width), y: clamp(box.y, 0, 1 - height), width, height };
 }
-export function recognitionBox(word: Word) {
+export function recognitionBox(word: Word, words: Word[] = []): RecognitionBox | undefined {
+    if (word.kind === 'adjective') {
+        const object = words.find(item => (item.kind ?? 'noun') === 'noun' && item.id === word.relatedObjectID);
+        return object ? recognitionBox(object) : undefined;
+    }
     if ((word.kind ?? 'noun') !== 'noun' || !word.box || word.needsLocation) return undefined;
     return constrainRecognitionBox(word.recognitionBoxOverride ?? word.box);
 }
